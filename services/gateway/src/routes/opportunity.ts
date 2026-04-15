@@ -1,6 +1,12 @@
 import { Hono } from 'hono';
-import { desc, eq } from 'drizzle-orm';
-import { opportunities, opportunityScores, opportunityTags } from '@helm-pilot/db/schema';
+import { and, desc, eq } from 'drizzle-orm';
+import {
+  opportunities,
+  opportunityClusters,
+  opportunityClusterMembers,
+  opportunityScores,
+  opportunityTags,
+} from '@helm-pilot/db/schema';
 import { CreateOpportunityInput } from '@helm-pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId } from '../lib/workspace.js';
@@ -78,6 +84,88 @@ export function opportunityRoutes(deps: GatewayDeps) {
     return c.json(opp, 201);
   });
 
+  // ─── Batch score — enqueue scoring for all unscored opportunities ───
+  app.post('/batch-score', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    if (!deps.orchestrator.boss) return c.json({ error: 'Background job system unavailable' }, 503);
+
+    const unscored = await deps.db
+      .select({ id: opportunities.id })
+      .from(opportunities)
+      .where(and(eq(opportunities.workspaceId, workspaceId), eq(opportunities.status, 'discovered')));
+
+    let enqueued = 0;
+    for (const { id } of unscored) {
+      await deps.orchestrator.boss.send('opportunity.score', { opportunityId: id });
+      enqueued++;
+    }
+
+    return c.json({ enqueued, total: unscored.length }, 202);
+  });
+
+  // ─── Trigger cluster rebuild for the workspace ───
+  app.post('/cluster', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    if (!deps.orchestrator.boss) return c.json({ error: 'Background job system unavailable' }, 503);
+
+    const jobId = await deps.orchestrator.boss.send('pipeline.cluster', { workspaceId });
+    return c.json({ queued: true, jobId }, 202);
+  });
+
+  // ─── List clusters for the workspace ───
+  app.get('/clusters', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
+    const clusters = await deps.db
+      .select()
+      .from(opportunityClusters)
+      .where(eq(opportunityClusters.workspaceId, workspaceId))
+      .orderBy(desc(opportunityClusters.avgScore));
+
+    return c.json(clusters);
+  });
+
+  // ─── List cluster members with their opportunities ───
+  app.get('/clusters/:clusterId/members', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
+    const { clusterId } = c.req.param();
+    const [cluster] = await deps.db
+      .select()
+      .from(opportunityClusters)
+      .where(and(eq(opportunityClusters.id, clusterId), eq(opportunityClusters.workspaceId, workspaceId)))
+      .limit(1);
+
+    if (!cluster) return c.json({ error: 'Cluster not found' }, 404);
+
+    const members = await deps.db
+      .select()
+      .from(opportunityClusterMembers)
+      .where(eq(opportunityClusterMembers.clusterId, clusterId));
+
+    // Hydrate with opportunity data
+    const oppIds = members.map((m) => m.opportunityId);
+    const opps = oppIds.length > 0
+      ? await deps.db
+          .select()
+          .from(opportunities)
+          .where(eq(opportunities.workspaceId, workspaceId))
+      : [];
+
+    const oppMap = new Map(opps.map((o) => [o.id, o]));
+
+    const hydrated = members.map((m) => ({
+      ...m,
+      opportunity: oppMap.get(m.opportunityId) ?? null,
+    }));
+
+    return c.json({ cluster, members: hydrated });
+  });
+
   app.post('/:id/score', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
@@ -96,7 +184,7 @@ export function opportunityRoutes(deps: GatewayDeps) {
     await deps.db
       .update(opportunities)
       .set({ status: 'scoring' })
-      .where(eq(opportunities.id, id));
+      .where(and(eq(opportunities.id, id), eq(opportunities.workspaceId, workspaceId)));
 
     if (!deps.orchestrator.boss) {
       return c.json({ error: 'Background job system unavailable' }, 503);

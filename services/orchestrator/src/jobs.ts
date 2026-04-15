@@ -195,6 +195,7 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
     'pipeline.startup-school': 'pipelines/yc-scraper/scrape_startup_school.py',
     'pipeline.yc-private': 'pipelines/yc-scraper/scrape_yc_private.py',
     'pipeline.ingest-knowledge': 'pipelines/intelligence/ingest_ccunpacked.py',
+    'pipeline.cluster': 'pipelines/intelligence/cluster.py',
   };
   const PIPELINE_TIMEOUT = 900_000; // 15 min (Startup school scrape can take time)
   const pythonBin = process.env.PYTHON_BIN || 'python3';
@@ -360,12 +361,44 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
     }
   });
 
+  // ─── Cluster Generation (Phase 3b) ───
+  // Rebuilds opportunity clusters for every workspace that has ≥3 scored
+  // opportunities. Runs nightly at 2am UTC via cron. Can also be triggered
+  // ad-hoc via `POST /api/opportunities/cluster` which enqueues a job
+  // with a specific workspaceId.
+  boss.work('pipeline.cluster', async (jobs: PgBoss.Job<{ workspaceId?: string }>[]) => {
+    for (const job of jobs) {
+      const workspaceId = job.data?.workspaceId;
+      if (!workspaceId) {
+        // Cron trigger — run for all workspaces (admin operation)
+        log.info('Cluster cron: enumerating workspaces for cluster rebuild');
+        const allWorkspaces = await deps.db.select({ id: workspaces.id }).from(workspaces);
+        for (const ws of allWorkspaces) {
+          try {
+            await runPipeline('pipeline.cluster', ['--workspace-id', ws.id]);
+          } catch (err) {
+            log.error({ err, workspaceId: ws.id }, 'Cluster generation failed for workspace');
+          }
+        }
+        return;
+      }
+      try {
+        await runPipeline('pipeline.cluster', ['--workspace-id', workspaceId]);
+        log.info({ workspaceId }, 'Cluster generation complete');
+      } catch (err) {
+        log.error({ err, workspaceId }, 'Cluster generation failed');
+        throw err;
+      }
+    }
+  });
+
   // ─── Scheduled Jobs ───
   // pg-boss v10 requires queues to exist before scheduling. createQueue is idempotent
   // on already-existing queues but errors if not called first for a new queue.
   const scheduledJobs: Array<[string, string]> = [
     ['pipeline.yc-scrape', '0 3 * * 0'],       // Weekly Sunday 3am UTC
     ['pipeline.startup-school', '0 4 * * 0'],  // Weekly Sunday 4am UTC
+    ['pipeline.cluster', '0 2 * * *'],         // Daily 2am UTC — rebuild workspace clusters
     ['tasks.reap_stuck', '*/5 * * * *'],       // Every 5 minutes
     ['tenant.hard-delete-sweep', '0 5 * * *'], // Daily 5am UTC — past-grace hard delete
   ];

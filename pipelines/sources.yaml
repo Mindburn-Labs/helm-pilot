@@ -1,0 +1,213 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# HELM Pilot — Opportunity Intelligence Sources
+#
+# Declarative registry of every source the discovery pipeline monitors.
+# Adding a new source is a config change + PR — no Python/TS code needed
+# unless the source requires a custom parser.
+#
+# Schema:
+#   id:              Stable identifier (matches opportunities.source column)
+#   name:            Human label for the Discover surface
+#   tier:            Quality tier (1=highest signal, 4=broadest coverage)
+#   strategy:        Scrapling fetch strategy (fetcher|dynamic|stealthy|api)
+#   schedule:        pg-boss cron expression (null = on-demand only)
+#   url:             Fetch target (template vars: {page}, {date}, {limit})
+#   parser:          Parser module (dot-separated Python import path)
+#   quality_weight:  Base quality multiplier for heuristic scoring (0-100)
+#   freshness_window_hours: Opportunities older than this are deprioritised
+#   dedup_strategy:  How to handle near-duplicates (hash|semantic|both)
+#   requires_auth:   Whether the source needs a session/token (public|session|oauth)
+#   enabled:         Toggle without deleting the source entry
+#   tags:            Default tags applied to every opportunity from this source
+# ═══════════════════════════════════════════════════════════════════════════
+
+sources:
+  # ─── Tier 1: High-signal curated (quality_weight ≥ 35) ─────────────────
+
+  - id: yc
+    name: Y Combinator Directory
+    tier: 1
+    strategy: api
+    schedule: "0 3 * * 0"  # Sunday 3am UTC
+    url: "https://45bwzj1sgc-dsn.algolia.net/1/indexes/YCCompany_production/query"
+    parser: pipelines.yc_scraper.scrape_yc
+    quality_weight: 45
+    freshness_window_hours: 168  # 7 days
+    dedup_strategy: both
+    requires_auth: public
+    enabled: true
+    tags: [yc, accelerator, startup]
+
+  - id: hn_show
+    name: Hacker News — Show HN
+    tier: 1
+    strategy: api
+    schedule: "0 */6 * * *"  # every 6 hours
+    url: "https://hn.algolia.com/api/v1/search?tags=show_hn&hitsPerPage={limit}"
+    parser: pipelines.scraper.parsers.hn
+    quality_weight: 38
+    freshness_window_hours: 48
+    dedup_strategy: both
+    requires_auth: public
+    enabled: true
+    tags: [hn, show_hn, builder]
+
+  - id: hn_launch
+    name: Hacker News — Launch HN
+    tier: 1
+    strategy: api
+    schedule: "0 */6 * * *"
+    url: "https://hn.algolia.com/api/v1/search?tags=launch_hn&hitsPerPage={limit}"
+    parser: pipelines.scraper.parsers.hn
+    quality_weight: 40
+    freshness_window_hours: 48
+    dedup_strategy: both
+    requires_auth: public
+    enabled: true
+    tags: [hn, launch_hn, builder]
+
+  - id: crunchbase
+    name: Crunchbase — Recent Funding
+    tier: 1
+    strategy: fetcher
+    schedule: "0 5 * * 1"  # Monday 5am UTC
+    url: "https://news.crunchbase.com/feed/"
+    parser: pipelines.scraper.parsers.rss
+    quality_weight: 38
+    freshness_window_hours: 168
+    dedup_strategy: hash
+    requires_auth: public
+    enabled: true
+    tags: [crunchbase, funding, market_signal]
+
+  # ─── Tier 2: Community-curated (quality_weight 25-34) ──────────────────
+
+  - id: producthunt
+    name: Product Hunt — Daily
+    tier: 2
+    strategy: api
+    schedule: "0 8 * * *"  # daily 8am UTC (after PH daily rankings)
+    url: "https://api.producthunt.com/v2/api/graphql"
+    parser: pipelines.scraper.parsers.producthunt
+    quality_weight: 32
+    freshness_window_hours: 72
+    dedup_strategy: both
+    requires_auth: public
+    enabled: true
+    tags: [producthunt, launch, consumer]
+
+  - id: indiehackers
+    name: IndieHackers — Top Posts
+    tier: 2
+    strategy: dynamic
+    schedule: "0 6 * * *"  # daily
+    url: "https://www.indiehackers.com/feed"
+    parser: pipelines.scraper.parsers.discourse
+    quality_weight: 28
+    freshness_window_hours: 72
+    dedup_strategy: hash
+    requires_auth: public
+    enabled: true
+    tags: [indiehackers, bootstrapped, indie]
+
+  - id: github_trending
+    name: GitHub Trending
+    tier: 2
+    strategy: fetcher
+    schedule: "0 7 * * *"  # daily
+    url: "https://github.com/trending?since=daily&spoken_language_code=en"
+    parser: pipelines.scraper.parsers.github_trending
+    quality_weight: 28
+    freshness_window_hours: 48
+    dedup_strategy: hash
+    requires_auth: public
+    enabled: true
+    tags: [github, trending, oss, technical]
+
+  # ─── Tier 3: Broad coverage (quality_weight 15-24) ─────────────────────
+
+  - id: reddit_saas
+    name: Reddit — r/SaaS
+    tier: 3
+    strategy: api
+    schedule: "0 */8 * * *"  # every 8 hours
+    url: "https://www.reddit.com/r/SaaS/top.json?t=day&limit={limit}"
+    parser: pipelines.scraper.parsers.reddit
+    quality_weight: 22
+    freshness_window_hours: 48
+    dedup_strategy: hash
+    requires_auth: public
+    enabled: true
+    tags: [reddit, saas, community]
+
+  - id: reddit_startups
+    name: Reddit — r/startups
+    tier: 3
+    strategy: api
+    schedule: "0 */8 * * *"
+    url: "https://www.reddit.com/r/startups/top.json?t=day&limit={limit}"
+    parser: pipelines.scraper.parsers.reddit
+    quality_weight: 20
+    freshness_window_hours: 48
+    dedup_strategy: hash
+    requires_auth: public
+    enabled: true
+    tags: [reddit, startups, community]
+
+  - id: reddit_buildinpublic
+    name: Reddit — r/buildinpublic
+    tier: 3
+    strategy: api
+    schedule: "0 */8 * * *"
+    url: "https://www.reddit.com/r/buildinpublic/top.json?t=day&limit={limit}"
+    parser: pipelines.scraper.parsers.reddit
+    quality_weight: 18
+    freshness_window_hours: 48
+    dedup_strategy: hash
+    requires_auth: public
+    enabled: true
+    tags: [reddit, buildinpublic, indie]
+
+  - id: yc_blog
+    name: Y Combinator Blog
+    tier: 3
+    strategy: fetcher
+    schedule: "0 4 * * 1"  # weekly Monday
+    url: "https://www.ycombinator.com/blog/rss/"
+    parser: pipelines.scraper.parsers.rss
+    quality_weight: 30
+    freshness_window_hours: 336  # 14 days
+    dedup_strategy: hash
+    requires_auth: public
+    enabled: true
+    tags: [yc, blog, insight]
+
+  # ─── Session-authenticated (founder provides browser state) ────────────
+
+  - id: yc_private
+    name: YC Private (Matching + Applications)
+    tier: 1
+    strategy: stealthy
+    schedule: null  # on-demand via POST /api/yc/ingestion/private
+    url: "https://www.ycombinator.com/cofounder-matching"
+    parser: pipelines.yc_scraper.scrape_yc_private
+    quality_weight: 50
+    freshness_window_hours: 72
+    dedup_strategy: both
+    requires_auth: session
+    enabled: true
+    tags: [yc, matching, private]
+
+  - id: startup_school
+    name: Y Combinator Startup School
+    tier: 2
+    strategy: fetcher
+    schedule: "0 4 * * 0"  # weekly Sunday
+    url: "https://www.startupschool.org/curriculum"
+    parser: pipelines.yc_scraper.scrape_startup_school
+    quality_weight: 35
+    freshness_window_hours: 336
+    dedup_strategy: hash
+    requires_auth: public
+    enabled: true
+    tags: [yc, startup_school, education]
