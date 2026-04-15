@@ -19,7 +19,6 @@
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
-    "lint": "eslint src/",
     "test:coverage": "vitest run --coverage --passWithNoTests"
   },
   "dependencies": {

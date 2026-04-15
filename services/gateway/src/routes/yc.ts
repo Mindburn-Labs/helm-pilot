@@ -61,22 +61,10 @@ export function ycRoutes(deps: GatewayDeps) {
     return c.json(history);
   });
 
-  // POST /api/yc/ingestion/trigger
-  app.post('/ingestion/trigger', async (c) => {
-    // Only allow starting jobs if pgBoss is available in gateway deps. Currently we only have deps.db
-    // For HELM Pilot architecture, to enqueue jobs from gateway, it needs access to pg-boss.
-    // Assuming gateway has it or we just trigger python script? 
-    // Actually `deps.db` can be used to insert into pg-boss queue if we had access, 
-    // but the task just requested routing API. 
-    // To trigger replays from gateway:
-    await c.req.json().catch(() => ({}));
-
-    // As a simple approach without pg-boss instantiated in Gateway, 
-    // we can use standard child_process if pg-boss isn't available, 
-    // or just return 501 Not Implemented if it's meant to be dispatched by orchestrator.
-    // For now we'll do 501 and let Orchestrator handle it in production, or insert into pgboss.job table manually.
-    return c.json({ error: 'Direct triggering requires pg-boss instance or Orchestrator API.' }, 501);
-  });
+  // Note: POST /ingestion/trigger was removed — the YC scraper is scheduled via
+  // pg-boss cron (see pipelines/yc-scraper and services/orchestrator/src/jobs.ts).
+  // A proper admin trigger endpoint will be reintroduced in Phase 3 once the
+  // scraper is wired through pg-boss.
 
   return app;
 }
