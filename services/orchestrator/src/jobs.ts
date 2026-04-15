@@ -1,7 +1,8 @@
 import PgBoss from 'pg-boss';
 import { and, eq, lt } from 'drizzle-orm';
 import { type Db } from '@helm-pilot/db/client';
-import { opportunityScores, opportunities, tasks, taskRuns } from '@helm-pilot/db/schema';
+import { opportunityScores, opportunities, tasks, taskRuns, workspaces, workspaceDeletions } from '@helm-pilot/db/schema';
+import { isNull } from 'drizzle-orm';
 import { type MemoryService } from '@helm-pilot/memory';
 import { type LlmProvider } from '@helm-pilot/shared/llm';
 import { type ActionRecord } from './agent-loop.js';
@@ -293,6 +294,35 @@ Respond with JSON only: {"overall":N,"founderFit":N,"marketSignal":N,"feasibilit
     }
   });
 
+  // ─── Tenant Hard-Delete Sweep (Phase 2d) ───
+  // Looks for workspaces whose `hard_delete_after` window has passed and
+  // tears them down with a single cascading DELETE. Runs on a schedule so
+  // operators don't have to poke the admin endpoint; the admin endpoint
+  // calls the same logic for manual drills.
+  boss.work('tenant.hard-delete-sweep', async (jobs: PgBoss.Job<{ limit?: number }>[]) => {
+    for (const job of jobs) {
+      const limit = Math.max(1, Math.min(500, job.data?.limit ?? 50));
+      try {
+        const pending = await deps.db
+          .select()
+          .from(workspaceDeletions)
+          .where(and(isNull(workspaceDeletions.hardDeletedAt), lt(workspaceDeletions.hardDeleteAfter, new Date())))
+          .limit(limit);
+        let deleted = 0;
+        for (const row of pending) {
+          // lint-tenancy: ok — scheduled platform cleanup is the only task
+          //   allowed to issue cross-tenant hard deletes.
+          await deps.db.delete(workspaces).where(eq(workspaces.id, row.workspaceId));
+          deleted++;
+        }
+        if (deleted > 0) log.info({ deleted, pending: pending.length }, 'tenant hard-delete sweep');
+      } catch (err) {
+        log.error({ err }, 'tenant hard-delete sweep failed');
+        throw err;
+      }
+    }
+  });
+
   // ─── Scheduled Jobs ───
   // pg-boss v10 requires queues to exist before scheduling. createQueue is idempotent
   // on already-existing queues but errors if not called first for a new queue.
@@ -300,6 +330,7 @@ Respond with JSON only: {"overall":N,"founderFit":N,"marketSignal":N,"feasibilit
     ['pipeline.yc-scrape', '0 3 * * 0'],       // Weekly Sunday 3am UTC
     ['pipeline.startup-school', '0 4 * * 0'],  // Weekly Sunday 4am UTC
     ['tasks.reap_stuck', '*/5 * * * *'],       // Every 5 minutes
+    ['tenant.hard-delete-sweep', '0 5 * * *'], // Daily 5am UTC — past-grace hard delete
   ];
   for (const [name, cron] of scheduledJobs) {
     try {

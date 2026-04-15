@@ -71,3 +71,31 @@ export const rateLimitBuckets = pgTable(
   },
   (t) => [primaryKey({ columns: [t.subject, t.routeClass] })],
 );
+
+// ─── Tenant lifecycle (Phase 2d) ──────────────────────────────────────────
+//
+// Soft-delete tracking. Keeping the mark on a separate table (rather than a
+// column on `workspaces`) means existing workspace queries don't need to
+// learn about soft-delete — the admin surface consults this table
+// explicitly, and a pg-boss cron issues the hard delete (cascade-cleanup of
+// every workspace-scoped row) once `hardDeleteAfter` passes.
+export const workspaceDeletions = pgTable(
+  'workspace_deletions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .unique(),
+    softDeletedAt: timestamp('soft_deleted_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Platform-admin user that initiated the delete. */
+    softDeletedBy: uuid('soft_deleted_by'),
+    reason: text('reason'),
+    /** Wall clock past which the cleanup cron issues the hard delete. */
+    hardDeleteAfter: timestamp('hard_delete_after', { withTimezone: true }).notNull(),
+    hardDeletedAt: timestamp('hard_deleted_at', { withTimezone: true }),
+  },
+  (t) => [
+    index('workspace_deletions_hard_idx').on(t.hardDeleteAfter, t.hardDeletedAt),
+  ],
+);
