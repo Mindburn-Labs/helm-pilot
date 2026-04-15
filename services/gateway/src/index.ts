@@ -32,6 +32,7 @@ import { connectorRoutes } from './routes/connector.js';
 import { statusRoutes } from './routes/status.js';
 import { userRoutes } from './routes/users.js';
 import { governanceRoutes } from './routes/governance.js';
+import { secretsRoutes } from './routes/secrets.js';
 import { type ConnectorRegistry, type OAuthFlowManager } from '@helm-pilot/connectors';
 import { type CofounderEngine } from '@helm-pilot/cofounder-engine';
 import { type HelmClient } from '@helm-pilot/helm-client';
@@ -207,6 +208,7 @@ export function createGateway(deps: GatewayDeps) {
   app.route('/api/status', statusRoutes(deps));
   app.route('/api/users', userRoutes(deps));
   app.route('/api/governance', governanceRoutes(deps));
+  app.route('/api/workspace/secrets', secretsRoutes(deps));
 
   // ─── Telegram Mini App (static files) ───
   app.get(

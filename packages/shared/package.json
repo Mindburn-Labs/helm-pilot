@@ -10,9 +10,11 @@
     "./config": "./dist/config/index.js",
     "./llm": "./dist/llm/index.js",
     "./llm/pricing": "./dist/llm/pricing.js",
+    "./llm/tenant-resolver": "./dist/llm/tenant-resolver.js",
     "./errors/sentry": "./dist/errors/sentry.js",
     "./embeddings": "./dist/embeddings/index.js",
-    "./logger": "./dist/logger.js"
+    "./logger": "./dist/logger.js",
+    "./secrets": "./dist/secrets/index.js"
   },
   "scripts": {
     "build": "tsc",

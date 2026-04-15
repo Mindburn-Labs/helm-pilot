@@ -6,7 +6,8 @@
   "exports": {
     ".": "./dist/index.js",
     "./schema": "./dist/schema/index.js",
-    "./client": "./dist/client.js"
+    "./client": "./dist/client.js",
+    "./tenant-secret-store": "./dist/tenant-secret-store.js"
   },
   "scripts": {
     "build": "tsc",

@@ -28,6 +28,7 @@
     "db:push": "npm run migrate -w packages/db",
     "db:seed": "tsx scripts/seed.ts",
     "lint:tenancy": "tsx scripts/lint-tenancy.ts",
+    "rotate:master-key": "tsx scripts/rotate-master-key.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

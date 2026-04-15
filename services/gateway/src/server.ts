@@ -10,8 +10,10 @@ import { ConnectorRegistry, OAuthFlowManager } from '@helm-pilot/connectors';
 import { CofounderEngine } from '@helm-pilot/cofounder-engine';
 import { type PolicyConfig } from '@helm-pilot/shared/schemas';
 import { createLlmProvider, type LlmProvider } from '@helm-pilot/shared/llm';
+import { createTenantLlmResolver } from '@helm-pilot/shared/llm/tenant-resolver';
 import { createEmbeddingProvider } from '@helm-pilot/shared/embeddings';
 import { createLogger } from '@helm-pilot/shared/logger';
+import { TenantSecretStore } from '@helm-pilot/db/tenant-secret-store';
 import { HelmClient, HelmLlmProvider } from '@helm-pilot/helm-client';
 import { createGateway } from './index.js';
 import { configureRateLimit } from './middleware/rate-limit.js';
@@ -147,6 +149,17 @@ async function main() {
   await boss.start();
   log.info('pg-boss started');
 
+  // ─── Per-tenant LLM resolver (Phase 2b) ───
+  // Founders can store their own provider key via PUT /api/workspace/secrets.
+  // When they have one the resolver returns a provider spending the founder's
+  // credits; when they don't, it falls through to `llm` (the platform key).
+  const tenantSecretStore = new TenantSecretStore(db);
+  const llmResolver = createTenantLlmResolver({
+    getSecret: (workspaceId, kind) => tenantSecretStore.get(workspaceId, kind as never),
+    platformFallback: llm,
+    model: process.env['HELM_LLM_MODEL'] ?? 'anthropic/claude-sonnet-4',
+  });
+
   const orchestrator = new Orchestrator({
     db,
     policy: defaultPolicy,
@@ -154,6 +167,7 @@ async function main() {
     memory,
     boss,
     helmClient,
+    llmResolver,
   });
   const cofounderEngine = new CofounderEngine(db, llm);
 

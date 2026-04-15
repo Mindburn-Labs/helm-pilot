@@ -12,3 +12,4 @@ export * from './knowledge.js';
 export * from './deploy.js';
 export * from './audit.js';
 export * from './governance.js';
+export * from './tenancy.js';

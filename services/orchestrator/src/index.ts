@@ -1,6 +1,7 @@
 import PgBoss from 'pg-boss';
 import { type Db } from '@helm-pilot/db/client';
 import { type LlmProvider } from '@helm-pilot/shared/llm';
+import { type TenantLlmResolver } from '@helm-pilot/shared/llm/tenant-resolver';
 import { type PolicyConfig } from '@helm-pilot/shared/schemas';
 import { type MemoryService } from '@helm-pilot/memory';
 import { type HelmClient } from '@helm-pilot/helm-client';
@@ -22,6 +23,13 @@ export interface OrchestratorConfig {
    * @helm-pilot/helm-client) so every inference call goes through HELM.
    */
   helmClient?: HelmClient;
+  /**
+   * Per-workspace LLM resolver (Phase 2b). When present the orchestrator
+   * swaps to the founder's own key at run time; the constructor-provided
+   * `llm` becomes the fallback for workspaces that have not configured a
+   * BYO key. Undefined preserves legacy single-provider behaviour.
+   */
+  llmResolver?: TenantLlmResolver;
 }
 
 /**
@@ -42,18 +50,24 @@ export class Orchestrator {
   readonly db: Db;
   readonly boss?: PgBoss;
   readonly helmClient?: HelmClient;
+  readonly llmResolver?: TenantLlmResolver;
   private readonly basePolicy: PolicyConfig;
+  private readonly fallbackLlm: LlmProvider | undefined;
 
   constructor(config: OrchestratorConfig) {
     this.db = config.db;
     this.boss = config.boss;
     this.helmClient = config.helmClient;
+    this.llmResolver = config.llmResolver;
+    this.fallbackLlm = config.llm;
     this.basePolicy = config.policy;
     this.trust = new TrustBoundary(config.policy);
     this.tools = new ToolRegistry(config.db, config.memory);
     this.agentLoop = new AgentLoop(config.db, this.trust);
 
-    // Wire LLM + tools into agent loop if available
+    // Wire LLM + tools into agent loop if available. This is the baseline
+    // provider used when no per-tenant resolver returns a hit; resolvers
+    // override it per-run via this.swapLlm(workspaceId) below.
     if (config.llm) {
       this.agentLoop.setLlm(config.llm);
     }
@@ -90,6 +104,7 @@ export class Orchestrator {
   }) {
     const runtime = await this.resolveRuntime(params.workspaceId, params.operatorId, params.iterationBudget);
     this.trust.setPolicy(runtime.policy);
+    await this.swapLlm(params.workspaceId);
 
     return this.agentLoop.execute({
       ...params,
@@ -110,6 +125,7 @@ export class Orchestrator {
   }) {
     const runtime = await this.resolveRuntime(params.workspaceId, params.operatorId, params.iterationBudget);
     this.trust.setPolicy(runtime.policy);
+    await this.swapLlm(params.workspaceId);
 
     return this.agentLoop.resume({
       ...params,
@@ -118,6 +134,23 @@ export class Orchestrator {
       systemPrompt: runtime.systemPrompt,
       operatorGoal: runtime.operatorGoal,
     });
+  }
+
+  /**
+   * Per-run LLM swap (Phase 2b). When an llmResolver is configured we swap
+   * the AgentLoop's provider to whatever the workspace has — either its
+   * BYO-key provider or the platform fallback the resolver was built with.
+   * When no resolver exists this is a no-op and the constructor-provided
+   * fallback LLM is used.
+   */
+  private async swapLlm(workspaceId: string): Promise<void> {
+    if (!this.llmResolver) return;
+    const provider = await this.llmResolver.resolve(workspaceId);
+    if (provider) {
+      this.agentLoop.setLlm(provider);
+    } else if (this.fallbackLlm) {
+      this.agentLoop.setLlm(this.fallbackLlm);
+    }
   }
 
   private async resolveRuntime(workspaceId: string, operatorId?: string, requestedIterationBudget?: number) {
