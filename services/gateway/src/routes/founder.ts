@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
-import { founderProfiles, founderAssessments, founderStrengths } from '@helm-pilot/db/schema';
+import { cofounderCandidates, founderAssessments, founderProfiles, founderStrengths } from '@helm-pilot/db/schema';
 import {
   AnalyzeFounderInput,
   CreateCofounderCandidateInput,
@@ -82,6 +82,21 @@ export function founderRoutes(deps: GatewayDeps) {
     return c.json(candidate, 201);
   });
 
+  app.post('/candidates/compare', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    if (!deps.cofounderEngine) return c.json({ error: 'Cofounder engine unavailable' }, 503);
+
+    const body = (await c.req.json().catch(() => ({}))) as { candidateIds?: string[] };
+    if (!Array.isArray(body.candidateIds) || body.candidateIds.length < 2) {
+      return c.json({ error: 'candidateIds must contain at least two ids' }, 400);
+    }
+
+    const results = await Promise.all(body.candidateIds.map((candidateId) => deps.cofounderEngine!.getCandidate(candidateId)));
+    const filtered = results.filter((candidate) => candidate && candidate.workspaceId === workspaceId);
+    return c.json(filtered);
+  });
+
   app.get('/candidates/:id', async (c) => {
     if (!deps.cofounderEngine) return c.json({ error: 'Cofounder engine unavailable' }, 503);
 
@@ -155,6 +170,48 @@ export function founderRoutes(deps: GatewayDeps) {
       note: body.note,
     });
     return c.json(followUp, 201);
+  });
+
+  app.post('/candidates/:id/conversations', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    if (!deps.cofounderEngine) return c.json({ error: 'Cofounder engine unavailable' }, 503);
+
+    const body = (await c.req.json().catch(() => ({}))) as { content?: string };
+    if (!body.content) return c.json({ error: 'content required' }, 400);
+
+    const { id } = c.req.param();
+    const note = await deps.cofounderEngine.addCandidateNote(
+      workspaceId,
+      id,
+      body.content,
+      'conversation',
+      c.get('userId'),
+    );
+    return c.json(note, 201);
+  });
+
+  app.put('/candidates/:id/status', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
+    const body = (await c.req.json().catch(() => ({}))) as { status?: string };
+    const allowed = new Set(['new', 'reviewing', 'contacted', 'interviewing', 'shortlisted', 'passed']);
+    if (!body.status || !allowed.has(body.status)) {
+      return c.json({ error: 'status must be one of new, reviewing, contacted, interviewing, shortlisted, passed' }, 400);
+    }
+
+    const [candidate] = await deps.db
+      .update(cofounderCandidates)
+      .set({ status: body.status, updatedAt: new Date() })
+      .where(eq(cofounderCandidates.id, c.req.param('id')))
+      .returning();
+
+    if (!candidate || candidate.workspaceId !== workspaceId) {
+      return c.json({ error: 'Candidate not found' }, 404);
+    }
+
+    return c.json(candidate);
   });
 
   // Legacy compatibility routes while surfaces migrate.

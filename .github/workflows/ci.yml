@@ -46,6 +46,9 @@ jobs:
       - name: Lint
         run: npx turbo lint
 
+      - name: Tenancy lint (no unscoped DB queries on workspace-scoped tables)
+        run: npm run lint:tenancy
+
   db-migrations:
     runs-on: ubuntu-latest
     services:

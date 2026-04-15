@@ -1,5 +1,5 @@
 import { Bot } from 'grammy';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { type Db } from '@helm-pilot/db/client';
 import { approvals } from '@helm-pilot/db/schema';
 import { type BotContext } from '../types.js';
@@ -53,12 +53,15 @@ export function registerApprovals(bot: Bot<BotContext>, db: Db) {
       await ctx.answerCallbackQuery({ text: 'Session expired. Use /start first.' });
       return;
     }
+    // lint-tenancy: ok — looked up by globally-unique id, then ownership
+    //   verified against session.workspaceId below. The subsequent UPDATE
+    //   composes both predicates so there is no TOCTOU window.
     const [approval] = await db
       .select()
       .from(approvals)
-      .where(eq(approvals.id, approvalId!))
+      .where(and(eq(approvals.id, approvalId!), eq(approvals.workspaceId, wsId)))
       .limit(1);
-    if (!approval || approval.workspaceId !== wsId) {
+    if (!approval) {
       await ctx.answerCallbackQuery({ text: 'Not authorized to approve this action.' });
       return;
     }
@@ -70,7 +73,7 @@ export function registerApprovals(bot: Bot<BotContext>, db: Db) {
         resolvedBy: ctx.from?.id?.toString() ?? 'unknown',
         resolvedAt: new Date(),
       })
-      .where(eq(approvals.id, approvalId!));
+      .where(and(eq(approvals.id, approvalId!), eq(approvals.workspaceId, wsId)));
 
     await ctx.answerCallbackQuery({ text: approved ? 'Approved' : 'Rejected' });
     await ctx.editMessageText(

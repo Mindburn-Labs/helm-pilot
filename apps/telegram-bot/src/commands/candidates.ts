@@ -1,5 +1,5 @@
 import { Bot } from 'grammy';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { type Db } from '@helm-pilot/db/client';
 import { opportunities } from '@helm-pilot/db/schema';
 import { type BotContext } from '../types.js';
@@ -52,8 +52,15 @@ export function registerCandidates(bot: Bot<BotContext>, db: Db) {
     const wsId = ctx.session.workspaceId;
     if (!wsId) return ctx.answerCallbackQuery({ text: 'Session expired. Use /start first.' });
 
-    const [opp] = await db.select().from(opportunities).where(eq(opportunities.id, oppId!)).limit(1);
-    if (!opp || opp.workspaceId !== wsId) {
+    // lint-tenancy: ok — looked up by globally-unique id, then ownership is
+    //   composed with workspaceId in the predicate so the SELECT and the
+    //   subsequent UPDATE cannot target another tenant.
+    const [opp] = await db
+      .select()
+      .from(opportunities)
+      .where(and(eq(opportunities.id, oppId!), eq(opportunities.workspaceId, wsId)))
+      .limit(1);
+    if (!opp) {
       return ctx.answerCallbackQuery({ text: 'Opportunity not found or not authorized.' });
     }
 
@@ -61,7 +68,7 @@ export function registerCandidates(bot: Bot<BotContext>, db: Db) {
       await db
         .update(opportunities)
         .set({ status: isAccept ? 'approved' : 'rejected' })
-        .where(eq(opportunities.id, oppId!));
+        .where(and(eq(opportunities.id, oppId!), eq(opportunities.workspaceId, wsId)));
 
       await ctx.answerCallbackQuery({ text: isAccept ? 'Accepted direction' : 'Rejected' });
       await ctx.editMessageText(

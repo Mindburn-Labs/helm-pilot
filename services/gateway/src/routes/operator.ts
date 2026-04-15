@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { operators, operatorRoles, operatorConfigs } from '@helm-pilot/db/schema';
 import { CreateOperatorInput, UpdateOperatorInput } from '@helm-pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
@@ -64,17 +64,17 @@ export function operatorRoutes(deps: GatewayDeps) {
   app.get('/:id', async (c) => {
     const { id } = c.req.param();
     const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
 
+    // Composed predicate: operator must exist AND belong to caller's
+    // workspace — otherwise return 404 to avoid leaking existence.
     const [op] = await deps.db
       .select()
       .from(operators)
-      .where(eq(operators.id, id))
+      .where(and(eq(operators.id, id), eq(operators.workspaceId, workspaceId)))
       .limit(1);
 
     if (!op) return c.json({ error: 'Operator not found' }, 404);
-    if (workspaceId && op.workspaceId !== workspaceId) {
-      return c.json({ error: 'Operator not found' }, 404);
-    }
 
     const [config] = await deps.db
       .select()
@@ -88,6 +88,8 @@ export function operatorRoutes(deps: GatewayDeps) {
   app.put('/:id', async (c) => {
     const { id } = c.req.param();
     const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
     const raw = await c.req.json();
     const parsed = UpdateOperatorInput.safeParse(raw);
 
@@ -98,15 +100,14 @@ export function operatorRoutes(deps: GatewayDeps) {
     const [existing] = await deps.db
       .select()
       .from(operators)
-      .where(eq(operators.id, id))
+      .where(and(eq(operators.id, id), eq(operators.workspaceId, workspaceId)))
       .limit(1);
 
     if (!existing) return c.json({ error: 'Operator not found' }, 404);
-    if (workspaceId && existing.workspaceId !== workspaceId) {
-      return c.json({ error: 'Operator not found' }, 404);
-    }
 
     const body = parsed.data;
+    // Both SELECT and UPDATE compose id with workspaceId so mutations cannot
+    // target another tenant's operator by id-guess.
     const [updated] = await deps.db
       .update(operators)
       .set({
@@ -120,7 +121,7 @@ export function operatorRoutes(deps: GatewayDeps) {
               ? String(body.isActive)
               : body.isActive,
       })
-      .where(eq(operators.id, id))
+      .where(and(eq(operators.id, id), eq(operators.workspaceId, workspaceId)))
       .returning();
 
     return c.json(updated);

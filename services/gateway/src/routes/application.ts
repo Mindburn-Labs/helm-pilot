@@ -105,6 +105,9 @@ export function applicationRoutes(deps: GatewayDeps) {
   });
 
   app.put('/:id/status', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
     const { id } = c.req.param();
     const body = await c.req.json();
     const normalizedStatus = normalizeStatus(body.status);
@@ -118,10 +121,12 @@ export function applicationRoutes(deps: GatewayDeps) {
       values['submittedAt'] = new Date();
     }
 
+    // Predicate composes id with workspaceId so a caller cannot flip the
+    // status of another tenant's application by id-guess.
     const [updated] = await deps.db
       .update(applications)
       .set(values)
-      .where(eq(applications.id, id))
+      .where(and(eq(applications.id, id), eq(applications.workspaceId, workspaceId)))
       .returning();
 
     if (!updated) return c.json({ error: 'Application not found' }, 404);

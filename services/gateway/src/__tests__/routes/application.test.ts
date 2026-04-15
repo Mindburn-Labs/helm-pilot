@@ -193,9 +193,11 @@ describe('applicationRoutes', () => {
   // ── PUT /:id/status ──
 
   describe('PUT /:id/status', () => {
+    const wsHeader = { 'X-Workspace-Id': 'ws-1' };
+
     it('returns 400 for invalid status', async () => {
       const { fetch } = testApp(applicationRoutes);
-      const res = await fetch('PUT', '/app-1/status', { status: 'bogus' });
+      const res = await fetch('PUT', '/app-1/status', { status: 'bogus' }, wsHeader);
       const body = await expectJson<{ error: string }>(res, 400);
       expect(body.error).toContain('Invalid status');
     });
@@ -220,7 +222,7 @@ describe('applicationRoutes', () => {
       })) as any;
 
       const { fetch } = testApp(applicationRoutes, deps);
-      const res = await fetch('PUT', '/app-1/status', { status: 'submitted' });
+      const res = await fetch('PUT', '/app-1/status', { status: 'submitted' }, wsHeader);
       const body = await expectJson<{ status: string }>(res, 200);
       expect(body.status).toBe('submitted');
     });
@@ -238,9 +240,16 @@ describe('applicationRoutes', () => {
       })) as any;
 
       const { fetch } = testApp(applicationRoutes, deps);
-      const res = await fetch('PUT', '/app-missing/status', { status: 'in_review' });
+      const res = await fetch('PUT', '/app-missing/status', { status: 'in_review' }, wsHeader);
       const body = await expectJson<{ error: string }>(res, 404);
       expect(body.error).toContain('not found');
+    });
+
+    it('returns 400 when workspaceId is missing (tenancy guard)', async () => {
+      const { fetch } = testApp(applicationRoutes);
+      const res = await fetch('PUT', '/app-1/status', { status: 'submitted' });
+      const body = await expectJson<{ error: string }>(res, 400);
+      expect(body.error).toContain('workspaceId');
     });
   });
 });

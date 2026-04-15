@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { tasks, taskRuns } from '@helm-pilot/db/schema';
 import { CreateTaskInput, TaskStatusSchema } from '@helm-pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
@@ -64,6 +64,9 @@ export function taskRoutes(deps: GatewayDeps) {
   });
 
   app.put('/:id/status', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
     const { id } = c.req.param();
     const raw = (await c.req.json()) as { status?: string };
     const parsed = TaskStatusSchema.safeParse(raw.status);
@@ -71,10 +74,12 @@ export function taskRoutes(deps: GatewayDeps) {
       return c.json({ error: 'Invalid status', allowed: TaskStatusSchema.options }, 400);
     }
 
+    // Both the SELECT and UPDATE compose taskId with workspaceId so a caller
+    // cannot read or mutate another tenant's tasks by id-guess.
     const [existing] = await deps.db
       .select()
       .from(tasks)
-      .where(eq(tasks.id, id))
+      .where(and(eq(tasks.id, id), eq(tasks.workspaceId, workspaceId)))
       .limit(1);
 
     if (!existing) return c.json({ error: 'Task not found' }, 404);
@@ -86,7 +91,7 @@ export function taskRoutes(deps: GatewayDeps) {
         updatedAt: new Date(),
         completedAt: parsed.data === 'completed' ? new Date() : null,
       })
-      .where(eq(tasks.id, id))
+      .where(and(eq(tasks.id, id), eq(tasks.workspaceId, workspaceId)))
       .returning();
 
     return c.json(updated);
