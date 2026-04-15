@@ -61,17 +61,30 @@ echo "Phase 2: Tests"
 check "Unit tests (all)" npm test
 echo ""
 
+# --- Python / Scrapling Runtime ---
+echo "Phase 3: Python Runtime"
+check "Python 3.10+ available" python3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)"
+check "Python runtime installer exists" bash -c "[ -x scripts/install-python-runtime.sh ]"
+check "Python runtime verifier exists" bash -c "[ -f scripts/verify-python-runtime.py ]"
+if [ -n "${PYTHON_BIN:-}" ] && [ -x "${PYTHON_BIN:-}" ]; then
+  check "Python + Scrapling runtime" bash -c "\"$PYTHON_BIN\" scripts/verify-python-runtime.py >/dev/null"
+else
+  warn_check "Python + Scrapling runtime" bash -c "python3 scripts/verify-python-runtime.py >/dev/null"
+fi
+echo ""
+
 # --- Docker Build ---
-echo "Phase 3: Docker"
+echo "Phase 4: Docker"
 warn_check "Docker Compose config valid" docker compose -f infra/docker/docker-compose.yml config --quiet
 echo ""
 
 # --- API Smoke Tests (if server is running) ---
-echo "Phase 4: API Smoke Tests"
+echo "Phase 5: API Smoke Tests"
 API_URL="${API_URL:-http://localhost:3100}"
 if curl -sf "$API_URL/health" > /dev/null 2>&1; then
   check "Health endpoint" curl -sf "$API_URL/health"
   check "Root endpoint" curl -sf "$API_URL/"
+  check "Status endpoint" curl -sf "$API_URL/api/status"
   check "Security headers (x-content-type-options)" bash -c "curl -sI '$API_URL/health' | grep -qi 'x-content-type-options'"
   check "Request-ID header echoed" bash -c "curl -sI '$API_URL/health' | grep -qi 'x-request-id'"
   check "Malformed JSON returns 400 (or 429 if rate-limited)" bash -c "STATUS=\$(curl -s -o /dev/null -w '%{http_code}' -X POST '$API_URL/api/auth/email/request' -H 'Content-Type: application/json' -d 'not-json'); [ \"\$STATUS\" = '400' ] || [ \"\$STATUS\" = '429' ]"
@@ -101,7 +114,7 @@ fi
 echo ""
 
 # --- Backup & Setup Checks ---
-echo "Phase 5: Operational Scripts"
+echo "Phase 6: Operational Scripts"
 check "Backup script exists and is executable" bash -c "[ -x scripts/backup.sh ]"
 check "Setup script exists and is executable" bash -c "[ -x scripts/setup.sh ]"
 check "Encryption key rotation script exists" bash -c "[ -f scripts/rotate-encryption-key.ts ]"
@@ -123,7 +136,7 @@ warn_check "SENTRY_DSN configured (optional)" bash -c "[ -n \"${SENTRY_DSN:-}\" 
 echo ""
 
 # --- Database & Migrations ---
-echo "Phase 9: Database"
+echo "Phase 8: Database"
 if [ -n "${DATABASE_URL:-}" ]; then
   warn_check "Schema verification (pgvector + triggers)" npx tsx scripts/verify-schema.ts
 else
@@ -134,13 +147,13 @@ echo ""
 
 # --- Redis (optional) ---
 if [ -n "${REDIS_URL:-}" ]; then
-  echo "Phase 10: Redis"
+  echo "Phase 9: Redis"
   warn_check "Redis reachable" bash -c "node -e \"const r=new (require('ioredis'))(process.env.REDIS_URL); r.ping().then(()=>{console.log('PONG');r.quit();}).catch(e=>{console.error(e);process.exit(1);});\""
   echo ""
 fi
 
 # --- TLS Check ---
-echo "Phase 8: TLS (if APP_URL is https)"
+echo "Phase 10: TLS (if APP_URL is https)"
 if [[ "${APP_URL:-}" == https://* ]]; then
   check "HTTPS endpoint is responding" curl -sf "$APP_URL/health" > /dev/null
 else

@@ -68,7 +68,7 @@ describe('ToolRegistry', () => {
       }
     });
 
-    it('includes all built-in tools (17 total)', () => {
+    it('includes all built-in tools', () => {
       const registry = createRegistry();
       const tools = registry.listTools();
       const names = tools.map((t) => t.name);
@@ -76,6 +76,7 @@ describe('ToolRegistry', () => {
       // Universal tools
       expect(names).toContain('search_knowledge');
       expect(names).toContain('create_note');
+      expect(names).toContain('scrapling_fetch');
       expect(names).toContain('draft_text');
       expect(names).toContain('analyze');
       expect(names).toContain('get_workspace_context');
@@ -100,7 +101,7 @@ describe('ToolRegistry', () => {
       // Apply mode tools
       expect(names).toContain('create_application_draft');
 
-      expect(tools.length).toBe(26);
+      expect(tools.length).toBe(27);
     });
   });
 
@@ -115,6 +116,7 @@ describe('ToolRegistry', () => {
       // Universal (no modes restriction)
       expect(names).toContain('search_knowledge');
       expect(names).toContain('create_note');
+      expect(names).toContain('scrapling_fetch');
       expect(names).toContain('draft_text');
       expect(names).toContain('analyze');
       expect(names).toContain('get_workspace_context');
@@ -142,6 +144,7 @@ describe('ToolRegistry', () => {
       expect(names).toContain('list_tasks');
       expect(names).toContain('create_plan');
       expect(names).toContain('create_artifact');
+      expect(names).toContain('scrapling_fetch');
 
       // Should NOT include discover-only tools
       expect(names).not.toContain('list_opportunities');
@@ -156,6 +159,7 @@ describe('ToolRegistry', () => {
 
       expect(names).toContain('create_application_draft');
       expect(names).toContain('search_yc');
+      expect(names).toContain('scrapling_fetch');
       expect(names).toContain('draft_text');
 
       // Should NOT include build-only tools
@@ -182,6 +186,7 @@ describe('ToolRegistry', () => {
 
       expect(names).toContain('create_artifact');
       expect(names).toContain('list_tasks');
+      expect(names).toContain('scrapling_fetch');
       expect(names).toContain('send_notification');
 
       // Should NOT include discover-only or apply-only tools

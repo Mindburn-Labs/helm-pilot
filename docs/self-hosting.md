@@ -5,6 +5,7 @@ HELM Pilot is designed to run on your own infrastructure. This guide covers setu
 ## Prerequisites
 
 - **Docker** 24+ and **Docker Compose** v2
+- **Python** 3.10+ with `venv` and `pip` available for local pipeline execution
 - A domain name (optional, for production)
 - A Telegram bot token (for bot/mini-app features)
 - An LLM API key (OpenRouter or Anthropic)
@@ -25,6 +26,19 @@ The script will check prerequisites, generate necessary secrets, start the datab
 
 The gateway runs on port **3100**, the web UI on **3000**.
 
+## Python / Scrapling Runtime
+
+HELM Pilot uses a local Python runtime for Scrapling-backed ingestion, YC sync, and operator-triggered fetch/extract work.
+
+For local installs:
+
+```bash
+bash scripts/install-python-runtime.sh
+./.venv-pipelines/bin/python scripts/verify-python-runtime.py
+```
+
+This creates `./.venv-pipelines`, installs the pinned pipeline dependencies from `pipelines/requirements.txt`, and installs Chromium for both Playwright and Patchright. Set `PYTHON_BIN=./.venv-pipelines/bin/python` in `.env` so the orchestrator uses that runtime.
+
 ## Environment Variables
 
 For a complete list of required and optional environment variables, see the [Environment Reference](env-reference.md).
@@ -39,6 +53,9 @@ The setup script will generate the critical security tokens for you.
 # Install dependencies
 npm install
 
+# Install the pinned Python pipeline runtime
+bash scripts/install-python-runtime.sh
+
 # Start PostgreSQL (or use Docker for just the DB)
 docker compose -f infra/docker/docker-compose.yml up -d postgres
 
@@ -50,6 +67,12 @@ npm run db:push
 
 # Start all services in development
 npm run dev
+```
+
+Verify the full runtime before using private YC flows:
+
+```bash
+PYTHON_BIN=./.venv-pipelines/bin/python ./scripts/launch-gate.sh
 ```
 
 ## Telegram Bot Setup
@@ -69,6 +92,18 @@ npm run dev
 1. Via BotFather, create a Web App for your bot
 2. Set the URL to `https://your-domain.com/app/`
 3. The mini app is served as static files from the gateway
+
+## YC Session Capture
+
+The `yc` connector uses founder-authorized session capture instead of OAuth.
+
+1. Open **Settings** in the web app.
+2. Grant the `yc` connector to your workspace.
+3. Paste an exported browser storage-state JSON for your authorized YC session into the connector session box.
+4. Click **Save Session**, then **Validate Session**.
+5. Once validation succeeds, private YC matching syncs can run from the Discover surface or through background jobs.
+
+All YC session snapshots are encrypted at rest using `ENCRYPTION_KEY`.
 
 ## Custom Domain (Production)
 
@@ -140,6 +175,19 @@ bash scripts/backup.sh restore backups/helm_pilot_YYYY...sql.gz
 
 For configured S3 uploads, use `bash scripts/backup.sh upload <file>`.
 
+In addition to the database backup, preserve local storage when using the default filesystem backend:
+
+```bash
+tar -czf helm_pilot_storage_$(date +%Y%m%d_%H%M%S).tar.gz data/storage
+```
+
+That archive contains:
+- raw crawl captures
+- Scrapling adaptive selector databases
+- crawl checkpoint directories
+
+YC session snapshots live in the database (`connector_sessions`) and are therefore covered by PostgreSQL backups.
+
 ## Updating
 
 ```bash
@@ -155,6 +203,10 @@ docker compose -f infra/docker/docker-compose.yml exec helm-pilot npx drizzle-ki
 **Health check fails:** Check `DATABASE_URL` is correct and PostgreSQL is reachable.
 
 **Agent loop doesn't execute:** Ensure `OPENROUTER_API_KEY` or `ANTHROPIC_API_KEY` is set.
+
+**YC private sync fails:** Re-run `scripts/verify-python-runtime.py`, confirm the `yc` connector shows `Validated`, and save a fresh YC session snapshot if needed.
+
+**Scrapling browser fetches fail locally:** Re-run `bash scripts/install-python-runtime.sh` and check that `PLAYWRIGHT_BROWSERS_PATH` and `PATCHRIGHT_BROWSERS_PATH` point to existing browser caches.
 
 **Telegram commands don't work:** Verify the webhook is set and `TELEGRAM_BOT_TOKEN` matches.
 

@@ -71,6 +71,50 @@ export class ToolRegistry {
       },
     });
 
+    // ─── Scrapling Fetch Bridge ───
+    this.register({
+      name: 'scrapling_fetch',
+      description:
+        'Fetch and optionally extract a web page using the internal Scrapling bridge. Input: {"url":"https://...","selector":"main","strategy":"auto|fetcher|dynamic|stealthy","waitSelector":"main","adaptiveDomain":"ycombinator.com","limit":5}',
+      modes: ['discover', 'build', 'launch', 'apply'],
+      execute: async (input) => {
+        const { url, selector, strategy, waitSelector, adaptiveDomain, limit } = input as {
+          url?: string;
+          selector?: string;
+          strategy?: 'auto' | 'fetcher' | 'dynamic' | 'stealthy';
+          waitSelector?: string;
+          adaptiveDomain?: string;
+          limit?: number;
+        };
+        if (!url) return { error: 'url is required' };
+
+        const { resolve } = await import('node:path');
+        const { execFile } = await import('node:child_process');
+        const { promisify } = await import('node:util');
+        const execFileAsync = promisify(execFile);
+        const pythonBin = process.env.PYTHON_BIN || 'python3';
+        const scriptPath = resolve(process.cwd(), 'pipelines/scraper/run_fetch.py');
+        const args = [
+          scriptPath,
+          '--url',
+          url,
+          ...(selector ? ['--selector', selector] : []),
+          ...(strategy ? ['--strategy', strategy] : []),
+          ...(waitSelector ? ['--wait-selector', waitSelector] : []),
+          ...(adaptiveDomain ? ['--adaptive-domain', adaptiveDomain] : []),
+          ...(limit ? ['--limit', String(limit)] : []),
+        ];
+
+        const { stdout } = await execFileAsync(pythonBin, args, {
+          cwd: process.cwd(),
+          env: { ...process.env, PYTHONUNBUFFERED: '1' },
+          timeout: 120_000,
+          maxBuffer: 10 * 1024 * 1024,
+        });
+        return JSON.parse(stdout);
+      },
+    });
+
     // ─── Create Note ───
     this.register({
       name: 'create_note',
@@ -750,4 +794,3 @@ export interface Tool {
   modes?: string[];
   execute: (input: unknown) => Promise<unknown>;
 }
-

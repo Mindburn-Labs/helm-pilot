@@ -248,4 +248,25 @@ describe('ConnectorRegistry', () => {
     const result = await registry.getToken('g-1');
     expect(result).toBeNull();
   });
+
+  // --- Session management ---
+
+  it('storeSession encrypts and inserts when no existing session exists', async () => {
+    db._setResult([]);
+    await registry.storeSession('g-1', { cookies: [] }, 'storage_state');
+    expect(db.insert).toHaveBeenCalled();
+  });
+
+  it('getSession decrypts stored session payload', async () => {
+    const payload = { cookies: [{ name: 'session', value: 'abc' }] };
+    const encrypted = encryptToken(JSON.stringify(payload));
+    db._setResult([{ sessionDataEnc: encrypted, grantId: 'g-1' }]);
+    const result = await registry.getSession('g-1');
+    expect(result).toEqual(payload);
+  });
+
+  it('deleteSession deletes stored sessions for a grant', async () => {
+    await registry.deleteSession('g-1');
+    expect(db.delete).toHaveBeenCalled();
+  });
 });

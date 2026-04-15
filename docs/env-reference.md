@@ -64,6 +64,17 @@ These enable real OAuth flows for external services. Without them, connectors op
 4. Enable the Gmail API and Google Drive API in the API Library
 5. Copy Client ID and Client Secret to `.env`
 
+## Connectors (Session Auth)
+
+The YC connector uses founder-authorized browser session capture instead of OAuth.
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `APP_URL` | Yes | Base URL used to return from the guided YC session-capture flow. |
+| `ENCRYPTION_KEY` | Yes | Encrypts stored browser storage-state snapshots in `connector_sessions`. |
+
+YC session state is stored separately from OAuth tokens. It powers authenticated reads and syncs for YC cofounder matching and other private YC workflows.
+
 ## Security
 
 | Variable | Required | Default | Description |
@@ -85,6 +96,9 @@ These enable real OAuth flows for external services. Without them, connectors op
 | `ALLOWED_ORIGINS` | No | `*` (dev) | Comma-separated CORS allowed origins. Set to your domain in production. |
 | `APP_URL` | No | `http://localhost:3100` | Public-facing URL of the app (used for OAuth redirect URIs) |
 | `RUN_MIGRATIONS_ON_STARTUP` | No | `true` | When `true` (default), gateway runs pending Drizzle migrations on boot. Set `false` to manage migrations manually. |
+| `PYTHON_BIN` | No | `python3` | Python executable used by the orchestrator for Scrapling-backed pipelines. For local installs, prefer `./.venv-pipelines/bin/python`. |
+| `PLAYWRIGHT_BROWSERS_PATH` | No | repo-local cache or `/ms-playwright` in Docker | Browser binary cache used by dynamic Scrapling fetchers. |
+| `PATCHRIGHT_BROWSERS_PATH` | No | repo-local cache or `/ms-patchright` in Docker | Browser binary cache used by stealth Scrapling sessions. |
 
 ## Email (Transactional)
 
@@ -116,6 +130,11 @@ For storing artifacts, launch assets, and raw ingestion captures. Falls back to 
 | `S3_ACCESS_KEY` | No | — | S3 access key |
 | `S3_SECRET_KEY` | No | — | S3 secret key |
 | `S3_REGION` | No | `us-east-1` | S3 region |
+
+When using local storage, HELM Pilot also persists:
+- Scrapling adaptive selector databases under `STORAGE_PATH/adaptive`
+- raw crawl captures under `STORAGE_PATH/raw`
+- crawl checkpoints under `STORAGE_PATH/crawls`
 
 ## Error Reporting (Optional)
 

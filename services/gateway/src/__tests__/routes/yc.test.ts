@@ -1,12 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ycRoutes } from '../../routes/yc.js';
-import { testApp, expectJson } from '../helpers.js';
+import { createMockDeps, expectJson, testApp } from '../helpers.js';
 
 const mockYc = {
   searchCompanies: vi.fn(async () => []),
   getCompany: vi.fn(async () => null),
   listBatches: vi.fn(async () => []),
   searchAdvice: vi.fn(async () => []),
+  getCompanyStats: vi.fn(async () => ({})),
+  searchAdviceByTag: vi.fn(async () => []),
+  getCourseModules: vi.fn(async () => []),
+  getIngestionHistory: vi.fn(async () => []),
+  getIngestionRecord: vi.fn(async () => null),
 };
 
 vi.mock('@helm-pilot/yc-intel', () => ({
@@ -112,6 +117,74 @@ describe('ycRoutes', () => {
 
       expect(mockYc.searchAdvice).toHaveBeenCalledWith('fundraising', 10);
       expect(json).toEqual(advice);
+    });
+  });
+
+  describe('POST /ingestion/public', () => {
+    it('queues public ingestion jobs', async () => {
+      const deps = createMockDeps();
+      const { fetch } = testApp(ycRoutes, deps);
+
+      const res = await fetch(
+        'POST',
+        '/ingestion/public',
+        { source: 'all', limit: 25 },
+        { 'X-Workspace-Id': 'ws-1' },
+      );
+      const json = await expectJson<{ queued: boolean; jobs: Array<{ queue: string }> }>(res, 202);
+
+      expect(json.queued).toBe(true);
+      expect(json.jobs.map((job) => job.queue)).toEqual(['pipeline.yc-scrape', 'pipeline.startup-school']);
+    });
+  });
+
+  describe('POST /ingestion/private', () => {
+    it('queues private yc sync job', async () => {
+      const deps = createMockDeps();
+      const { fetch } = testApp(ycRoutes, deps);
+      const grantId = '00000000-0000-4000-8000-000000000001';
+
+      const res = await fetch(
+        'POST',
+        '/ingestion/private',
+        { grantId, action: 'sync', limit: 5 },
+        { 'X-Workspace-Id': 'ws-1' },
+      );
+      const json = await expectJson<{ queued: boolean; queue: string }>(res, 202);
+
+      expect(json).toMatchObject({ queued: true, queue: 'pipeline.yc-private' });
+      expect(deps.orchestrator.boss.send).toHaveBeenCalledWith('pipeline.yc-private', {
+        workspaceId: 'ws-1',
+        grantId,
+        action: 'sync',
+        limit: 5,
+      });
+    });
+  });
+
+  describe('POST /ingestion/replay', () => {
+    it('queues replay from an existing ingestion record', async () => {
+      const ingestionRecordId = '00000000-0000-4000-8000-000000000002';
+      mockYc.getIngestionRecord.mockResolvedValueOnce({
+        id: ingestionRecordId,
+        rawStoragePath: '/tmp/yc-companies.json',
+      });
+      const deps = createMockDeps();
+      const { fetch } = testApp(ycRoutes, deps);
+
+      const res = await fetch(
+        'POST',
+        '/ingestion/replay',
+        { source: 'companies', ingestionRecordId },
+        { 'X-Workspace-Id': 'ws-1' },
+      );
+      const json = await expectJson<{ queued: boolean; replayPath: string }>(res, 202);
+
+      expect(json).toMatchObject({ queued: true, replayPath: '/tmp/yc-companies.json' });
+      expect(deps.orchestrator.boss.send).toHaveBeenCalledWith('pipeline.yc-scrape', {
+        workspaceId: 'ws-1',
+        replayPath: '/tmp/yc-companies.json',
+      });
     });
   });
 });

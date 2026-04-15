@@ -110,6 +110,30 @@ else
   PREREQ_PASS=false
 fi
 
+# Python 3.10+
+if command -v python3 &>/dev/null; then
+  PYTHON_VER=$(python3 --version 2>/dev/null | awk '{print $2}')
+  PYTHON_MAJOR=$(echo "$PYTHON_VER" | cut -d. -f1)
+  PYTHON_MINOR=$(echo "$PYTHON_VER" | cut -d. -f2)
+  if [ "$PYTHON_MAJOR" -gt 3 ] || { [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -ge 10 ]; }; then
+    ok "Python $PYTHON_VER"
+  else
+    fail "Python $PYTHON_VER (need >= 3.10)"
+    PREREQ_PASS=false
+  fi
+else
+  fail "python3 not found (need >= 3.10)"
+  PREREQ_PASS=false
+fi
+
+# pip
+if python3 -m pip --version &>/dev/null; then
+  ok "pip available"
+else
+  fail "python3 -m pip not available"
+  PREREQ_PASS=false
+fi
+
 # Docker (optional if --skip-docker)
 if command -v docker &>/dev/null; then
   ok "Docker $(docker --version | grep -oP '\d+\.\d+\.\d+' | head -1 || echo 'installed')"
@@ -181,6 +205,7 @@ fi
 # Only create .env if it doesn't exist or was overwritten
 if [ ! -f .env ] || [ "${overwrite:-}" = "y" ] || [ "${overwrite:-}" = "Y" ]; then
   DB_URL="postgresql://helm:helm@localhost:5432/helm_pilot"
+  PYTHON_BIN_PATH="$ROOT_DIR/.venv-pipelines/bin/python"
 
   prompt TELEGRAM_TOKEN "Telegram Bot Token (leave empty to skip)" ""
   prompt LLM_KEY "OpenRouter API Key (leave empty to skip)" ""
@@ -218,6 +243,10 @@ PORT=3100
 NODE_ENV=development
 LOG_LEVEL=info
 ALLOWED_ORIGINS=http://localhost:3000
+STORAGE_PATH=./data/storage
+PYTHON_BIN=${PYTHON_BIN_PATH}
+PLAYWRIGHT_BROWSERS_PATH=${ROOT_DIR}/.cache/ms-playwright
+PATCHRIGHT_BROWSERS_PATH=${ROOT_DIR}/.cache/ms-patchright
 EOF
 
   ok ".env created with generated secrets"
@@ -268,7 +297,18 @@ else
 fi
 
 # ─────────────────────────────────────────
-# Phase 6: Run Migrations
+# Phase 6: Install Python Runtime
+# ─────────────────────────────────────────
+step "Installing Python pipeline runtime..."
+if bash scripts/install-python-runtime.sh >/dev/null; then
+  ok "Python runtime installed"
+else
+  fail "Python runtime install failed"
+  exit 1
+fi
+
+# ─────────────────────────────────────────
+# Phase 7: Run Migrations
 # ─────────────────────────────────────────
 step "Running database migrations..."
 if npm run db:migrate 2>/dev/null; then
@@ -279,7 +319,7 @@ else
 fi
 
 # ─────────────────────────────────────────
-# Phase 7: Seed Initial Data (Optional)
+# Phase 8: Seed Initial Data (Optional)
 # ─────────────────────────────────────────
 if [ "$HEADLESS" = false ]; then
   prompt SEED_DATA "Seed sample data? (y/N)" "N"
@@ -296,7 +336,7 @@ else
 fi
 
 # ─────────────────────────────────────────
-# Phase 8: Validate Installation
+# Phase 9: Validate Installation
 # ─────────────────────────────────────────
 step "Validating installation..."
 
@@ -305,6 +345,13 @@ if npx turbo typecheck --filter=@helm-pilot/gateway 2>/dev/null; then
   ok "TypeScript compilation (gateway)"
 else
   warn "TypeScript check failed (non-critical for first run)"
+fi
+
+PYTHON_RUNTIME_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv-pipelines/bin/python}"
+if STORAGE_PATH="${STORAGE_PATH:-./data/storage}" "$PYTHON_RUNTIME_BIN" scripts/verify-python-runtime.py >/dev/null; then
+  ok "Python/Scrapling runtime"
+else
+  warn "Python/Scrapling runtime check failed"
 fi
 
 # Try starting the server briefly to verify it boots

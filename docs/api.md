@@ -7,6 +7,7 @@ Base URL: `http://localhost:3100` (or your deployed gateway URL)
 All protected endpoints require one of:
 - **Bearer token:** `Authorization: Bearer <session-token>`
 - **API key:** `X-API-Key: hp_<key>`
+- **Workspace context:** authenticated non-auth routes should also include `X-Workspace-Id: <workspace-id>` when the workspace is not already encoded in the path.
 
 Session tokens are obtained via `/api/auth/email/request` + `/api/auth/email/verify` or `/api/auth/telegram`.
 
@@ -253,11 +254,66 @@ Store a connector token (encrypted at rest).
 { "grantId": "...", "accessToken": "...", "refreshToken": "..." }
 ```
 
+### POST /api/connectors/:name/session
+Store an encrypted browser session snapshot for a session-auth connector such as `yc`.
+
+```json
+{ "grantId": "...", "sessionData": { "cookies": [], "origins": [] }, "sessionType": "storage_state" }
+```
+
+### POST /api/connectors/:name/session/validate
+Validate a previously stored session and queue a private sync/validation run when needed.
+
+```json
+{ "grantId": "...", "workspaceId": "..." }
+```
+
+### DELETE /api/connectors/:name/session
+Delete a stored browser session for the connector grant.
+
+```json
+{ "grantId": "..." }
+```
+
+### GET /api/connectors/:name
+Get connector status for the current workspace, including `hasSession`, `lastValidatedAt`, and `connectionState`.
+
 ---
 
 ## Launch
 
 ### GET /api/launch/targets
+
+---
+
+## YC Intelligence
+
+### POST /api/yc/ingestion/public
+Queue a public YC ingestion run.
+
+```json
+{ "workspaceId": "...", "source": "companies|startup_school", "limit": 50 }
+```
+
+### POST /api/yc/ingestion/private
+Queue a private YC session-backed run, typically for cofounder matching sync.
+
+```json
+{ "workspaceId": "...", "grantId": "...", "action": "validate|sync", "limit": 25 }
+```
+
+### POST /api/yc/ingestion/replay
+Replay a previously stored raw capture through the parser.
+
+```json
+{ "workspaceId": "...", "source": "companies|startup_school", "replayPath": "/abs/path/to/capture.json" }
+```
+
+### GET /api/yc/ingestion/history
+List recent ingestion records for the current workspace.
+
+### GET /api/yc/ingestion/:id
+Get a single ingestion record with status, counts, provenance, and errors.
 List deploy targets. Query: `?workspaceId=...`
 
 ### POST /api/launch/targets

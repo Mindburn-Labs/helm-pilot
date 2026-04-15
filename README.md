@@ -2,6 +2,8 @@
 
 Open-source, self-hostable autonomous founder operating system. HELM Pilot helps founders assess fit, discover opportunities, evaluate real co-founder candidates, coordinate digital operators, build, launch, and apply, all behind a governed trust boundary.
 
+The ingestion and browser-automation layer is now Scrapling-first: public YC ingestion, session-backed YC matching sync, and operator-triggered fetch/extract work all run through the shared Scrapling runtime.
+
 ## Architecture
 
 Single-process Node.js server (V1) with PostgreSQL 17 + pgvector.
@@ -33,6 +35,7 @@ packages/
 
 - Node.js >= 22
 - Docker & Docker Compose (for PostgreSQL)
+- Python 3.10+ (for Scrapling-backed pipelines)
 - A Telegram bot token (from [@BotFather](https://t.me/BotFather))
 - An LLM API key (OpenRouter recommended)
 - `APP_URL` set to the public gateway URL you will use for OAuth callbacks
@@ -54,6 +57,9 @@ docker compose -f infra/docker/docker-compose.yml up -d postgres
 
 # Install dependencies
 npm ci
+
+# Install the pinned Python runtime for Scrapling pipelines
+bash scripts/install-python-runtime.sh
 
 # Run database migrations
 npm run db:migrate
@@ -122,6 +128,12 @@ npm run db:studio    # Open Drizzle Studio (DB browser)
 npm run format       # Prettier format
 ```
 
+Validate the local runtime, including Scrapling and browser binaries:
+
+```bash
+PYTHON_BIN=./.venv-pipelines/bin/python ./scripts/launch-gate.sh
+```
+
 ## API
 
 All API routes (except `/health` and `/api/auth/*`) require authentication via:
@@ -165,6 +177,9 @@ All API routes (except `/health` and `/api/auth/*`) require authentication via:
 | `OPENROUTER_API_KEY` | Yes | - | LLM provider API key |
 | `SESSION_SECRET` | Yes | - | Session token signing secret |
 | `ENCRYPTION_KEY` | Yes | - | Connector token encryption key |
+| `PYTHON_BIN` | No | `python3` | Python executable used by background ingestion jobs |
+| `PLAYWRIGHT_BROWSERS_PATH` | No | repo-local cache | Browser cache for Scrapling dynamic fetchers |
+| `PATCHRIGHT_BROWSERS_PATH` | No | repo-local cache | Browser cache for Scrapling stealth sessions |
 | `PORT` | No | 3100 | HTTP server port |
 | `NODE_ENV` | No | development | Environment (development/production) |
 | `LOG_LEVEL` | No | info | Pino log level |

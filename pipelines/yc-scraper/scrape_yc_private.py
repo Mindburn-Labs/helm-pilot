@@ -198,6 +198,7 @@ def main() -> None:
     response = fetch_html(
         MATCHING_URL,
         strategy="stealthy",
+        adaptive_domain="ycombinator.com",
         session_data=session_data,
         wait_selector="main",
         timeout_ms=45_000,
@@ -273,6 +274,7 @@ def main() -> None:
             profile_response = fetch_html(
                 card["profileUrl"],
                 strategy="stealthy",
+                adaptive_domain="ycombinator.com",
                 session_data=session_data,
                 wait_selector="main",
                 timeout_ms=45_000,

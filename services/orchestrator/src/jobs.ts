@@ -159,6 +159,7 @@ Respond with JSON only: {"overall":N,"founderFit":N,"marketSignal":N,"feasibilit
     'pipeline.ingest-knowledge': 'pipelines/intelligence/ingest_ccunpacked.py',
   };
   const PIPELINE_TIMEOUT = 900_000; // 15 min (Startup school scrape can take time)
+  const pythonBin = process.env.PYTHON_BIN || 'python3';
 
   async function runPipeline(name: string, extraArgs: string[] = []): Promise<void> {
     const scriptPath = PIPELINE_ALLOWLIST[name];
@@ -187,7 +188,7 @@ Respond with JSON only: {"overall":N,"founderFit":N,"marketSignal":N,"feasibilit
 
     log.info({ pipeline: name, script: scriptPath, extraArgs }, 'Running pipeline');
     const args = [resolved, ...extraArgs];
-    const { stdout, stderr } = await execFileAsync('python3', args, {
+    const { stdout, stderr } = await execFileAsync(pythonBin, args, {
       timeout: PIPELINE_TIMEOUT,
       cwd,
       env: { ...process.env, PYTHONUNBUFFERED: '1' },

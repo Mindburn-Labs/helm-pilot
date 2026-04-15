@@ -124,6 +124,7 @@ def fetch_yc_companies(batch: str | None = None, limit: int | None = None) -> tu
             YC_ALGOLIA_URL,
             method="POST",
             strategy="fetcher",
+            adaptive_domain="ycombinator.com",
             headers={
                 "User-Agent": USER_AGENT,
                 "x-algolia-application-id": "45BWZJ1SGC",

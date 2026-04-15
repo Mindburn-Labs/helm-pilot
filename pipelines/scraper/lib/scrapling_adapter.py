@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from scrapling import DynamicFetcher, Fetcher, StealthyFetcher
+from scrapling.core.storage import SQLiteStorageSystem
 
 
 def domain_key(url: str) -> str:
@@ -13,6 +16,33 @@ def domain_key(url: str) -> str:
 
 def adaptive_identifier(url: str, label: str) -> str:
     return f"{domain_key(url)}::{label}"
+
+
+def storage_root() -> Path:
+    return Path(os.environ.get("STORAGE_PATH", "./data/storage")).resolve()
+
+
+def ensure_dir(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def adaptive_storage_file(url: str, adaptive_domain: str | None = None) -> str:
+    key = (adaptive_domain or domain_key(url)).replace("/", "_")
+    return str(ensure_dir(storage_root() / "adaptive") / f"{key}.sqlite3")
+
+
+def selector_config(url: str, adaptive_domain: str | None = None) -> dict[str, Any]:
+    domain = adaptive_domain or url
+    return {
+        "adaptive": True,
+        "storage": SQLiteStorageSystem,
+        "storage_args": {
+            "storage_file": adaptive_storage_file(url, adaptive_domain),
+            "url": domain,
+        },
+        "adaptive_domain": domain,
+    }
 
 
 def cookies_from_session(session_data: Any) -> list[dict[str, Any]] | None:
@@ -44,6 +74,7 @@ def fetch_json(
     *,
     method: str = "GET",
     strategy: str = "fetcher",
+    adaptive_domain: str | None = None,
     headers: dict[str, str] | None = None,
     params: dict[str, Any] | None = None,
     data: Any = None,
@@ -57,12 +88,13 @@ def fetch_json(
         "params": params,
         "cookies": cookies,
         "timeout": timeout,
+        "selector_config": selector_config(url, adaptive_domain),
     }
     if method.upper() == "POST":
         if json_body is not None:
-          kwargs["json"] = json_body
+            kwargs["json"] = json_body
         if data is not None:
-          kwargs["data"] = data
+            kwargs["data"] = data
         response = Fetcher.post(url, **kwargs)
     else:
         response = Fetcher.get(url, **kwargs)
@@ -74,6 +106,7 @@ def fetch_html(
     *,
     strategy: str = "auto",
     session_data: Any = None,
+    adaptive_domain: str | None = None,
     headers: dict[str, str] | None = None,
     wait_selector: str | None = None,
     wait_selector_state: str = "attached",
@@ -93,6 +126,7 @@ def fetch_html(
             url,
             cookies=cookies,
             extra_headers=headers or {},
+            selector_config=selector_config(url, adaptive_domain),
             timeout=timeout_ms,
             wait_selector=wait_selector,
             wait_selector_state=wait_selector_state,
@@ -107,6 +141,7 @@ def fetch_html(
             url,
             cookies=cookies,
             extra_headers=headers or {},
+            selector_config=selector_config(url, adaptive_domain),
             timeout=timeout_ms,
             wait_selector=wait_selector,
             wait_selector_state=wait_selector_state,
@@ -119,6 +154,7 @@ def fetch_html(
         url,
         headers=headers or {},
         cookies=cookies,
+        selector_config=selector_config(url, adaptive_domain),
         timeout=max(5, int(timeout_ms / 1000)),
     )
 

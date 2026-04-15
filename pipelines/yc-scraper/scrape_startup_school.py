@@ -18,6 +18,7 @@ if str(PIPELINES_ROOT) not in sys.path:
 from scrapling.fetchers import AsyncDynamicSession  # noqa: E402
 from scrapling.spiders.request import Request  # noqa: E402
 from scrapling.spiders.spider import Spider  # noqa: E402
+from scraper.lib.scrapling_adapter import selector_config  # noqa: E402
 
 from common import (  # noqa: E402
     create_crawl_run,
@@ -74,6 +75,7 @@ class YcLibrarySpider(Spider):
             SOURCE_ORIGIN,
             sid="browser",
             wait_selector="a[href^='/library/']",
+            selector_config=selector_config(SOURCE_ORIGIN, "ycombinator.com"),
             callback=self.parse,
         )
 
@@ -99,6 +101,7 @@ class YcLibrarySpider(Spider):
                 full_url,
                 sid="browser",
                 wait_selector="main",
+                selector_config=selector_config(full_url, "ycombinator.com"),
                 callback=self.parse_article,
             )
 

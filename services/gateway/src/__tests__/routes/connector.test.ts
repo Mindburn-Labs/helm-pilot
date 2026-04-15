@@ -13,6 +13,14 @@ function createConnectorsMock() {
         requiredScopes: ['repo'],
         requiresApproval: true,
       },
+      {
+        id: 'yc',
+        name: 'YC Matching',
+        description: 'YC private session connector',
+        authType: 'session',
+        requiredScopes: ['matching:read'],
+        requiresApproval: true,
+      },
     ]),
     listWorkspaceGrants: vi.fn(async () => []),
     getConnector: vi.fn((name: string) =>
@@ -25,6 +33,15 @@ function createConnectorsMock() {
             requiredScopes: ['repo'],
             requiresApproval: true,
           }
+        : name === 'yc'
+          ? {
+              id: 'yc',
+              name: 'YC Matching',
+              description: 'YC private session connector',
+              authType: 'session',
+              requiredScopes: ['matching:read'],
+              requiresApproval: true,
+            }
         : null,
     ),
     grantConnector: vi.fn(async () => 'grant-1'),
@@ -175,6 +192,72 @@ describe('connectorRoutes', () => {
       const body = await expectJson<{ stored: boolean }>(res, 200);
       expect(body.stored).toBe(true);
       expect(connectors.storeToken).toHaveBeenCalledWith('grant-1', 'ghp_abc123', undefined, undefined);
+    });
+  });
+
+  describe('POST /:name/session', () => {
+    it('stores session payload for session-auth connectors', async () => {
+      const connectors = createConnectorsMock();
+      const deps = createMockDeps({ connectors: connectors as any });
+      const { fetch } = testApp(connectorRoutes, deps);
+      const grantId = '00000000-0000-4000-8000-000000000001';
+
+      const res = await fetch('POST', '/yc/session', {
+        grantId,
+        sessionData: { cookies: [] },
+        sessionType: 'browser_storage_state',
+      });
+      const body = await expectJson<{ stored: boolean }>(res, 200);
+      expect(body.stored).toBe(true);
+      expect(connectors.storeSession).toHaveBeenCalledWith(
+        grantId,
+        { cookies: [] },
+        'browser_storage_state',
+        undefined,
+      );
+    });
+  });
+
+  describe('POST /:name/session/validate', () => {
+    it('queues validation for session-auth connectors', async () => {
+      const connectors = createConnectorsMock();
+      const grantId = '00000000-0000-4000-8000-000000000001';
+      connectors.getSessionRecord.mockResolvedValue({
+        id: '00000000-0000-4000-8000-000000000002',
+        grantId,
+        sessionType: 'browser_storage_state',
+      });
+      const deps = createMockDeps({ connectors: connectors as any });
+      const { fetch } = testApp(connectorRoutes, deps);
+
+      const res = await fetch(
+        'POST',
+        '/yc/session/validate',
+        { grantId, action: 'validate', limit: 10 },
+        { 'X-Workspace-Id': 'ws-1' },
+      );
+      const body = await expectJson<{ queued: boolean; queue: string }>(res, 200);
+      expect(body).toMatchObject({ queued: true, queue: 'pipeline.yc-private' });
+      expect(deps.orchestrator.boss.send).toHaveBeenCalledWith('pipeline.yc-private', {
+        workspaceId: 'ws-1',
+        grantId,
+        action: 'validate',
+        limit: 10,
+      });
+      expect(connectors.markSessionValidated).toHaveBeenCalled();
+    });
+  });
+
+  describe('DELETE /:name/session', () => {
+    it('deletes stored connector session', async () => {
+      const connectors = createConnectorsMock();
+      const deps = createMockDeps({ connectors: connectors as any });
+      const { fetch } = testApp(connectorRoutes, deps);
+
+      const res = await fetch('DELETE', '/yc/session?grantId=grant-1');
+      const body = await expectJson<{ deleted: boolean }>(res, 200);
+      expect(body.deleted).toBe(true);
+      expect(connectors.deleteSession).toHaveBeenCalledWith('grant-1');
     });
   });
 

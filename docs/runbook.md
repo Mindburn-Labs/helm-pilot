@@ -72,6 +72,22 @@ Symptoms: a task shows status='running' for hours.
 - If not happening, check pg-boss health: `SELECT * FROM pgboss.schedule WHERE name = 'tasks.reap_stuck'`.
 - Manual reap: `UPDATE tasks SET status='failed' WHERE id='<uuid>' AND status='running'`.
 
+### 1G. YC private sync / Scrapling runtime broken
+
+Symptoms: YC connector validates in UI but private sync jobs fail, or operator fetches return browser/runtime errors.
+
+- Check the configured Python runtime:
+  ```bash
+  PYTHON_BIN=${PYTHON_BIN:-./.venv-pipelines/bin/python} $PYTHON_BIN scripts/verify-python-runtime.py
+  ```
+- If browser binaries are missing, re-run:
+  ```bash
+  bash scripts/install-python-runtime.sh
+  ```
+- Verify `ENCRYPTION_KEY` did not rotate without a connector/session migration plan.
+- Confirm the `yc` connector still shows a validated session in the workspace settings UI.
+- If validation fails after a YC auth change, capture and save a fresh session snapshot.
+
 ---
 
 ## 2. Diagnostic Commands
@@ -111,6 +127,13 @@ WHERE state = 'active' AND now() - pg_stat_activity.query_start > interval '30 s
 ```sql
 SELECT name, state, COUNT(*) FROM pgboss.job GROUP BY name, state;
 SELECT * FROM pgboss.archive ORDER BY completed_on DESC LIMIT 20;  -- recently completed
+```
+
+### Python / Scrapling
+```bash
+PYTHON_BIN=${PYTHON_BIN:-./.venv-pipelines/bin/python} $PYTHON_BIN scripts/verify-python-runtime.py
+ls -la ${PLAYWRIGHT_BROWSERS_PATH:-./.cache/ms-playwright}
+ls -la ${PATCHRIGHT_BROWSERS_PATH:-./.cache/ms-patchright}
 ```
 
 ---
