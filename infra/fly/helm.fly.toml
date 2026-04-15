@@ -1,0 +1,110 @@
+# HELM governance sidecar — deployed as a separate Fly app alongside helm-pilot.
+#
+# Deploy order:
+#   1. `fly deploy --config infra/fly/helm.fly.toml` (from repo root)
+#   2. Verify health: `fly status --app helm-pilot-helm`
+#   3. `fly deploy --config infra/fly/pilot.fly.toml` (the Pilot app reads
+#      HELM_GOVERNANCE_URL = http://helm-pilot-helm.internal:8080 via Fly
+#      internal DNS — see infra/fly/README.md).
+#
+# Secrets (set once per environment):
+#   fly secrets set --app helm-pilot-helm \
+#     EVIDENCE_SIGNING_KEY="$(openssl rand -hex 32)" \
+#     HELM_UPSTREAM_URL="https://openrouter.ai/api/v1" \
+#     OPENROUTER_API_KEY="..."          # HELM forwards with this key
+#
+# Attach the same Postgres cluster used by helm-pilot, under its own database
+# name (fly attaches a DATABASE_URL secret automatically):
+#   fly postgres attach helm-pilot-db \
+#     --app helm-pilot-helm \
+#     --database-name helm_governance
+
+app = "helm-pilot-helm"
+primary_region = "ams"
+
+[build]
+  # Build from the sibling helm-oss repo. Production workflows should point at
+  # a published ghcr.io/mindburn-labs/helm-oss:<tag> image and drop this
+  # [build] block — pin a digest for reproducibility.
+  dockerfile = "../../../helm-oss/Dockerfile.slim"
+  # The helm-oss Dockerfile context is the repo root of helm-oss itself.
+  # Fly uses the same cwd as the toml; the relative dockerfile path above
+  # resolves to helm-oss/Dockerfile.slim when `fly deploy` is run from the
+  # HELM Pilot root. If you clone helm-oss elsewhere, set HELM_IMAGE and deploy
+  # the published image instead of using this build block.
+
+[env]
+  # HELM listens on 8080 inside the machine; Fly maps internal ports per the
+  # services block below. External exposure stays HTTPS-only.
+  HELM_BIND_ADDR = "0.0.0.0"
+  HELM_PORT = "8080"
+  HELM_HEALTH_PORT = "8081"
+  HELM_REGION = "pilot-prod"
+  HELM_ENABLE_OPENAI_PROXY = "1"
+  # HELM uses its own evidence + receipts directories inside the mounted volume
+  HELM_OSS_EVIDENCE_DIR = "/home/helm/data/evidence"
+  HELM_OSS_RECEIPTS_DIR = "/home/helm/data/receipts"
+
+# ─── Public HTTPS (Governance admin ingress) ─────────────────────────────
+# The /v1/chat/completions proxy is served here. Pilot-internal clients
+# should use the internal address (see [[services]] below) to avoid the
+# public edge and save egress costs.
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 200
+    soft_limit = 150
+
+# ─── Internal service (Pilot → HELM on the 6PN mesh) ──────────────────────
+# Pilot reaches HELM at http://helm-pilot-helm.internal:8080 without going
+# through the edge. Fly's 6PN private network gives us this automatically.
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 8080
+
+# ─── Health (on its own port inside the machine) ──────────────────────────
+# helm-oss runs a dedicated health server on HELM_HEALTH_PORT. Fly checks it
+# on the internal 6PN address.
+[[services.tcp_checks]]
+  grace_period = "20s"
+  interval = "10s"
+  timeout = "5s"
+  restart_limit = 0
+  port = 8081
+
+# ─── Data volume ──────────────────────────────────────────────────────────
+# Evidence packs + receipts + root.key live here. Fly creates a 1GB volume
+# on first deploy; expand with `fly volumes extend`.
+[mounts]
+  source = "helm_data"
+  destination = "/home/helm/data"
+  initial_size = "1"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+# ─── Metrics ──────────────────────────────────────────────────────────────
+# HELM emits OTel + Prometheus metrics on its main port.
+# Map Fly's scrape endpoint to the same internal port; path stays /metrics.
+[metrics]
+  port = 8080
+  path = "/metrics"
+
+# ─── Restart policy ───────────────────────────────────────────────────────
+# HELM is a fail-closed engine; if it crashes we want aggressive restart so
+# Pilot recovers within its circuit-breaker window.
+[deploy]
+  strategy = "rolling"

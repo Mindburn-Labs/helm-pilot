@@ -77,27 +77,33 @@ This starts PostgreSQL, the gateway on port `3100`, and the web app on port `300
 
 ## Deploy to Fly.io
 
+HELM Pilot deploys as **two apps**: the governance sidecar (`helm-pilot-helm`, running helm-oss) and the main Pilot service (`helm-pilot`). See [`infra/fly/README.md`](infra/fly/README.md) for the full runbook — deploy order, internal 6PN DNS wiring, upgrade/rollback, and cost. Short version:
+
 ```bash
 # Install flyctl
 curl -L https://fly.io/install.sh | sh
 
-# Create the app
+# Create both apps + shared Postgres (one-time)
+fly apps create helm-pilot-helm
 fly apps create helm-pilot
+fly postgres create --name helm-pilot-db --region ams
+fly postgres attach helm-pilot-db --app helm-pilot       --database-name helm_pilot
+fly postgres attach helm-pilot-db --app helm-pilot-helm  --database-name helm_governance
 
-# Create Postgres database
-fly postgres create --name helm-pilot-db
-fly postgres attach helm-pilot-db --app helm-pilot
-
-# Set secrets
-fly secrets set \
-  TELEGRAM_BOT_TOKEN=your-token \
-  TELEGRAM_WEBHOOK_SECRET=$(openssl rand -hex 32) \
-  OPENROUTER_API_KEY=your-key \
+# Secrets
+fly secrets set --app helm-pilot-helm \
+  EVIDENCE_SIGNING_KEY=$(openssl rand -hex 32) \
+  HELM_UPSTREAM_URL=https://openrouter.ai/api/v1 \
+  OPENROUTER_API_KEY=your-key
+fly secrets set --app helm-pilot \
   SESSION_SECRET=$(openssl rand -hex 32) \
-  --app helm-pilot
+  ENCRYPTION_KEY=$(openssl rand -hex 32) \
+  TELEGRAM_BOT_TOKEN=your-token \
+  TELEGRAM_WEBHOOK_SECRET=$(openssl rand -hex 32)
 
-# Deploy
-fly deploy --config infra/fly/fly.toml
+# Deploy sidecar first, then Pilot
+fly deploy --config infra/fly/helm.fly.toml
+fly deploy --config infra/fly/pilot.fly.toml
 
 # Set Telegram webhook (one-time)
 bash infra/scripts/set-telegram-webhook.sh

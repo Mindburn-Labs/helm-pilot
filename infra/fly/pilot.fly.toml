@@ -1,3 +1,9 @@
+# HELM Pilot — main app (gateway + bot + orchestrator).
+#
+# Deploy AFTER infra/fly/helm.fly.toml. Pilot fails-closed if HELM is not
+# reachable at HELM_GOVERNANCE_URL, so the sidecar must be healthy first.
+#
+# See infra/fly/README.md for the full deploy runbook.
 app = "helm-pilot"
 primary_region = "ams"
 
@@ -8,6 +14,14 @@ primary_region = "ams"
   NODE_ENV = "production"
   PORT = "3100"
   LOG_LEVEL = "info"
+  # HELM sidecar addresses — Fly 6PN private DNS. The HELM sidecar app name is
+  # "helm-pilot-helm" (see infra/fly/helm.fly.toml). If you rename it there,
+  # update these too.
+  HELM_GOVERNANCE_URL = "http://helm-pilot-helm.internal:8080"
+  HELM_HEALTH_URL = "http://helm-pilot-helm.internal:8081"
+  # Production must keep fail-closed on. Override to 0 only in explicit dev
+  # smoke tests.
+  HELM_FAIL_CLOSED = "1"
 
 [http_service]
   internal_port = 3100
