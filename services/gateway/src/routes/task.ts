@@ -1,0 +1,185 @@
+import { Hono } from 'hono';
+import { desc, eq } from 'drizzle-orm';
+import { tasks, taskRuns } from '@helm-pilot/db/schema';
+import { CreateTaskInput, TaskStatusSchema } from '@helm-pilot/shared/schemas';
+import { type GatewayDeps } from '../index.js';
+import { getWorkspaceId } from '../lib/workspace.js';
+
+export function taskRoutes(deps: GatewayDeps) {
+  const app = new Hono();
+
+  app.get('/', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
+    const limit = Math.min(Number(c.req.query('limit') ?? '100'), 200);
+    const rows = await deps.db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.workspaceId, workspaceId))
+      .orderBy(desc(tasks.createdAt))
+      .limit(limit);
+
+    return c.json(rows);
+  });
+
+  app.post('/', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    const raw = await c.req.json();
+    const parsed = CreateTaskInput.safeParse({
+      ...raw,
+      workspaceId: raw.workspaceId ?? workspaceId,
+    });
+
+    if (!parsed.success) {
+      return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
+    }
+
+    const body = parsed.data;
+    const [task] = await deps.db
+      .insert(tasks)
+      .values({
+        workspaceId: body.workspaceId,
+        operatorId: body.operatorId,
+        title: body.title,
+        description: body.description,
+        mode: body.mode,
+        priority: 0,
+      })
+      .returning();
+
+    if (!task) return c.json({ error: 'Failed to create task' }, 500);
+
+    if (body.autoRun) {
+      const runResult = await executeTaskRun(deps, task.id, {
+        workspaceId: task.workspaceId,
+        operatorId: task.operatorId ?? undefined,
+        context: task.description,
+        iterationBudget: body.iterationBudget,
+      });
+      return c.json({ ...task, status: runResult.status }, 201);
+    }
+
+    return c.json(task, 201);
+  });
+
+  app.put('/:id/status', async (c) => {
+    const { id } = c.req.param();
+    const raw = (await c.req.json()) as { status?: string };
+    const parsed = TaskStatusSchema.safeParse(raw.status);
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid status', allowed: TaskStatusSchema.options }, 400);
+    }
+
+    const [existing] = await deps.db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.id, id))
+      .limit(1);
+
+    if (!existing) return c.json({ error: 'Task not found' }, 404);
+
+    const [updated] = await deps.db
+      .update(tasks)
+      .set({
+        status: parsed.data,
+        updatedAt: new Date(),
+        completedAt: parsed.data === 'completed' ? new Date() : null,
+      })
+      .where(eq(tasks.id, id))
+      .returning();
+
+    return c.json(updated);
+  });
+
+  app.post('/:id/run', async (c) => {
+    const { id } = c.req.param();
+    const [task] = await deps.db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.id, id))
+      .limit(1);
+
+    if (!task) return c.json({ error: 'Task not found' }, 404);
+
+    const body = (await c.req.json().catch(() => ({}))) as {
+      context?: string;
+      iterationBudget?: number;
+    };
+
+    const result = await executeTaskRun(deps, id, {
+      workspaceId: task.workspaceId,
+      operatorId: task.operatorId ?? undefined,
+      context: body.context ?? task.description,
+      iterationBudget: body.iterationBudget,
+    });
+
+    const [updatedTask] = await deps.db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.id, id))
+      .limit(1);
+
+    return c.json({
+      task: updatedTask ?? task,
+      run: result,
+    });
+  });
+
+  app.get('/:id/runs', async (c) => {
+    const { id } = c.req.param();
+    const runs = await deps.db
+      .select()
+      .from(taskRuns)
+      .where(eq(taskRuns.taskId, id))
+      .orderBy(desc(taskRuns.startedAt));
+    return c.json(runs);
+  });
+
+  return app;
+}
+
+async function executeTaskRun(
+  deps: GatewayDeps,
+  taskId: string,
+  input: {
+    workspaceId: string;
+    operatorId?: string;
+    context: string;
+    iterationBudget?: number;
+  },
+) {
+  await deps.db
+    .update(tasks)
+    .set({
+      status: 'running',
+      updatedAt: new Date(),
+      completedAt: null,
+    })
+    .where(eq(tasks.id, taskId));
+
+  const result = await deps.orchestrator.runTask({
+    taskId,
+    workspaceId: input.workspaceId,
+    operatorId: input.operatorId,
+    context: input.context,
+    iterationBudget: input.iterationBudget,
+  });
+
+  await deps.db
+    .update(tasks)
+    .set({
+      status: mapRunStatusToTaskStatus(result.status),
+      updatedAt: new Date(),
+      completedAt: result.status === 'completed' ? new Date() : null,
+    })
+    .where(eq(tasks.id, taskId));
+
+  return result;
+}
+
+function mapRunStatusToTaskStatus(status: 'completed' | 'budget_exhausted' | 'blocked' | 'awaiting_approval') {
+  if (status === 'completed') return 'completed';
+  if (status === 'awaiting_approval') return 'awaiting_approval';
+  return 'failed';
+}

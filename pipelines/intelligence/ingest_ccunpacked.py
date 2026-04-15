@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+"""
+HELM Pilot — ccunpacked Knowledge Ingestion (Phase 2.2)
+
+Ingests the ccunpacked Claude Code architecture reference into the
+knowledge layer (pages + content_chunks tables).
+
+Source: _archive/ccunpacked_scrape/output/ (606 files)
+Target: knowledge.pages (type='concept') + knowledge.content_chunks
+
+Tracks provenance per Section 39.4.
+
+Usage:
+    python ingest_ccunpacked.py                         # Ingest all
+    python ingest_ccunpacked.py --source-dir /path/to   # Custom source
+    python ingest_ccunpacked.py --dry-run               # Print without DB writes
+    python ingest_ccunpacked.py --reference-only         # Ingest compiled reference only
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import sys
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+import psycopg2
+
+PARSER_VERSION = "0.1.0"
+CHUNK_SIZE = 1500  # chars per chunk (roughly ~375 tokens)
+CHUNK_OVERLAP = 200
+
+# ─── Category mapping from directory names ───
+CATEGORY_MAP = {
+    "agent_loop": ["claude-code", "agent-loop", "architecture"],
+    "architecture": ["claude-code", "architecture", "design"],
+    "commands": ["claude-code", "commands", "cli"],
+    "tools": ["claude-code", "tools", "api"],
+    "hidden_features": ["claude-code", "features", "undocumented"],
+}
+
+DEFAULT_SOURCE = os.path.join(
+    os.path.dirname(__file__), "..", "..", "_archive", "ccunpacked_scrape"
+)
+
+
+def get_db():
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        print("ERROR: DATABASE_URL required", file=sys.stderr)
+        sys.exit(1)
+    return psycopg2.connect(url)
+
+
+def chunk_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    """Split text into overlapping chunks."""
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + size
+        chunk = text[start:end]
+        if chunk.strip():
+            chunks.append(chunk.strip())
+        start = end - overlap
+    return chunks
+
+
+def clean_content(raw: str) -> str:
+    """Clean HTML/markdown noise from scraped content."""
+    # Strip common HTML artifacts
+    text = re.sub(r"<[^>]+>", "", raw)
+    # Collapse whitespace
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r" {2,}", " ", text)
+    return text.strip()
+
+
+def extract_title(content: str, filename: str) -> str:
+    """Extract title from content or filename."""
+    # Try first heading
+    match = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
+    if match:
+        return match.group(1).strip()
+    # Fall back to filename
+    return filename.replace(".html", "").replace(".txt", "").replace("_", " ").title()
+
+
+def ingest_file(cur, filepath: Path, category: str, tags: list[str], dry_run: bool) -> int:
+    """Ingest a single file as a knowledge page with chunks."""
+    raw = filepath.read_text(encoding="utf-8", errors="replace")
+    content = clean_content(raw)
+
+    if len(content) < 50:
+        return 0  # skip near-empty files
+
+    title = extract_title(content, filepath.name)
+    page_id = str(uuid.uuid4())
+
+    if dry_run:
+        chunks = chunk_text(content)
+        print(f"  [{category}] {title} — {len(content)} chars, {len(chunks)} chunks")
+        return len(chunks)
+
+    # Insert page
+    cur.execute(
+        """INSERT INTO pages (id, type, title, compiled_truth, tags)
+           VALUES (%s, %s, %s, %s, %s)""",
+        (
+            page_id,
+            "concept",
+            title,
+            content[:500],  # first 500 chars as initial compiled truth
+            json.dumps(tags),
+        ),
+    )
+
+    # Insert chunks
+    chunks = chunk_text(content)
+    for i, chunk in enumerate(chunks):
+        cur.execute(
+            """INSERT INTO content_chunks (id, page_id, content, chunk_index, metadata)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (
+                str(uuid.uuid4()),
+                page_id,
+                chunk,
+                i,
+                json.dumps({"source_file": str(filepath.name), "category": category}),
+            ),
+        )
+
+    return len(chunks)
+
+
+def ingest_reference(cur, source_dir: str, dry_run: bool) -> int:
+    """Ingest the compiled reference book."""
+    ref_path = Path(source_dir) / "CCUnpacked_Reference.md"
+    if not ref_path.exists():
+        print(f"  Reference file not found: {ref_path}")
+        return 0
+
+    content = ref_path.read_text(encoding="utf-8")
+    title = "Claude Code Architecture Reference (CCUnpacked)"
+    page_id = str(uuid.uuid4())
+    tags = ["claude-code", "architecture", "reference", "comprehensive"]
+
+    chunks = chunk_text(content)
+
+    if dry_run:
+        print(f"  [reference] {title} — {len(content)} chars, {len(chunks)} chunks")
+        return len(chunks)
+
+    cur.execute(
+        """INSERT INTO pages (id, type, title, compiled_truth, tags)
+           VALUES (%s, %s, %s, %s, %s)""",
+        (page_id, "concept", title, content[:500], json.dumps(tags)),
+    )
+
+    for i, chunk in enumerate(chunks):
+        cur.execute(
+            """INSERT INTO content_chunks (id, page_id, content, chunk_index, metadata)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (
+                str(uuid.uuid4()),
+                page_id,
+                chunk,
+                i,
+                json.dumps({"source_file": "CCUnpacked_Reference.md", "category": "reference"}),
+            ),
+        )
+
+    return len(chunks)
+
+
+def log_ingestion(cur, source: str, item_count: int, status: str, error: str | None = None):
+    """Record ingestion provenance."""
+    cur.execute(
+        """INSERT INTO ingestion_records
+           (id, source_origin, source_type, is_public, parser_version,
+            fetched_at, parsed_at, item_count, status, error)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+        (
+            str(uuid.uuid4()),
+            source,
+            "import",
+            False,  # scraped/curated content, not public API
+            PARSER_VERSION,
+            datetime.now(timezone.utc),
+            datetime.now(timezone.utc),
+            item_count,
+            status,
+            error,
+        ),
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Ingest ccunpacked into knowledge layer")
+    parser.add_argument("--source-dir", default=DEFAULT_SOURCE, help="Path to ccunpacked_scrape/")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--reference-only", action="store_true", help="Only ingest compiled reference")
+    args = parser.parse_args()
+
+    source_dir = os.path.abspath(args.source_dir)
+    output_dir = os.path.join(source_dir, "output")
+
+    print(f"HELM Pilot ccunpacked Ingestion v{PARSER_VERSION}")
+    print(f"  Source: {source_dir}")
+    print(f"  Dry run: {args.dry_run}")
+    print()
+
+    conn = None if args.dry_run else get_db()
+    cur = conn.cursor() if conn else None
+
+    total_chunks = 0
+    total_pages = 0
+
+    try:
+        # Ingest compiled reference
+        print("Ingesting compiled reference...")
+        ref_chunks = ingest_reference(cur, source_dir, args.dry_run)
+        total_chunks += ref_chunks
+        if ref_chunks > 0:
+            total_pages += 1
+
+        if not args.reference_only:
+            # Ingest individual output files
+            # Files are flat in output/ with category prefix: agent_loop_0.html, commands_35.txt
+            print("\nIngesting output files...")
+            text_exts = {".html", ".txt", ".md"}
+            by_category: dict[str, list[Path]] = {}
+
+            if os.path.isdir(output_dir):
+                for filepath in sorted(Path(output_dir).iterdir()):
+                    if not filepath.is_file() or filepath.suffix.lower() not in text_exts:
+                        continue
+                    # Extract category from filename prefix: "agent_loop_0.html" -> "agent_loop"
+                    name = filepath.stem
+                    parts = name.rsplit("_", 1)
+                    category = parts[0] if len(parts) > 1 and parts[1].isdigit() else name
+                    by_category.setdefault(category, []).append(filepath)
+
+                for category, files in sorted(by_category.items()):
+                    tags = CATEGORY_MAP.get(category, ["claude-code", category])
+                    print(f"\n  Category: {category} ({len(files)} files)")
+                    for filepath in files:
+                        chunks = ingest_file(cur, filepath, category, tags, args.dry_run)
+                        if chunks > 0:
+                            total_chunks += chunks
+                            total_pages += 1
+            else:
+                print(f"  Output directory not found: {output_dir}")
+
+        if cur and not args.dry_run:
+            log_ingestion(cur, source_dir, total_pages, "parsed")
+            conn.commit()
+
+        print(f"\nDone: {total_pages} pages, {total_chunks} chunks")
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+            if cur:
+                log_ingestion(cur, source_dir, 0, "failed", str(e))
+                conn.commit()
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+
+if __name__ == "__main__":
+    main()

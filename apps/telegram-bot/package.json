@@ -1,0 +1,32 @@
+{
+  "name": "@helm-pilot/telegram-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js",
+    "./notifications": "./dist/notifications.js"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests"
+  },
+  "dependencies": {
+    "@helm-pilot/db": "*",
+    "@helm-pilot/founder-intel": "*",
+    "@helm-pilot/shared": "*",
+    "drizzle-orm": "^0.44.7",
+    "grammy": "^1.35.0",
+    "pino": "^9.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}

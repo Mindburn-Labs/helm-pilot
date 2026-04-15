@@ -1,0 +1,297 @@
+# HELM Pilot API Reference
+
+Base URL: `http://localhost:3100` (or your deployed gateway URL)
+
+## Authentication
+
+All protected endpoints require one of:
+- **Bearer token:** `Authorization: Bearer <session-token>`
+- **API key:** `X-API-Key: hp_<key>`
+
+Session tokens are obtained via `/api/auth/email/request` + `/api/auth/email/verify` or `/api/auth/telegram`.
+
+Session tokens rotate automatically after 24 hours — check the `X-New-Token` response header.
+
+---
+
+## Auth
+
+### POST /api/auth/email/request
+Request a magic link code.
+
+```json
+{ "email": "you@example.com" }
+```
+
+Response: `{ "sent": true, "email": "...", "code": "123456" }` (code only in dev mode)
+
+### POST /api/auth/email/verify
+Verify magic link code and get a session.
+
+```json
+{ "email": "you@example.com", "code": "123456" }
+```
+
+Response: `{ "token": "...", "user": { "id", "name", "email" }, "workspace": { "id", "name" } }`
+
+### POST /api/auth/telegram
+Authenticate via Telegram Web App initData.
+
+```json
+{ "initData": "<telegram-web-app-init-data>" }
+```
+
+### POST /api/auth/apikey
+Create an API key (requires auth).
+
+```json
+{ "name": "my-key" }
+```
+
+Response: `{ "key": "hp_...", "name": "...", "expiresAt": "..." }`
+
+### DELETE /api/auth/session
+Logout / invalidate current session.
+
+### POST /api/auth/invite/:token
+Accept a workspace invite.
+
+```json
+{ "email": "you@example.com" }
+```
+
+---
+
+## Workspace
+
+### GET /api/workspace/:id
+Get workspace details with members.
+
+### GET /api/workspace/:id/settings
+Get workspace settings (policy, budget, model config).
+
+### PUT /api/workspace/:id/settings
+Update workspace settings.
+
+```json
+{
+  "policyConfig": { "maxIterationBudget": 50, "blockedTools": [] },
+  "budgetConfig": { "monthlyLlmBudget": 100, "currency": "USD" },
+  "modelConfig": { "provider": "openrouter", "model": "anthropic/claude-sonnet-4-20250514", "temperature": 0.7 }
+}
+```
+
+### PUT /api/workspace/:id/mode
+Switch workspace mode.
+
+```json
+{ "mode": "discover" }
+```
+
+Valid modes: `discover`, `decide`, `build`, `launch`, `apply`
+
+### POST /api/workspace/:id/invite
+Generate invite link.
+
+```json
+{ "role": "member", "email": "partner@example.com" }
+```
+
+Response: `{ "inviteUrl": "...", "inviteToken": "...", "role": "member", "expiresIn": "7 days" }`
+
+---
+
+## Opportunities
+
+### GET /api/opportunities
+List opportunities. Query: `?workspaceId=...`
+
+### POST /api/opportunities
+Create an opportunity.
+
+```json
+{ "title": "...", "description": "...", "source": "manual", "workspaceId": "..." }
+```
+
+### POST /api/opportunities/:id/score
+Enqueue opportunity scoring job.
+
+---
+
+## Tasks
+
+### GET /api/tasks
+List tasks. Query: `?workspaceId=...`
+
+### POST /api/tasks
+Create a task.
+
+```json
+{ "title": "...", "description": "...", "workspaceId": "..." }
+```
+
+### PUT /api/tasks/:id/status
+Update task status.
+
+```json
+{ "status": "queued" }
+```
+
+---
+
+## Operators
+
+### GET /api/operators
+List operators. Query: `?workspaceId=...`
+
+### POST /api/operators
+Create an operator.
+
+```json
+{ "name": "...", "role": "cto", "goal": "...", "workspaceId": "..." }
+```
+
+### PUT /api/operators/:id
+Update operator (goal, isActive).
+
+### GET /api/operators/roles
+List available operator role definitions.
+
+---
+
+## Knowledge
+
+### GET /api/knowledge/search
+Search knowledge base. Query: `?q=...&limit=20`
+
+### POST /api/knowledge/pages
+Create a knowledge page.
+
+```json
+{ "title": "...", "content": "...", "type": "note", "workspaceId": "..." }
+```
+
+---
+
+## Applications
+
+### GET /api/applications
+List applications. Query: `?workspaceId=...`
+
+### POST /api/applications
+Create an application.
+
+```json
+{ "name": "YC S26", "program": "yc", "deadline": "2026-06-01", "workspaceId": "..." }
+```
+
+### GET /api/applications/:id
+Get application with drafts and artifacts.
+
+### PUT /api/applications/:id/drafts
+Upsert a draft section.
+
+```json
+{ "section": "Company Description", "content": "..." }
+```
+
+### PUT /api/applications/:id/status
+Update application status.
+
+```json
+{ "status": "submitted" }
+```
+
+---
+
+## Audit
+
+### GET /api/audit
+List audit log entries. Query: `?workspaceId=...&limit=50`
+
+### GET /api/audit/approvals
+List approvals. Query: `?workspaceId=...&status=pending`
+
+### PUT /api/audit/approvals/:id
+Resolve an approval.
+
+```json
+{ "action": "approve", "resolvedBy": "user-id" }
+```
+
+### GET /api/audit/violations
+List policy violations. Query: `?workspaceId=...`
+
+---
+
+## Connectors
+
+### GET /api/connectors
+List available connectors.
+
+### GET /api/connectors/grants
+List workspace grants. Query: `?workspaceId=...`
+
+### POST /api/connectors/:name/grant
+Grant a connector to workspace.
+
+```json
+{ "workspaceId": "...", "scopes": ["repo", "user"] }
+```
+
+### DELETE /api/connectors/:name/grant
+Revoke a connector grant.
+
+```json
+{ "workspaceId": "..." }
+```
+
+### POST /api/connectors/:name/token
+Store a connector token (encrypted at rest).
+
+```json
+{ "grantId": "...", "accessToken": "...", "refreshToken": "..." }
+```
+
+---
+
+## Launch
+
+### GET /api/launch/targets
+List deploy targets. Query: `?workspaceId=...`
+
+### POST /api/launch/targets
+Create a deploy target.
+
+### GET /api/launch/deployments
+List deployments. Query: `?workspaceId=...`
+
+### POST /api/launch/deployments
+Record a deployment.
+
+### PUT /api/launch/deployments/:id/status
+Update deployment status.
+
+### POST /api/launch/deployments/:id/health
+Record a health check.
+
+---
+
+## Other
+
+### GET /api/founder/profile
+Get founder profile.
+
+### GET /api/yc/companies
+Search YC companies. Query: `?q=...`
+
+### GET /api/product/modes
+List product modes.
+
+### GET /api/events
+List timeline events. Query: `?workspaceId=...`
+
+### GET /health
+Health check (public).
+
+Response: `{ "status": "ok", "version": "0.1.0", "checks": { "db": true, "pgboss": true } }`

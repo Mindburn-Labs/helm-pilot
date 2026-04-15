@@ -1,0 +1,181 @@
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import { serveStatic } from '@hono/node-server/serve-static';
+import { sql } from 'drizzle-orm';
+import { type Db } from '@helm-pilot/db/client';
+import { type Orchestrator } from '@helm-pilot/orchestrator';
+import { type MemoryService } from '@helm-pilot/memory';
+import { type FounderIntelService } from '@helm-pilot/founder-intel';
+import { createLogger } from '@helm-pilot/shared/logger';
+import { secureHeaders } from 'hono/secure-headers';
+import { requireAuth } from './middleware/auth.js';
+import { rateLimit } from './middleware/rate-limit.js';
+import { auditMiddleware } from './middleware/audit.js';
+import { metricsMiddleware, metricsEndpoint } from './middleware/metrics.js';
+import { requestId } from './middleware/request-id.js';
+import { authRoutes } from './routes/auth.js';
+import { founderRoutes } from './routes/founder.js';
+import { opportunityRoutes } from './routes/opportunity.js';
+import { taskRoutes } from './routes/task.js';
+import { operatorRoutes } from './routes/operator.js';
+import { knowledgeRoutes } from './routes/knowledge.js';
+import { ycRoutes } from './routes/yc.js';
+import { productRoutes } from './routes/product.js';
+import { launchRoutes } from './routes/launch.js';
+import { eventRoutes } from './routes/events.js';
+import { workspaceRoutes } from './routes/workspace.js';
+import { applicationRoutes } from './routes/application.js';
+import { auditRoutes } from './routes/audit.js';
+import { connectorRoutes } from './routes/connector.js';
+import { statusRoutes } from './routes/status.js';
+import { type ConnectorRegistry, type OAuthFlowManager } from '@helm-pilot/connectors';
+import { type CofounderEngine } from '@helm-pilot/cofounder-engine';
+import { type EventBus } from './events/bus.js';
+
+const log = createLogger('gateway');
+
+export interface GatewayDeps {
+  db: Db;
+  orchestrator: Orchestrator;
+  memory: MemoryService;
+  founderIntel?: FounderIntelService;
+  connectors?: ConnectorRegistry;
+  oauth?: OAuthFlowManager;
+  cofounderEngine?: CofounderEngine;
+  eventBus?: EventBus;
+}
+
+export function createGateway(deps: GatewayDeps) {
+  const app = new Hono();
+
+  // ─── Global error handler ───
+  app.onError((err, c) => {
+    log.error({ err, path: c.req.path, method: c.req.method }, 'Unhandled error');
+    if (err instanceof SyntaxError && err.message.includes('JSON')) {
+      return c.json({ error: 'Invalid JSON in request body' }, 400);
+    }
+    return c.json({ error: 'Internal server error' }, 500);
+  });
+
+  app.notFound((c) => c.json({ error: 'Not found' }, 404));
+
+  // ─── Request ID (generate or propagate) ───
+  app.use('*', requestId());
+
+  // ─── Prometheus metrics collection ───
+  app.use('*', metricsMiddleware());
+
+  // ─── Security headers ───
+  app.use('*', secureHeaders());
+
+  // ─── CORS ───
+  const origins = process.env['ALLOWED_ORIGINS']?.split(',').filter(Boolean) ?? [];
+  app.use(
+    '/api/*',
+    cors({
+      origin: origins.length > 0 ? origins : '*',
+      allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      allowHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-Workspace-Id'],
+    }),
+  );
+
+  // ─── Structured request logging (with correlation ID) ───
+  app.use('*', async (c, next) => {
+    const start = Date.now();
+    await next();
+    const requestId = c.res.headers.get('X-Request-Id') ?? undefined;
+    log.info(
+      {
+        requestId,
+        method: c.req.method,
+        path: c.req.path,
+        status: c.res.status,
+        ms: Date.now() - start,
+      },
+      'request',
+    );
+  });
+
+  // ─── Rate limiting (per-user when authenticated, per-IP otherwise) ───
+  app.use('/api/auth/*', rateLimit({ windowMs: 60_000, max: 5 }));  // Strict on auth endpoints
+  app.use('/api/connectors/*/grant', rateLimit({ windowMs: 60_000, max: 10 }));
+  app.use('/api/connectors/*/token', rateLimit({ windowMs: 60_000, max: 10 }));
+  app.use('/api/tasks', rateLimit({ windowMs: 60_000, max: 30 }));
+  app.use('/api/*', rateLimit({ windowMs: 60_000, max: 100 }));
+
+  // ─── Health (public, enriched) ───
+  app.get('/health', async (c) => {
+    let dbOk = false;
+    try {
+      await deps.db.execute(sql`SELECT 1`);
+      dbOk = true;
+    } catch {
+      // DB unreachable
+    }
+    const bossOk = !!deps.orchestrator.boss;
+    const healthy = dbOk;
+    return c.json(
+      {
+        status: healthy ? 'ok' : 'degraded',
+        service: 'helm-pilot',
+        version: '0.1.0',
+        uptime: Math.floor(process.uptime()),
+        checks: { db: dbOk, pgboss: bossOk },
+      },
+      healthy ? 200 : 503,
+    );
+  });
+
+  // ─── Prometheus metrics endpoint (public, for scraping) ───
+  app.get('/metrics', metricsEndpoint());
+
+  // ─── Auth routes (public) ───
+  app.route('/api/auth', authRoutes(deps));
+
+  // ─── Protected API routes (telegram webhook uses its own secret-token auth) ───
+  const auth = requireAuth(deps.db);
+  app.use('/api/*', async (c, next) => {
+    if (c.req.path === '/api/telegram/webhook') return next();
+    return auth(c, next);
+  });
+
+  // ─── Audit logging (after auth, logs mutating requests) ───
+  app.use('/api/*', auditMiddleware(deps.db));
+
+  app.route('/api/founder', founderRoutes(deps));
+  app.route('/api/opportunities', opportunityRoutes(deps));
+  app.route('/api/tasks', taskRoutes(deps));
+  app.route('/api/operators', operatorRoutes(deps));
+  app.route('/api/knowledge', knowledgeRoutes(deps));
+  app.route('/api/yc', ycRoutes(deps));
+  app.route('/api/product', productRoutes(deps));
+  app.route('/api/launch', launchRoutes(deps));
+  app.route('/api/events', eventRoutes(deps));
+  app.route('/api/workspace', workspaceRoutes(deps));
+  app.route('/api/applications', applicationRoutes(deps));
+  app.route('/api/audit', auditRoutes(deps));
+  app.route('/api/connectors', connectorRoutes(deps));
+  app.route('/api/status', statusRoutes(deps));
+
+  // ─── Telegram Mini App (static files) ───
+  app.get(
+    '/app/*',
+    serveStatic({
+      root: './apps/telegram-miniapp/dist',
+      rewriteRequestPath: (path) => path.replace(/^\/app/, ''),
+    }),
+  );
+  // SPA fallback: serve index.html for any /app route that doesn't match a file
+  app.get('/app/*', serveStatic({ root: './apps/telegram-miniapp/dist', path: 'index.html' }));
+
+  // ─── Root (public) ───
+  app.get('/', (c) =>
+    c.json({
+      name: 'helm-pilot',
+      version: '0.1.0',
+      description: 'Open-source autonomous founder operating system',
+    }),
+  );
+
+  return app;
+}

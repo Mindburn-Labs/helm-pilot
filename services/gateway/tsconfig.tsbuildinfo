@@ -1,0 +1,1 @@
+{"root":["./src/index.ts","./src/server.ts","./src/routes/founder.ts","./src/routes/knowledge.ts","./src/routes/operator.ts","./src/routes/opportunity.ts","./src/routes/task.ts"],"version":"5.9.3"}

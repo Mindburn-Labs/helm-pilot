@@ -1,0 +1,40 @@
+{
+  "name": "@helm-pilot/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests"
+  },
+  "dependencies": {
+    "@helm-pilot/cofounder-engine": "*",
+    "@helm-pilot/connectors": "*",
+    "@helm-pilot/db": "*",
+    "@helm-pilot/founder-intel": "*",
+    "@helm-pilot/launch-engine": "*",
+    "@helm-pilot/memory": "*",
+    "@helm-pilot/orchestrator": "*",
+    "@helm-pilot/product-factory": "*",
+    "@helm-pilot/shared": "*",
+    "@helm-pilot/telegram-bot": "*",
+    "@helm-pilot/yc-intel": "*",
+    "@hono/node-server": "^1.19.13",
+    "drizzle-orm": "^0.44.7",
+    "grammy": "^1.36.0",
+    "hono": "^4.7.0",
+    "ioredis": "^5.10.1",
+    "pg-boss": "^10.3.0",
+    "pino": "^9.6.0",
+    "prom-client": "^15.1.3"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}

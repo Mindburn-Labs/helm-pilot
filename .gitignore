@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+.pnp.*
+.yarn/
+
+# Build
+dist/
+.turbo/
+.next/
+out/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Credentials (NEVER commit)
+**/credentials/
+**/*.pem
+**/*.key
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Logs
+*.log
+logs/
+
+# Test
+coverage/
+
+# Database
+*.sqlite
+*.sqlite3
+
+# Docker
+docker-compose.override.yml

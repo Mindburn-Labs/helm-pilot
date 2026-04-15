@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx turbo typecheck
+
+      - name: Build
+        run: npx turbo build
+
+      - name: Test
+        run: npx turbo test
+
+      - name: Test Coverage
+        run: npx turbo test:coverage
+        continue-on-error: true
+
+      - name: Upload Coverage Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            services/*/coverage/
+            packages/*/coverage/
+            apps/*/coverage/
+          retention-days: 14
+
+      - name: Lint
+        run: npx turbo lint

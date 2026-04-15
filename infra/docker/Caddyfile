@@ -1,0 +1,49 @@
+{
+	# Global options
+	email {$TLS_EMAIL:admin@helm-pilot.dev}
+}
+
+# Main site — reverse proxy to HELM Pilot gateway
+{$DOMAIN:localhost} {
+	# Security headers
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		-Server
+	}
+
+	# API and health routes → gateway
+	handle /api/* {
+		reverse_proxy helm-pilot:3100
+	}
+
+	handle /health {
+		reverse_proxy helm-pilot:3100
+	}
+
+	# Telegram miniapp static assets
+	handle /app/* {
+		reverse_proxy helm-pilot:3100
+	}
+
+	# SSE events (longer timeouts)
+	handle /api/events/* {
+		reverse_proxy helm-pilot:3100 {
+			flush_interval -1
+			transport http {
+				read_timeout 300s
+			}
+		}
+	}
+
+	# Web app (Next.js)
+	handle {
+		reverse_proxy web:3000
+	}
+
+	# Gzip compression
+	encode gzip
+}

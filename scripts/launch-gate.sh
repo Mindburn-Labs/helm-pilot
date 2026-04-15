@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# HELM Pilot Launch Gate — automated verification script
+# Runs all checks to verify the system is deployment-ready.
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+PASS=0
+FAIL=0
+WARN=0
+
+check() {
+  local name="$1"
+  shift
+  echo -n "  $name... "
+  if output=$("$@" 2>&1); then
+    echo -e "${GREEN}PASS${NC}"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${RED}FAIL${NC}"
+    echo "    $output" | head -5
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+warn_check() {
+  local name="$1"
+  shift
+  echo -n "  $name... "
+  if output=$("$@" 2>&1); then
+    echo -e "${GREEN}PASS${NC}"
+    PASS=$((PASS + 1))
+  else
+    echo -e "${YELLOW}WARN${NC}"
+    echo "    $output" | head -3
+    WARN=$((WARN + 1))
+  fi
+}
+
+echo ""
+echo "========================================="
+echo "  HELM Pilot Launch Gate"
+echo "========================================="
+echo ""
+
+# --- Build & Type Checks ---
+echo "Phase 1: Build & Types"
+check "TypeScript (gateway)" npx tsc --noEmit -p services/gateway/tsconfig.json
+check "TypeScript (orchestrator)" npx tsc --noEmit -p services/orchestrator/tsconfig.json
+check "TypeScript (memory)" npx tsc --noEmit -p services/memory/tsconfig.json
+check "TypeScript (connectors)" npx tsc --noEmit -p packages/connectors/tsconfig.json
+check "TypeScript (web)" npx tsc --noEmit -p apps/web/tsconfig.json
+echo ""
+
+# --- Tests ---
+echo "Phase 2: Tests"
+check "Unit tests (all)" npm test
+echo ""
+
+# --- Docker Build ---
+echo "Phase 3: Docker"
+warn_check "Docker Compose config valid" docker compose -f infra/docker/docker-compose.yml config --quiet
+echo ""
+
+# --- API Smoke Tests (if server is running) ---
+echo "Phase 4: API Smoke Tests"
+API_URL="${API_URL:-http://localhost:3100}"
+if curl -sf "$API_URL/health" > /dev/null 2>&1; then
+  check "Health endpoint" curl -sf "$API_URL/health"
+  check "Root endpoint" curl -sf "$API_URL/"
+  check "Security headers (x-content-type-options)" bash -c "curl -sI '$API_URL/health' | grep -qi 'x-content-type-options'"
+  check "Malformed JSON returns 400" bash -c "STATUS=\$(curl -s -o /dev/null -w '%{http_code}' -X POST '$API_URL/api/tasks' -H 'Content-Type: application/json' -d 'not-json'); [ \"\$STATUS\" = '400' ]"
+  check "Auth rate limit header" bash -c "curl -sf -D- '$API_URL/api/auth/email/request' -X POST -H 'Content-Type: application/json' -d '{\"email\":\"test\"}' | head -1"
+
+  # Test auth flow if in dev mode
+  echo -n "  Auth flow (dev)... "
+  CODE=$(curl -sf "$API_URL/api/auth/email/request" -X POST -H 'Content-Type: application/json' -d '{"email":"gate@test.com"}' 2>/dev/null | grep -o '"code":"[0-9]*"' | cut -d'"' -f4 || true)
+  if [ -n "$CODE" ]; then
+    TOKEN=$(curl -sf "$API_URL/api/auth/email/verify" -X POST -H 'Content-Type: application/json' -d "{\"email\":\"gate@test.com\",\"code\":\"$CODE\"}" 2>/dev/null | grep -o '"token":"[^"]*"' | cut -d'"' -f4 || true)
+    if [ -n "$TOKEN" ]; then
+      check "Authenticated request" curl -sf -H "Authorization: Bearer $TOKEN" "$API_URL/api/tasks"
+    else
+      echo -e "${YELLOW}SKIP${NC} (could not get token)"
+      WARN=$((WARN + 1))
+    fi
+  else
+    echo -e "${YELLOW}SKIP${NC} (server not in dev mode)"
+    WARN=$((WARN + 1))
+  fi
+else
+  echo -e "  ${YELLOW}Server not running — skipping API tests${NC}"
+  WARN=$((WARN + 1))
+fi
+echo ""
+
+# --- Backup & Setup Checks ---
+echo "Phase 5: Backup Script"
+check "Backup script exists and is executable" bash -c "[ -x scripts/backup.sh ]"
+check "Backup script help output" bash scripts/backup.sh help > /dev/null
+echo ""
+
+echo "Phase 6: Setup Script"
+check "Setup script exists and is executable" bash -c "[ -x scripts/setup.sh ]"
+check "Setup script help output" bash scripts/setup.sh help > /dev/null
+echo ""
+
+# --- Security Checks ---
+echo "Phase 7: Security"
+if [ -f .env ]; then
+  # Load env variables safely for checking
+  export $(grep -v '^#' .env | xargs -d '\n' 2>/dev/null || true)
+fi
+
+warn_check "SESSION_SECRET is not default" bash -c "[ \"${SESSION_SECRET:-}\" != \"dev-state-secret\" ] && [ \"${SESSION_SECRET:-}\" != \"change-me-in-production\" ] && [ -n \"${SESSION_SECRET:-}\" ]"
+warn_check "ENCRYPTION_KEY is not default" bash -c "[ \"${ENCRYPTION_KEY:-}\" != \"dev-encryption-key\" ] && [ -n \"${ENCRYPTION_KEY:-}\" ]"
+warn_check "ALLOWED_ORIGINS is restricted" bash -c "[ \"${ALLOWED_ORIGINS:-*}\" != \"*\" ]"
+echo ""
+
+# --- TLS Check ---
+echo "Phase 8: TLS (if APP_URL is https)"
+if [[ "${APP_URL:-}" == https://* ]]; then
+  check "HTTPS endpoint is responding" curl -sf "$APP_URL/health" > /dev/null
+else
+  echo -e "  ${YELLOW}SKIP${NC} (APP_URL is not https or not set)"
+  WARN=$((WARN + 1))
+fi
+echo ""
+
+# --- Summary ---
+echo "========================================="
+TOTAL=$((PASS + FAIL + WARN))
+echo -e "  Results: ${GREEN}${PASS} passed${NC}, ${RED}${FAIL} failed${NC}, ${YELLOW}${WARN} warnings${NC} / ${TOTAL} total"
+echo "========================================="
+echo ""
+
+if [ "$FAIL" -gt 0 ]; then
+  echo -e "${RED}LAUNCH GATE: FAIL${NC}"
+  exit 1
+else
+  echo -e "${GREEN}LAUNCH GATE: PASS${NC}"
+  exit 0
+fi

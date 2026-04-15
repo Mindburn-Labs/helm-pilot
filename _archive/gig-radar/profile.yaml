@@ -1,0 +1,164 @@
+name: Ivan
+ai_friendly_buyers_only: true
+
+# ARBITRAGE MODE — Ivan can broker gigs in any category by subcontracting to specialists.
+# When a lead doesn't fit his personal delivery stack, we categorize it and tag it
+# for arbitrage instead of killing it. Specialist rolodex tells the pricing calculus.
+arbitrage_enabled: true
+
+# Margin target when arbitraging: Ivan quotes buyer at full rate, subcontracts at ~60%,
+# keeps 40% as coordination fee. Minimum margin $200 to be worth the effort.
+arbitrage_margin_pct: 40
+arbitrage_min_margin_usd: 200
+
+# Categories Ivan can arbitrage (everything, really — he's a generalist broker)
+arbitrage_categories:
+  - Engineering       # Rust, Scala, Swift, C++, ML, mobile, DevOps, deep systems
+  - Marketing         # SEO, SEM, growth, paid ads, social, email, branding
+  - Finance           # Accounting, bookkeeping, tax, CFO, fundraising support
+  - Design            # UI/UX, graphic, brand, illustration, video editing
+  - Content           # Copywriting, technical writing, translation, research
+  - Data              # Analytics, BI, dashboards, data engineering (ML pipelines)
+  - Operations        # Admin, VA, project management, scheduling, customer support
+  - Sales             # Cold outreach, SDR, closing, CRM setup
+  - Research          # Market research, competitive intel, lit review
+  - Legal             # Contracts, compliance (NOT regulated legal advice)
+  - Other             # Anything weird we encounter
+
+# Skills the operator can credibly deliver PERSONALLY (delivery_mode: personal).
+# Each match in a lead scores +5 points (capped at +30 total). These are vibe-codable with AI.
+skills:
+  # AI / agent building
+  - ai
+  - llm
+  - gpt
+  - claude
+  - openai
+  - openrouter
+  - rag
+  - prompt
+  - agent
+  - chatbot
+  - mcp
+  - openclaw
+  # No-code / low-code / automation
+  - n8n
+  - zapier
+  - make.com
+  - automation
+  - workflow
+  - webhook
+  - integration
+  # Web / vibe-codable
+  - next.js
+  - nextjs
+  - react
+  - tailwind
+  - typescript
+  - javascript
+  - landing page
+  - website
+  - webflow
+  - framer
+  - bubble
+  - wordpress
+  - shopify
+  - chrome extension
+  - browser extension
+  # Data / scraping / pipelines
+  - scraping
+  - scraper
+  - crawl
+  - api integration
+  # Payments / commerce
+  - stripe
+  - gumroad
+  - paypal
+  # Marketing / growth
+  - seo
+  - growth
+  - cold outreach
+  - email
+  - newsletter
+
+# Skill keywords that signal "Ivan cannot deliver PERSONALLY" — with arbitrage_enabled: true
+# these leads still score and get delivered to Telegram, but with delivery_mode: arbitrage.
+# The LLM scorer uses this list as a heuristic, not a hard filter.
+personal_blockers:
+  - rust
+  - c++
+  - cpp
+  - scala
+  - haskell
+  - elixir
+  - erlang
+  - swift
+  - swiftui
+  - objective-c
+  - kotlin
+  - android native
+  - java spring
+  - .net
+  - c#
+  - ruby on rails
+  - rails
+  - django
+  - golang
+  - go (only if isolated, not in "no-go" etc — handled by tokenizer)
+  - kubernetes operator
+  - cuda
+  - opencl
+  - assembly
+  - embedded
+  - firmware
+  - solidity
+  - move
+  - cairo
+  - phd
+  - research scientist
+  - principal engineer
+  - staff engineer
+
+# Specialist rolodex — names/handles of people Ivan can subcontract to for arbitrage plays.
+# The drafter references "my specialist" / "my network" when pitching these categories.
+# Fill in real contacts here once known. Empty = the drafter says "I work with a small trusted network".
+specialists:
+  Engineering_rust: []      # e.g. ["@rustacean123 on twitter", "@friend_name"]
+  Engineering_scala: []
+  Engineering_mobile: []
+  Engineering_ml: []
+  Finance_cpa: []
+  Design_graphic: []
+  Content_copywriting: []
+  Marketing_seo: []
+
+# Rates the operator is willing to charge.
+rates:
+  hourly_eur: 90
+  fixed_min: 500
+  fixed_max: 8000
+  preferred: fixed   # 'fixed' or 'hourly'
+
+# Voice/tone reference for pitch drafts. Used by the LLM to flavor the writing.
+pitch_voice: |
+  Direct, slightly informal, confident without bravado. Lead with the concrete plan,
+  not credentials. Skip the "happy to" / "I'd love to" pleasantries. Ask one specific
+  question that proves I read the post. Always include a fixed price + delivery date.
+  Short paragraphs. No corporate speak. No em-dashes used as decorative breakers.
+  Pretend I'm DM-ing a fellow indie hacker who needs this thing built fast.
+
+# What the operator typically delivers in <48h with AI assistance.
+deliverables:
+  - "Next.js + Tailwind landing page with copy + 1-2 form integrations"
+  - "n8n / Zapier workflow that connects N services and runs reliably"
+  - "Custom Claude/GPT-powered chatbot scoped to a single use case"
+  - "Web scraper + structured output API (Python/Node + Playwright)"
+  - "Chrome extension that automates 1 specific task"
+  - "Stripe checkout integration + webhook handler"
+  - "Notion/Airtable + LLM enrichment pipelines"
+  - "Custom GPT or Claude project with starter prompts + API access"
+  - "OpenClaw skill setup + 1 custom skill installed and configured"
+  - "Cold outreach automation (lead scrape → personalize → send)"
+  - "Marketing site MVP (3-5 pages, SEO basics, deploy)"
+  - "Internal tool dashboard (Next.js + Supabase or Airtable backend)"
+  - "API wrapper / integration glue between 2 services"

@@ -1,0 +1,392 @@
+01
+The Agent Loop
+02
+Architecture Explorer
+03
+Tool System
+04
+Command Catalog
+05
+Hidden Features
+Claude Code Unpacked
+Ask DeepWiki
+Y
+Featured on Hacker News
+
+What actually happens when you type a message into Claude Code? The agent loop, 50+ tools, multi-agent orchestration, and unreleased features, mapped straight from the source.
+
+1,900+
+FILES
+519K+
+LINES OF CODE
+53+
+TOOLS
+95+
+COMMANDS
+START EXPLORING
+↓
+01
+The Agent Loop
+
+From keypress to rendered response, step by step through the source.
+
+1
+Input
+2
+Message
+3
+History
+4
+System
+5
+API
+6
+Tokens
+7
+Tools?
+8
+Loop
+9
+Render
+10
+Hooks
+11
+Await
+
+Watch what happens when you send a message to Claude Code
+
+1
+User Input
+src/components/TextInput.tsx
+
+User types a message or pipes input through stdin
+
+●
+claude-code
+$
+Find all TODO comments in src/ and create a summary
+
+Keyboard input comes from Ink's TextInput component. In non-interactive mode, it reads from piped stdin instead.
+
+1/11
+0.5x
+1x
+2x
+02
+Architecture Explorer
+
+Click around the source tree to explore what's inside.
+
+Tools & Commands
+Core Processing
+UI Layer
+Infrastructure
+Support & Utilities
+Personality & UX
+src
+utils/
+564 files
+components/
+389 files
+commands/
+189 files
+tools/
+184 files
+services/
+130 files
+hooks/
+104 files
+ink/
+96 files
+bridge/
+31 files
+constants/
+21 files
+skills/
+20 files
+cli/
+03
+Tool System
+
+Every built-in tool Claude Code can call, sorted by what it does.
+
+FILE OPERATIONS
+6 tools
+FileRead
+FileEdit
+FileWrite
+Glob
+Grep
+NotebookEdit
+EXECUTION
+3 tools
+Bash
+PowerShell
+REPL
+SEARCH & FETCH
+4 tools
+WebBrowser
+🔒
+WebFetch
+WebSearch
+ToolSearch
+AGENTS & TASKS
+11 tools
+Agent
+SendMessage
+TaskCreate
+TaskGet
+TaskList
+TaskUpdate
+TaskStop
+TaskOutput
+TeamCreate
+TeamDelete
+ListPeers
+🔒
+PLANNING
+5 tools
+EnterPlanMode
+ExitPlanMode
+EnterWorktree
+ExitWorktree
+VerifyPlanExecution
+🔒
+MCP
+4 tools
+mcp
+ListMcpResources
+ReadMcpResource
+McpAuth
+SYSTEM
+11 tools
+AskUserQuestion
+TodoWrite
+Skill
+Config
+RemoteTrigger
+🔒
+CronCreate
+🔒
+CronDelete
+🔒
+CronList
+🔒
+Snip
+🔒
+Workflow
+🔒
+TerminalCapture
+🔒
+EXPERIMENTAL
+8 tools
+Sleep
+SendUserMessage
+StructuredOutput
+🔒
+LSP
+🔒
+SendUserFile
+🔒
+PushNotification
+🔒
+Monitor
+🔒
+SubscribePR
+🔒
+×
+WebFetch
+SEARCH & FETCH
+
+Fetch a URL and process it with an AI model
+
+HOW IT WORKS
+
+Takes a URL and a prompt. Fetches the page, converts HTML to markdown, then runs the prompt against the content using a small, fast model. Returns the model's response.
+
+PARAMETERS
+url
+prompt
+src/tools/WebFetchTool
+04
+Command Catalog
+
+Every slash command available in Claude Code, sorted by what it does.
+
+SETUP & CONFIG
+12
+/init
+/login
+/logout
+/config
+/permissions
+/model
+/theme
+/terminal-setup
+/doctor
+/onboarding
+/mcp
+/hooks
+DAILY WORKFLOW
+24
+/compact
+/memory
+/context
+/plan
+/resume
+/session
+/files
+/add-dir
+/copy
+/export
+/summary
+/clear
+/brief
+/output-style
+🔒
+/color
+/vim
+/keybindings
+/skills
+/tasks
+/agents
+/fast
+/effort
+/extra-usage
+/rate-limit-options
+CODE REVIEW & GIT
+13
+/review
+/commit
+/commit-push-pr
+/diff
+/pr_comments
+/branch
+/issue
+/security-review
+/autofix-pr
+🔒
+/share
+/install-github-app
+🔒
+/install-slack-app
+🔒
+/tag
+DEBUGGING & DIAGNOSTICS
+23
+/status
+/stats
+/cost
+/usage
+/version
+/feedback
+/think-back
+/thinkback-play
+/rewind
+/ctx_viz
+/debug-tool-call
+/perf-issue
+/heapdump
+/ant-trace
+/backfill-sessions
+🔒
+/break-cache
+🔒
+/bridge-kick
+🔒
+/mock-limits
+🔒
+/oauth-refresh
+🔒
+/reset-limits
+🔒
+/env
+/bughunter
+🔒
+/passes
+🔒
+ADVANCED & EXPERIMENTAL
+23
+/advisor
+/ultraplan
+🔒
+/remote-control
+🔒
+/teleport
+/voice
+🔒
+/desktop
+🔒
+/chrome
+🔒
+/mobile
+🔒
+/sandbox
+/plugin
+/reload-plugins
+/web-setup
+/remote-env
+/ide
+/stickers
+/good-claude
+/btw
+/upgrade
+/release-notes
+/privacy-settings
+/help
+/exit
+/rename
+
+Click a command to see details and source code
+
+05
+Hidden Features
+
+Stuff that's in the code but not shipped yet. Feature-flagged, env-gated, or just commented out.
+
+Buddy
+
+A virtual pet that lives in your terminal. Species and rarity are derived from your account ID.
+
+Kairos
+
+Persistent mode with memory consolidation between sessions and autonomous background actions.
+
+UltraPlan
+
+Long planning sessions on Opus-class models, up to 30-minute execution windows.
+
+Coordinator Mode
+
+A lead agent breaks tasks apart, spawns parallel workers in isolated git worktrees, collects results.
+
+Bridge
+
+Control Claude Code from your phone or a browser. Full remote session with permission approvals.
+
+Daemon Mode
+
+Run sessions in the background with --bg. Uses tmux under the hood.
+
+UDS Inbox
+
+Sessions talk to each other over Unix domain sockets.
+
+Auto-Dream
+
+Between sessions, the AI reviews what happened and organizes what it learned.
+
+Click a feature to explore
+
+Claude Code Unpacked
+
+Unofficial. Not affiliated with Anthropic. Based on publicly available source code, so some things might be wrong or outdated. Curation assisted by AI.
+
+Analysis date: March 31, 2026
+
+CREATED BY
+Zakaria O. I. A.
+/
+@razakiau
+
+Analysis based on the Claude Code source shared in this post by @Fried_rice

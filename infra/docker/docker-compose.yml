@@ -1,0 +1,117 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_DB: helm_pilot
+      POSTGRES_USER: helm
+      POSTGRES_PASSWORD: helm
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U helm -d helm_pilot']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  helm-pilot:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    ports:
+      - '3100:3100'
+    env_file:
+      - path: ../../.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://helm:helm@postgres:5432/helm_pilot
+      APP_URL: http://localhost:3100
+      NODE_ENV: production
+    volumes:
+      - app_storage:/app/data/storage
+      - app_backups:/app/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://localhost:3100/health').then(r => process.exit(r.ok ? 0 : 1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+          cpus: '2.0'
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: '50m'
+        max-file: '5'
+
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - '3000:3000'
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3100
+    depends_on:
+      helm-pilot:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: '20m'
+        max-file: '3'
+
+  # Optional: TLS termination via Caddy (enable with --profile tls)
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      helm-pilot:
+        condition: service_healthy
+    profiles:
+      - tls
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    ports:
+      - '5050:80'
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@helm-pilot.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    profiles:
+      - debug
+
+volumes:
+  pgdata:
+  pgadmin_data:
+  app_storage:
+  app_backups:
+  caddy_data:
+  caddy_config:
