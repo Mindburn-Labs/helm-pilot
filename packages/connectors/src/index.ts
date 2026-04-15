@@ -1,6 +1,6 @@
 import { eq, and } from 'drizzle-orm';
 import { type Db } from '@helm-pilot/db/client';
-import { connectors, connectorGrants, connectorTokens } from '@helm-pilot/db/schema';
+import { connectors, connectorGrants, connectorSessions, connectorTokens } from '@helm-pilot/db/schema';
 import { type Connector } from './types.js';
 import { encryptToken, decryptToken } from './token-store.js';
 
@@ -11,7 +11,14 @@ export { DriveConnector } from './gdrive.js';
 export { OAuthFlowManager, OAuthError } from './oauth.js';
 export { encryptToken, decryptToken } from './token-store.js';
 export type { StorageClient, S3Config } from './storage.js';
-export type { Connector, ConnectorAuthType, ConnectorGrant, ConnectorToken } from './types.js';
+export type {
+  Connector,
+  ConnectorAuthType,
+  ConnectorGrant,
+  ConnectorSession,
+  ConnectorSessionType,
+  ConnectorToken,
+} from './types.js';
 export type { OAuthProviderConfig, OAuthCallbackResult } from './oauth.js';
 export type { GmailMessage, GmailMessageSummary, GmailLabel } from './gmail.js';
 export type { DriveFile } from './gdrive.js';
@@ -234,6 +241,86 @@ export class ConnectorRegistry {
     return row ?? null;
   }
 
+  /** Store an encrypted browser/session snapshot for a grant. */
+  async storeSession(
+    grantId: string,
+    sessionData: unknown,
+    sessionType: 'browser_storage_state' | 'cookie_jar' = 'browser_storage_state',
+    metadata: Record<string, unknown> = {},
+  ): Promise<void> {
+    const payload = encryptToken(JSON.stringify(sessionData));
+    const [existing] = await this.db
+      .select()
+      .from(connectorSessions)
+      .where(eq(connectorSessions.grantId, grantId))
+      .limit(1);
+
+    if (existing) {
+      await this.db
+        .update(connectorSessions)
+        .set({
+          sessionType,
+          sessionDataEnc: payload,
+          metadata,
+          updatedAt: new Date(),
+        })
+        .where(eq(connectorSessions.id, existing.id));
+      return;
+    }
+
+    await this.db.insert(connectorSessions).values({
+      grantId,
+      sessionType,
+      sessionDataEnc: payload,
+      metadata,
+    });
+  }
+
+  async getSession(grantId: string): Promise<unknown | null> {
+    const [row] = await this.db
+      .select()
+      .from(connectorSessions)
+      .where(eq(connectorSessions.grantId, grantId))
+      .limit(1);
+    if (!row?.sessionDataEnc) return null;
+    try {
+      return JSON.parse(decryptToken(row.sessionDataEnc));
+    } catch {
+      return null;
+    }
+  }
+
+  async getSessionRecord(grantId: string) {
+    const [row] = await this.db
+      .select()
+      .from(connectorSessions)
+      .where(eq(connectorSessions.grantId, grantId))
+      .limit(1);
+    return row ?? null;
+  }
+
+  async deleteSession(grantId: string): Promise<void> {
+    await this.db.delete(connectorSessions).where(eq(connectorSessions.grantId, grantId));
+  }
+
+  async markSessionValidated(grantId: string, metadata?: Record<string, unknown>) {
+    const [existing] = await this.db
+      .select()
+      .from(connectorSessions)
+      .where(eq(connectorSessions.grantId, grantId))
+      .limit(1);
+    if (!existing) return;
+
+    await this.db
+      .update(connectorSessions)
+      .set({
+        metadata: metadata ? { ...(existing.metadata as Record<string, unknown> ?? {}), ...metadata } : existing.metadata,
+        lastValidatedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(connectorSessions.id, existing.id));
+  }
+
   private registerDefaults() {
     this.registerConnector({
       id: 'github',
@@ -269,6 +356,15 @@ export class ConnectorRegistry {
       authType: 'token',
       requiredScopes: ['issues:write', 'projects:read'],
       requiresApproval: false,
+    });
+
+    this.registerConnector({
+      id: 'yc',
+      name: 'YC',
+      description: 'Founder-authorized YC session for cofounder matching, Startup School, and application workflows',
+      authType: 'session',
+      requiredScopes: ['profile:read', 'matching:read', 'matching:write', 'applications:read'],
+      requiresApproval: true,
     });
 
     this.registerConnector({

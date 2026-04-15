@@ -91,3 +91,36 @@ export const CreateCofounderOutreachDraftInput = z.object({
   subject: z.string().max(500).optional(),
   content: z.string().min(1).max(20000),
 });
+
+export const SaveConnectorSessionInput = z.object({
+  grantId: z.string().uuid(),
+  sessionType: z.enum(['browser_storage_state', 'cookie_jar']).default('browser_storage_state'),
+  sessionData: z.union([z.record(z.string(), z.unknown()), z.array(z.unknown())]),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const ValidateConnectorSessionInput = z.object({
+  grantId: z.string().uuid(),
+  action: z.enum(['validate', 'sync']).default('validate'),
+  limit: z.number().int().min(1).max(200).optional(),
+});
+
+export const YcPublicIngestionInput = z.object({
+  source: z.enum(['companies', 'library', 'all']).default('all'),
+  batch: z.string().max(10).optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+});
+
+export const YcPrivateIngestionInput = z.object({
+  grantId: z.string().uuid(),
+  action: z.enum(['validate', 'sync']).default('sync'),
+  limit: z.number().int().min(1).max(200).optional(),
+});
+
+export const YcReplayIngestionInput = z.object({
+  source: z.enum(['companies', 'library']).default('companies'),
+  replayPath: z.string().min(1).max(5000).optional(),
+  ingestionRecordId: z.string().uuid().optional(),
+}).refine((value) => Boolean(value.replayPath || value.ingestionRecordId), {
+  message: 'replayPath or ingestionRecordId is required',
+});

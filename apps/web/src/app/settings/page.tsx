@@ -30,7 +30,7 @@ interface ConnectorStatus {
   id: string;
   name: string;
   description: string;
-  authType: 'oauth2' | 'api_key' | 'token' | 'none';
+  authType: 'oauth2' | 'api_key' | 'token' | 'session' | 'none';
   requiredScopes: string[];
   requiresApproval: boolean;
   configured: boolean;
@@ -40,6 +40,7 @@ interface ConnectorStatus {
     | 'enabled'
     | 'granted'
     | 'awaiting_token'
+    | 'awaiting_session'
     | 'connected'
     | 'reauthorization_required'
     | 'configuration_required';
@@ -47,8 +48,11 @@ interface ConnectorStatus {
   grantedAt: string | null;
   scopes: string[];
   expiresAt: string | null;
+  lastValidatedAt: string | null;
+  sessionType: string | null;
   hasGrant: boolean;
   hasToken: boolean;
+  hasSession: boolean;
 }
 
 export default function SettingsPage() {
@@ -62,8 +66,10 @@ export default function SettingsPage() {
   const [inviteRole, setInviteRole] = useState('member');
   const [inviting, setInviting] = useState(false);
   const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [validatingId, setValidatingId] = useState<string | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [tokenInputs, setTokenInputs] = useState<Record<string, string>>({});
+  const [sessionInputs, setSessionInputs] = useState<Record<string, string>>({});
 
   const [maxIterationBudget, setMaxIterationBudget] = useState(50);
   const [toolBlocklist, setToolBlocklist] = useState('');
@@ -253,6 +259,55 @@ export default function SettingsPage() {
       return;
     }
 
+    if (connector.authType === 'session') {
+      const rawSession = sessionInputs[connector.id]?.trim();
+      if (!rawSession) {
+        setError(`Paste a session export for ${connector.name} first`);
+        setConnectingId(null);
+        return;
+      }
+
+      let sessionData: Record<string, unknown> | unknown[];
+      try {
+        sessionData = JSON.parse(rawSession) as Record<string, unknown> | unknown[];
+      } catch {
+        setError(`Session export for ${connector.name} must be valid JSON`);
+        setConnectingId(null);
+        return;
+      }
+
+      const grantResult = await apiFetch<{ grantId: string }>(`/api/connectors/${connector.id}/grant`, {
+        method: 'POST',
+        body: JSON.stringify({ workspaceId: wsId, scopes: connector.requiredScopes }),
+      });
+      if (!grantResult?.grantId) {
+        setError(`Failed to grant ${connector.name}`);
+        setConnectingId(null);
+        return;
+      }
+
+      const sessionResult = await apiFetch<{ stored: boolean }>(`/api/connectors/${connector.id}/session`, {
+        method: 'POST',
+        body: JSON.stringify({
+          grantId: grantResult.grantId,
+          sessionType: 'browser_storage_state',
+          sessionData,
+          metadata: { uploadedFrom: 'web-settings' },
+        }),
+      });
+      if (!sessionResult?.stored) {
+        setError(`Failed to store ${connector.name} session`);
+        setConnectingId(null);
+        return;
+      }
+
+      setSessionInputs((current) => ({ ...current, [connector.id]: '' }));
+      setSuccess(`${connector.name} session saved`);
+      await loadConnectors();
+      setConnectingId(null);
+      return;
+    }
+
     const grant = await apiFetch<{ grantId: string }>(`/api/connectors/${connector.id}/grant`, {
       method: 'POST',
       body: JSON.stringify({ workspaceId: wsId, scopes: connector.requiredScopes }),
@@ -283,6 +338,27 @@ export default function SettingsPage() {
       setError(`Failed to disconnect ${connector.name}`);
     }
     setRevokingId(null);
+  }
+
+  async function handleValidateSession(connector: ConnectorStatus) {
+    if (!connector.grantId) {
+      setError(`No grant found for ${connector.name}`);
+      return;
+    }
+
+    setValidatingId(connector.id);
+    setError('');
+    const result = await apiFetch<{ queued: boolean }>(`/api/connectors/${connector.id}/session/validate`, {
+      method: 'POST',
+      body: JSON.stringify({ grantId: connector.grantId, action: 'validate' }),
+    });
+    if (result?.queued) {
+      setSuccess(`${connector.name} validation queued`);
+      await loadConnectors();
+    } else {
+      setError(`Failed to validate ${connector.name} session`);
+    }
+    setValidatingId(null);
   }
 
   if (loading) {
@@ -406,10 +482,23 @@ export default function SettingsPage() {
                     Required scopes: {connector.requiredScopes.length > 0 ? connector.requiredScopes.join(', ') : 'none'}
                     {connector.requiresApproval ? ' | approval-gated' : ' | low-risk'}
                     {connector.expiresAt ? ` | expires ${new Date(connector.expiresAt).toLocaleString()}` : ''}
+                    {connector.lastValidatedAt ? ` | validated ${new Date(connector.lastValidatedAt).toLocaleString()}` : ''}
                   </div>
                 </div>
 
                 <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  {connector.authType === 'session' && !connector.hasSession && (
+                    <textarea
+                      placeholder={`${connector.name} storage-state JSON`}
+                      value={sessionInputs[connector.id] ?? ''}
+                      onChange={(e) =>
+                        setSessionInputs((current) => ({ ...current, [connector.id]: e.target.value }))
+                      }
+                      rows={5}
+                      style={{ ...inputStyle, width: 320, minHeight: 120, marginTop: 0, resize: 'vertical' }}
+                    />
+                  )}
+
                   {(connector.authType === 'token' || connector.authType === 'api_key') && !connector.hasToken && (
                     <input
                       type="password"
@@ -430,6 +519,14 @@ export default function SettingsPage() {
                     >
                       {connectingId === connector.id ? 'Saving...' : 'Save Token'}
                     </button>
+                  ) : connector.authType === 'session' && !connector.hasSession ? (
+                    <button
+                      onClick={() => handleConnect(connector)}
+                      disabled={connectingId === connector.id}
+                      style={btnPrimary}
+                    >
+                      {connectingId === connector.id ? 'Saving...' : 'Save Session'}
+                    </button>
                   ) : connector.connectionState !== 'configuration_required' && connector.authType === 'none' && !connector.hasGrant ? (
                     <button
                       onClick={() => handleConnect(connector)}
@@ -438,6 +535,23 @@ export default function SettingsPage() {
                     >
                       {connectingId === connector.id ? 'Working...' : 'Enable'}
                     </button>
+                  ) : connector.authType === 'session' && connector.hasSession ? (
+                    <>
+                      <button
+                        onClick={() => handleValidateSession(connector)}
+                        disabled={validatingId === connector.id}
+                        style={btnSecondary}
+                      >
+                        {validatingId === connector.id ? 'Queueing...' : 'Validate Session'}
+                      </button>
+                      <button
+                        onClick={() => handleDisconnect(connector)}
+                        disabled={revokingId === connector.id}
+                        style={btnSecondary}
+                      >
+                        {revokingId === connector.id ? 'Disconnecting...' : 'Disconnect'}
+                      </button>
+                    </>
                   ) : connector.hasGrant ? (
                     <button
                       onClick={() => handleDisconnect(connector)}
@@ -456,6 +570,8 @@ export default function SettingsPage() {
                         ? 'Connecting...'
                         : connector.authType === 'oauth2'
                           ? 'Connect'
+                          : connector.authType === 'session'
+                            ? 'Save Session'
                           : connector.authType === 'none'
                             ? 'Enable'
                             : 'Save Token'}
@@ -467,6 +583,11 @@ export default function SettingsPage() {
               {connector.connectionState === 'configuration_required' && (
                 <div style={warningStyle}>
                   OAuth is not configured for {connector.name}. Set the required client ID/secret env vars before connecting it.
+                </div>
+              )}
+              {connector.authType === 'session' && (
+                <div style={{ ...warningStyle, background: 'rgba(15, 23, 42, 0.35)', borderColor: '#334155', color: '#cbd5e1' }}>
+                  Paste a founder-authorized Playwright storage-state JSON export. HELM Pilot stores it encrypted at rest and uses it only for approval-gated YC automation.
                 </div>
               )}
             </div>

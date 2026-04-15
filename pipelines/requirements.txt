@@ -1,0 +1,19 @@
+# HELM Pilot — shared Python runtime
+# Python 3.10+
+
+scrapling[ai]==0.4.2
+playwright==1.58.0
+patchright==1.58.2
+requests==2.32.3
+httpx==0.28.1
+beautifulsoup4==4.13.3
+lxml==5.3.1
+cohere==5.14.2
+sentence-transformers==4.1.0
+hdbscan==0.8.40
+scikit-learn==1.6.1
+numpy==2.2.3
+psycopg2-binary==2.9.10
+pyyaml==6.0.2
+python-dotenv==1.0.1
+cryptography==45.0.4

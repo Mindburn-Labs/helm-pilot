@@ -30,8 +30,12 @@ function createConnectorsMock() {
     grantConnector: vi.fn(async () => 'grant-1'),
     revokeConnector: vi.fn(async () => {}),
     storeToken: vi.fn(async () => {}),
+    storeSession: vi.fn(async () => {}),
+    deleteSession: vi.fn(async () => {}),
+    markSessionValidated: vi.fn(async () => {}),
     getGrantByWorkspaceConnector: vi.fn(async () => null),
     getTokenRecord: vi.fn(async () => null),
+    getSessionRecord: vi.fn(async () => null),
   };
 }
 

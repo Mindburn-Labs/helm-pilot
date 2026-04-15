@@ -1,4 +1,5 @@
-export type ConnectorAuthType = 'oauth2' | 'api_key' | 'token' | 'none';
+export type ConnectorAuthType = 'oauth2' | 'api_key' | 'token' | 'session' | 'none';
+export type ConnectorSessionType = 'browser_storage_state' | 'cookie_jar';
 
 /**
  * Connector — any external integration that can be granted to a workspace.
@@ -28,4 +29,13 @@ export interface ConnectorToken {
   token: string;
   refreshToken?: string;
   expiresAt?: Date;
+}
+
+export interface ConnectorSession {
+  connectorId: string;
+  workspaceId: string;
+  sessionType: ConnectorSessionType;
+  sessionData: unknown;
+  metadata?: Record<string, unknown>;
+  lastValidatedAt?: Date;
 }

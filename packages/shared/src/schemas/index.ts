@@ -47,6 +47,11 @@ export {
   CreateCofounderCandidateInput,
   CreateCofounderNoteInput,
   CreateCofounderOutreachDraftInput,
+  SaveConnectorSessionInput,
+  ValidateConnectorSessionInput,
+  YcPrivateIngestionInput,
+  YcPublicIngestionInput,
+  YcReplayIngestionInput,
 } from './validators.js';
 
 export {

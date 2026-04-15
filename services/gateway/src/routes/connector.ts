@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { type Connector } from '@helm-pilot/connectors';
+import { SaveConnectorSessionInput, ValidateConnectorSessionInput } from '@helm-pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId } from '../lib/workspace.js';
 
@@ -14,7 +15,7 @@ export function connectorRoutes(deps: GatewayDeps) {
 
     if (!workspaceId) {
       return c.json(
-        available.map((connector) => serializeConnector(connector, deps, null, null)),
+        available.map((connector) => serializeConnector(connector, deps, null, null, null)),
       );
     }
 
@@ -80,6 +81,80 @@ export function connectorRoutes(deps: GatewayDeps) {
       expiresAt ? new Date(expiresAt) : undefined,
     );
     return c.json({ stored: true });
+  });
+
+  app.post('/:name/session', async (c) => {
+    if (!deps.connectors) return c.json({ error: 'Connectors not configured' }, 503);
+    const { name } = c.req.param();
+    const connector = deps.connectors.getConnector(name);
+    if (!connector) return c.json({ error: `Unknown connector: ${name}` }, 404);
+    if (connector.authType !== 'session') {
+      return c.json({ error: `${name} does not use session-based auth` }, 400);
+    }
+
+    const raw = await c.req.json().catch(() => null);
+    const parsed = SaveConnectorSessionInput.safeParse(raw);
+    if (!parsed.success) {
+      return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
+    }
+
+    await deps.connectors.storeSession(
+      parsed.data.grantId,
+      parsed.data.sessionData,
+      parsed.data.sessionType,
+      parsed.data.metadata,
+    );
+    return c.json({ stored: true });
+  });
+
+  app.post('/:name/session/validate', async (c) => {
+    if (!deps.connectors) return c.json({ error: 'Connectors not configured' }, 503);
+    const { name } = c.req.param();
+    const connector = deps.connectors.getConnector(name);
+    if (!connector) return c.json({ error: `Unknown connector: ${name}` }, 404);
+    if (connector.authType !== 'session') {
+      return c.json({ error: `${name} does not use session-based auth` }, 400);
+    }
+    if (!deps.orchestrator.boss) {
+      return c.json({ error: 'Background jobs unavailable' }, 503);
+    }
+
+    const raw = await c.req.json().catch(() => null);
+    const parsed = ValidateConnectorSessionInput.safeParse(raw);
+    if (!parsed.success) {
+      return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
+    }
+
+    const record = await deps.connectors.getSessionRecord(parsed.data.grantId);
+    if (!record) return c.json({ error: 'No session stored for this grant' }, 404);
+
+    const workspaceId = getWorkspaceId(c);
+    const queue = name === 'yc' ? 'pipeline.yc-private' : `pipeline.${name}-session`;
+    const jobId = await deps.orchestrator.boss.send(queue, {
+      workspaceId,
+      grantId: parsed.data.grantId,
+      action: parsed.data.action,
+      limit: parsed.data.limit,
+    });
+
+    if (parsed.data.action === 'validate') {
+      await deps.connectors.markSessionValidated(parsed.data.grantId, { lastValidationQueuedAt: new Date().toISOString() });
+    }
+
+    return c.json({ queued: true, queue, jobId });
+  });
+
+  app.delete('/:name/session', async (c) => {
+    if (!deps.connectors) return c.json({ error: 'Connectors not configured' }, 503);
+    const { name } = c.req.param();
+    const connector = deps.connectors.getConnector(name);
+    if (!connector) return c.json({ error: `Unknown connector: ${name}` }, 404);
+
+    const grantId = c.req.query('grantId');
+    if (!grantId) return c.json({ error: 'grantId required' }, 400);
+
+    await deps.connectors.deleteSession(grantId);
+    return c.json({ deleted: true });
   });
 
   app.get('/:name/oauth/initiate', async (c) => {
@@ -160,7 +235,7 @@ export function connectorRoutes(deps: GatewayDeps) {
 
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) {
-      return c.json(serializeConnector(connector, deps, null, null));
+      return c.json(serializeConnector(connector, deps, null, null, null));
     }
 
     return c.json(await getConnectorStatus(deps, connector, workspaceId));
@@ -172,7 +247,8 @@ export function connectorRoutes(deps: GatewayDeps) {
 async function getConnectorStatus(deps: GatewayDeps, connector: Connector, workspaceId: string) {
   const grant = await deps.connectors?.getGrantByWorkspaceConnector(workspaceId, connector.id);
   const token = grant ? await deps.connectors?.getTokenRecord(grant.id) : null;
-  return serializeConnector(connector, deps, grant ?? null, token ?? null);
+  const session = grant ? await deps.connectors?.getSessionRecord(grant.id) : null;
+  return serializeConnector(connector, deps, grant ?? null, token ?? null, session ?? null);
 }
 
 function serializeConnector(
@@ -188,19 +264,30 @@ function serializeConnector(
     expiresAt?: Date | string | null;
     updatedAt?: Date | string;
   } | null,
+  session: {
+    sessionType?: string;
+    lastValidatedAt?: Date | string | null;
+    updatedAt?: Date | string;
+  } | null,
 ) {
   const provider = deps.oauth?.getProvider(connector.id);
   const configured = connector.authType !== 'oauth2' || Boolean(provider?.clientId);
   const hasGrant = Boolean(grant);
-  const hasToken = connector.authType === 'none' ? hasGrant : Boolean(token);
+  const hasSession = Boolean(session);
+  const hasToken = connector.authType === 'none' ? hasGrant : connector.authType === 'session' ? hasSession : Boolean(token);
   const expiresAt = token?.expiresAt ? new Date(token.expiresAt).toISOString() : null;
   const isExpired = expiresAt ? new Date(expiresAt).getTime() <= Date.now() : false;
+  const lastValidatedAt = session?.lastValidatedAt ? new Date(session.lastValidatedAt).toISOString() : null;
 
   let connectionState: ConnectorConnectionState = 'available';
   if (!configured) {
     connectionState = 'configuration_required';
   } else if (connector.authType === 'none' && hasGrant) {
     connectionState = 'enabled';
+  } else if (connector.authType === 'session' && hasGrant && hasSession) {
+    connectionState = 'connected';
+  } else if (hasGrant && connector.authType === 'session') {
+    connectionState = 'awaiting_session';
   } else if (hasGrant && hasToken && !isExpired) {
     connectionState = 'connected';
   } else if (hasGrant && isExpired) {
@@ -225,8 +312,11 @@ function serializeConnector(
     grantedAt: grant?.grantedAt ? new Date(grant.grantedAt).toISOString() : null,
     scopes: Array.isArray(grant?.scopes) ? grant.scopes : [],
     expiresAt,
+    lastValidatedAt,
+    sessionType: session?.sessionType ?? null,
     hasGrant,
     hasToken,
+    hasSession,
   };
 }
 
@@ -235,6 +325,7 @@ type ConnectorConnectionState =
   | 'enabled'
   | 'granted'
   | 'awaiting_token'
+  | 'awaiting_session'
   | 'connected'
   | 'reauthorization_required'
   | 'configuration_required';

@@ -36,10 +36,30 @@ interface Candidate {
   latestScore?: { overallScore: number | null } | null;
 }
 
+interface ConnectorStatus {
+  id: string;
+  name: string;
+  authType: 'oauth2' | 'api_key' | 'token' | 'session' | 'none';
+  connectionState: string;
+  hasSession: boolean;
+  grantId: string | null;
+  lastValidatedAt: string | null;
+}
+
+interface IngestionRecord {
+  id: string;
+  sourceOrigin: string;
+  status: string;
+  fetchedAt: string;
+  itemCount: number | null;
+}
+
 export default function DiscoverPage() {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [profile, setProfile] = useState<FounderProfile | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [ycConnector, setYcConnector] = useState<ConnectorStatus | null>(null);
+  const [ingestionHistory, setIngestionHistory] = useState<IngestionRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showOpportunityForm, setShowOpportunityForm] = useState(false);
   const [showCandidateForm, setShowCandidateForm] = useState(false);
@@ -52,6 +72,8 @@ export default function DiscoverPage() {
   const [candidateBio, setCandidateBio] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [syncingPublic, setSyncingPublic] = useState(false);
+  const [syncingPrivate, setSyncingPrivate] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -69,10 +91,16 @@ export default function DiscoverPage() {
       apiFetch<FounderProfile>('/api/founder/profile').catch(() => null),
       apiFetch<Candidate[]>('/api/founder/candidates').catch(() => []),
     ]);
+    const [ycConnectorData, historyData] = await Promise.all([
+      apiFetch<ConnectorStatus>('/api/connectors/yc').catch(() => null),
+      apiFetch<IngestionRecord[]>('/api/yc/ingestion/history?limit=5').catch(() => []),
+    ]);
 
     setOpportunities(opportunitiesData ?? []);
     setProfile(profileData ?? null);
     setCandidates(candidatesData ?? []);
+    setYcConnector(ycConnectorData ?? null);
+    setIngestionHistory(historyData ?? []);
     setLoading(false);
   }
 
@@ -155,6 +183,38 @@ export default function DiscoverPage() {
     setCandidates((prev) => prev.map((candidate) => (candidate.id === id ? (detail ?? candidate) : candidate)));
   }
 
+  async function handlePublicIngestion() {
+    setSyncingPublic(true);
+    setError('');
+    const result = await apiFetch<{ queued: boolean }>('/api/yc/ingestion/public', {
+      method: 'POST',
+      body: JSON.stringify({ source: 'all', limit: 50 }),
+    });
+    if (!result?.queued) {
+      setError('Failed to queue public YC ingestion');
+    }
+    await loadData();
+    setSyncingPublic(false);
+  }
+
+  async function handlePrivateIngestion() {
+    if (!ycConnector?.grantId) {
+      setError('Connect the YC session in Settings first');
+      return;
+    }
+    setSyncingPrivate(true);
+    setError('');
+    const result = await apiFetch<{ queued: boolean }>('/api/yc/ingestion/private', {
+      method: 'POST',
+      body: JSON.stringify({ grantId: ycConnector.grantId, action: 'sync', limit: 50 }),
+    });
+    if (!result?.queued) {
+      setError('Failed to queue private YC sync');
+    }
+    await loadData();
+    setSyncingPrivate(false);
+  }
+
   return (
     <main style={{ maxWidth: 1080, margin: '0 auto', padding: '2rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
@@ -228,6 +288,52 @@ export default function DiscoverPage() {
               {analyzing ? 'Analyzing...' : 'Analyze Founder'}
             </button>
           </form>
+        </section>
+
+        <section style={panelStyle}>
+          <div style={sectionHeaderStyle}>
+            <div>
+              <h2 style={h2Style}>YC Intelligence</h2>
+              <p style={subtleStyle}>Queue public YC ingestion and private co-founder matching syncs.</p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+            <button onClick={handlePublicIngestion} disabled={syncingPublic} style={btnPrimary}>
+              {syncingPublic ? 'Queueing...' : 'Sync Public YC Data'}
+            </button>
+            <button
+              onClick={handlePrivateIngestion}
+              disabled={syncingPrivate || !ycConnector?.hasSession}
+              style={btnSecondary}
+            >
+              {syncingPrivate ? 'Queueing...' : 'Sync Private YC Matching'}
+            </button>
+          </div>
+
+          <div style={calloutStyle}>
+            <div style={{ fontSize: '0.8rem', color: '#7dd3fc', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              YC Session
+            </div>
+            <div style={{ marginTop: '0.35rem' }}>
+              {ycConnector
+                ? `${ycConnector.connectionState}${ycConnector.lastValidatedAt ? ` | validated ${new Date(ycConnector.lastValidatedAt).toLocaleString()}` : ''}`
+                : 'Session status unavailable'}
+            </div>
+          </div>
+
+          {ingestionHistory.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
+              {ingestionHistory.map((record) => (
+                <div key={record.id} style={miniCardStyle}>
+                  <div style={{ fontWeight: 600 }}>{record.sourceOrigin}</div>
+                  <div style={{ color: '#888', fontSize: '0.82rem', marginTop: '0.35rem' }}>
+                    {record.status} | {record.itemCount ?? 0} items | {new Date(record.fetchedAt).toLocaleString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
         <section style={panelStyle}>

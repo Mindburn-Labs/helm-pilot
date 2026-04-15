@@ -155,6 +155,7 @@ Respond with JSON only: {"overall":N,"founderFit":N,"marketSignal":N,"feasibilit
   const PIPELINE_ALLOWLIST: Record<string, string> = {
     'pipeline.yc-scrape': 'pipelines/yc-scraper/scrape_yc.py',
     'pipeline.startup-school': 'pipelines/yc-scraper/scrape_startup_school.py',
+    'pipeline.yc-private': 'pipelines/yc-scraper/scrape_yc_private.py',
     'pipeline.ingest-knowledge': 'pipelines/intelligence/ingest_ccunpacked.py',
   };
   const PIPELINE_TIMEOUT = 900_000; // 15 min (Startup school scrape can take time)
@@ -196,10 +197,15 @@ Respond with JSON only: {"overall":N,"founderFit":N,"marketSignal":N,"feasibilit
     log.info({ stdout: stdout.slice(0, 200), pipeline: name }, 'Pipeline completed');
   }
 
-  boss.work('pipeline.yc-scrape', async (jobs: PgBoss.Job<{ replayPath?: string }>[]) => {
+  boss.work('pipeline.yc-scrape', async (jobs: PgBoss.Job<{ replayPath?: string; batch?: string; limit?: number; workspaceId?: string }>[]) => {
     for (const job of jobs) {
       try {
-        const args = job.data?.replayPath ? ['--replay', job.data.replayPath] : [];
+        const args = [
+          ...(job.data?.replayPath ? ['--replay', job.data.replayPath] : []),
+          ...(job.data?.batch ? ['--batch', job.data.batch] : []),
+          ...(job.data?.limit ? ['--limit', String(job.data.limit)] : []),
+          ...(job.data?.workspaceId ? ['--workspace-id', job.data.workspaceId] : []),
+        ];
         await runPipeline('pipeline.yc-scrape', args);
       } catch (err) {
         log.error({ err }, 'YC scraper pipeline failed');
@@ -208,10 +214,14 @@ Respond with JSON only: {"overall":N,"founderFit":N,"marketSignal":N,"feasibilit
     }
   });
 
-  boss.work('pipeline.startup-school', async (jobs: PgBoss.Job<{ replayPath?: string }>[]) => {
+  boss.work('pipeline.startup-school', async (jobs: PgBoss.Job<{ replayPath?: string; limit?: number; workspaceId?: string }>[]) => {
     for (const job of jobs) {
       try {
-        const args = job.data?.replayPath ? ['--replay', job.data.replayPath] : [];
+        const args = [
+          ...(job.data?.replayPath ? ['--replay', job.data.replayPath] : []),
+          ...(job.data?.limit ? ['--limit', String(job.data.limit)] : []),
+          ...(job.data?.workspaceId ? ['--workspace-id', job.data.workspaceId] : []),
+        ];
         await runPipeline('pipeline.startup-school', args);
       } catch (err) {
         log.error({ err }, 'Startup School pipeline failed');
@@ -226,6 +236,25 @@ Respond with JSON only: {"overall":N,"founderFit":N,"marketSignal":N,"feasibilit
         await runPipeline('pipeline.ingest-knowledge');
       } catch (err) {
         log.error({ err }, 'Knowledge ingestion pipeline failed');
+        throw err;
+      }
+    }
+  });
+
+  boss.work('pipeline.yc-private', async (jobs: PgBoss.Job<{ grantId: string; action?: 'validate' | 'sync'; limit?: number; workspaceId?: string }>[]) => {
+    for (const job of jobs) {
+      try {
+        const args = [
+          '--grant-id',
+          job.data.grantId,
+          '--action',
+          job.data.action ?? 'sync',
+          ...(job.data.limit ? ['--limit', String(job.data.limit)] : []),
+          ...(job.data.workspaceId ? ['--workspace-id', job.data.workspaceId] : []),
+        ];
+        await runPipeline('pipeline.yc-private', args);
+      } catch (err) {
+        log.error({ err }, 'YC private pipeline failed');
         throw err;
       }
     }

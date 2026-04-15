@@ -92,12 +92,13 @@ describe('ConnectorRegistry', () => {
 
   it('registers the default connector set on construction', () => {
     const all = registry.listConnectors();
-    expect(all).toHaveLength(7);
+    expect(all).toHaveLength(8);
     const ids = all.map((c) => c.id);
     expect(ids).toContain('github');
     expect(ids).toContain('gmail');
     expect(ids).toContain('gdrive');
     expect(ids).toContain('linear');
+    expect(ids).toContain('yc');
     expect(ids).toContain('telegram');
     expect(ids).toContain('browser');
     expect(ids).toContain('files');
@@ -135,7 +136,7 @@ describe('ConnectorRegistry', () => {
       requiresApproval: true,
     });
     expect(registry.getConnector('slack')).toBeDefined();
-    expect(registry.listConnectors()).toHaveLength(8);
+    expect(registry.listConnectors()).toHaveLength(9);
   });
 
   // --- DB operations ---
