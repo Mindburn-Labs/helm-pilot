@@ -14,7 +14,9 @@
     "./errors/sentry": "./dist/errors/sentry.js",
     "./embeddings": "./dist/embeddings/index.js",
     "./logger": "./dist/logger.js",
-    "./secrets": "./dist/secrets/index.js"
+    "./secrets": "./dist/secrets/index.js",
+    "./scoring": "./dist/scoring/index.js",
+    "./prompts/opportunity-score.v1": "./dist/prompts/opportunity-score.v1.js"
   },
   "scripts": {
     "build": "tsc",

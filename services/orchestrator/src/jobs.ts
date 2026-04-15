@@ -1,8 +1,9 @@
 import PgBoss from 'pg-boss';
 import { and, eq, lt } from 'drizzle-orm';
 import { type Db } from '@helm-pilot/db/client';
-import { opportunityScores, opportunities, tasks, taskRuns, workspaces, workspaceDeletions } from '@helm-pilot/db/schema';
+import { opportunityScores, opportunities, tasks, taskRuns, workspaces, workspaceDeletions, founderProfiles, founderStrengths } from '@helm-pilot/db/schema';
 import { isNull } from 'drizzle-orm';
+import { scoreOpportunity } from '@helm-pilot/shared/scoring';
 import { type MemoryService } from '@helm-pilot/memory';
 import { type LlmProvider } from '@helm-pilot/shared/llm';
 import { type ActionRecord } from './agent-loop.js';
@@ -22,12 +23,20 @@ export interface JobDeps {
  * Register background job handlers on a pg-boss instance.
  */
 export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<void> {
-  // ─── Opportunity Scoring ───
+  // ─── Opportunity Scoring (Phase 3a) ───
+  // Uses the versioned scoring engine in @helm-pilot/shared/scoring with
+  // the founder's profile + strengths plumbed through for founder-fit.
+  // Falls through to heuristic scoring when the LLM is absent or the
+  // response is unparseable, so Discover never serves null scores.
   boss.work('opportunity.score', async (jobs: PgBoss.Job<{ opportunityId: string }>[]) => {
     for (const job of jobs) {
       const { opportunityId } = job.data;
       log.info({ opportunityId }, 'Scoring opportunity');
 
+      // lint-tenancy: ok — opportunityId is workspace-scoped by the job
+      //   producer (enqueuers verify the opportunity belongs to the caller's
+      //   workspace before calling boss.send). The founder-profile join below
+      //   is explicitly scoped by opp.workspaceId after the initial lookup.
       const [opp] = await deps.db
         .select()
         .from(opportunities)
@@ -39,35 +48,60 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
         continue;
       }
 
-      if (!deps.llm) {
-        log.warn('No LLM configured, skipping scoring');
-        continue;
+      // Pull founder profile + strengths so the scoring engine can compute
+      // a meaningful founder-fit number. Optional — heuristic score fires
+      // without them. founderStrengths is keyed by founderId, so two
+      // sequential queries are cheaper than a join that returns
+      // workspaceId multiple times.
+      let profile: typeof founderProfiles.$inferSelect | undefined;
+      let strengths: Array<{ dimension: string; score: number }> = [];
+      if (opp.workspaceId) {
+        const profileRows = await deps.db
+          .select()
+          .from(founderProfiles)
+          .where(eq(founderProfiles.workspaceId, opp.workspaceId))
+          .limit(1);
+        profile = profileRows[0];
+        if (profile) {
+          const strengthRows = await deps.db
+            .select()
+            .from(founderStrengths)
+            .where(eq(founderStrengths.founderId, profile.id));
+          strengths = strengthRows.map((r) => ({
+            dimension: r.dimension,
+            score: Number(r.score ?? 0),
+          }));
+        }
       }
 
-      const prompt = `Score this startup opportunity on these dimensions (0-100 each):
-- overall: Overall opportunity quality
-- founderFit: How well this fits a typical solo/technical founder
-- marketSignal: Strength of market demand signals
-- feasibility: Technical and operational feasibility
-- timing: How good is the timing right now
-
-Opportunity: ${opp.title}
-Description: ${opp.description}
-
-Respond with JSON only: {"overall":N,"founderFit":N,"marketSignal":N,"feasibility":N,"timing":N}`;
-
       try {
-        const response = await deps.llm.complete(prompt);
-        const scores = JSON.parse(response) as Record<string, number>;
+        const result = await scoreOpportunity(
+          {
+            title: opp.title,
+            description: opp.description,
+            source: opp.source,
+            sourceUrl: opp.sourceUrl ?? null,
+            founderProfile: profile
+              ? {
+                  background: profile.background ?? null,
+                  experience: profile.experience ?? null,
+                  interests: (profile.interests as string[] | null) ?? null,
+                  startupVector: profile.startupVector ?? null,
+                }
+              : null,
+            founderStrengths: strengths,
+          },
+          deps.llm,
+        );
 
         await deps.db.insert(opportunityScores).values({
           opportunityId,
-          overallScore: scores['overall'] ?? null,
-          founderFitScore: scores['founderFit'] ?? null,
-          marketSignal: scores['marketSignal'] ?? null,
-          feasibility: scores['feasibility'] ?? null,
-          timing: scores['timing'] ?? null,
-          scoringMethod: 'llm',
+          overallScore: result.overall,
+          founderFitScore: result.founderFit,
+          marketSignal: result.marketSignal,
+          feasibility: result.feasibility,
+          timing: result.timing,
+          scoringMethod: result.method,
         });
 
         await deps.db
@@ -75,7 +109,10 @@ Respond with JSON only: {"overall":N,"founderFit":N,"marketSignal":N,"feasibilit
           .set({ status: 'scored' })
           .where(eq(opportunities.id, opportunityId));
 
-        log.info({ opportunityId }, 'Opportunity scored');
+        log.info(
+          { opportunityId, method: result.method, overall: result.overall, promptVersion: result.promptVersion },
+          'Opportunity scored',
+        );
       } catch (err) {
         log.error({ err, opportunityId }, 'Failed to score opportunity');
         throw err;

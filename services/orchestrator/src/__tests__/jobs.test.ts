@@ -93,11 +93,13 @@ describe('registerJobHandlers', () => {
       expect(mockDb.insert).not.toHaveBeenCalled();
     });
 
-    it('skips when no LLM configured', async () => {
+    it('falls back to heuristic scoring when no LLM configured', async () => {
+      // Phase 3a: the job always produces a score — heuristic when no LLM.
+      // This is a contract change from the pre-Phase-3a behaviour (which
+      // silently no-op'd) so Discover never serves null scores.
       registerJobHandlers(mockBoss, { db: mockDb });
       const handler = handlers.get('opportunity.score')!;
 
-      // db.select returns an opportunity
       let selectCount = 0;
       mockDb.select = vi.fn(() => ({
         from: vi.fn(() => ({
@@ -106,7 +108,15 @@ describe('registerJobHandlers', () => {
               then: (r: any) => {
                 selectCount++;
                 if (selectCount === 1)
-                  return r([{ id: 'opp-1', title: 'Test Opp', description: 'A test' }]);
+                  return r([
+                    {
+                      id: 'opp-1',
+                      title: 'Test Opp',
+                      description: 'A test',
+                      source: 'hn',
+                      workspaceId: null,
+                    },
+                  ]);
                 return r([]);
               },
             })),
@@ -116,11 +126,11 @@ describe('registerJobHandlers', () => {
 
       await handler([{ data: { opportunityId: 'opp-1' } }]);
 
-      // insert should NOT be called because no LLM
-      expect(mockDb.insert).not.toHaveBeenCalled();
+      // Heuristic path still inserts a row with scoringMethod='heuristic'.
+      expect(mockDb.insert).toHaveBeenCalledWith('opportunityScores');
     });
 
-    it('scores via LLM and inserts scores', async () => {
+    it('scores via LLM (completeWithUsage) and inserts scores', async () => {
       let selectCount = 0;
       mockDb.select = vi.fn(() => ({
         from: vi.fn(() => ({
@@ -129,7 +139,15 @@ describe('registerJobHandlers', () => {
               then: (r: any) => {
                 selectCount++;
                 if (selectCount === 1)
-                  return r([{ id: 'opp-1', title: 'Test Opp', description: 'A test opportunity' }]);
+                  return r([
+                    {
+                      id: 'opp-1',
+                      title: 'Test Opp',
+                      description: 'A test opportunity',
+                      source: 'hn',
+                      workspaceId: null,
+                    },
+                  ]);
                 return r([]);
               },
             })),
@@ -138,9 +156,12 @@ describe('registerJobHandlers', () => {
       }));
 
       const mockLlm = {
-        complete: vi.fn(async () =>
-          '{"overall":80,"founderFit":70,"marketSignal":75,"feasibility":85,"timing":60}',
-        ),
+        complete: vi.fn(),
+        completeWithUsage: vi.fn(async () => ({
+          content:
+            '{"overall":80,"founderFit":70,"marketSignal":75,"timing":60,"feasibility":85,"rationale":"ok"}',
+          usage: { tokensIn: 100, tokensOut: 50, model: 'test' },
+        })),
       } as any;
 
       registerJobHandlers(mockBoss, { db: mockDb, llm: mockLlm });
@@ -148,7 +169,7 @@ describe('registerJobHandlers', () => {
 
       await handler([{ data: { opportunityId: 'opp-1' } }]);
 
-      expect(mockLlm.complete).toHaveBeenCalledOnce();
+      expect(mockLlm.completeWithUsage).toHaveBeenCalledOnce();
       expect(mockDb.insert).toHaveBeenCalledWith('opportunityScores');
     });
   });
