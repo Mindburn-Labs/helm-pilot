@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, jsonb, integer, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, jsonb, integer, numeric, index } from 'drizzle-orm/pg-core';
 import { workspaces } from './workspace.js';
 import { operators } from './operator.js';
 
@@ -45,6 +45,7 @@ export const taskRuns = pgTable('task_runs', {
   modelUsed: text('model_used'),
   tokensIn: integer('tokens_in').default(0),
   tokensOut: integer('tokens_out').default(0),
+  costUsd: numeric('cost_usd', { precision: 10, scale: 4 }).default('0'),
   error: text('error'),
   startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp('completed_at', { withTimezone: true }),

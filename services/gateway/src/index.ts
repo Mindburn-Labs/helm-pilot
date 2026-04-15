@@ -13,6 +13,8 @@ import { rateLimit } from './middleware/rate-limit.js';
 import { auditMiddleware } from './middleware/audit.js';
 import { metricsMiddleware, metricsEndpoint } from './middleware/metrics.js';
 import { requestId } from './middleware/request-id.js';
+import { bodyLimit } from './middleware/body-limit.js';
+import { captureException } from '@helm-pilot/shared/errors/sentry';
 import { authRoutes } from './routes/auth.js';
 import { founderRoutes } from './routes/founder.js';
 import { opportunityRoutes } from './routes/opportunity.js';
@@ -28,9 +30,11 @@ import { applicationRoutes } from './routes/application.js';
 import { auditRoutes } from './routes/audit.js';
 import { connectorRoutes } from './routes/connector.js';
 import { statusRoutes } from './routes/status.js';
+import { userRoutes } from './routes/users.js';
 import { type ConnectorRegistry, type OAuthFlowManager } from '@helm-pilot/connectors';
 import { type CofounderEngine } from '@helm-pilot/cofounder-engine';
 import { type EventBus } from './events/bus.js';
+import { type EmailProvider } from './services/email-provider.js';
 
 const log = createLogger('gateway');
 
@@ -43,6 +47,7 @@ export interface GatewayDeps {
   oauth?: OAuthFlowManager;
   cofounderEngine?: CofounderEngine;
   eventBus?: EventBus;
+  emailProvider?: EmailProvider;
 }
 
 export function createGateway(deps: GatewayDeps) {
@@ -50,10 +55,14 @@ export function createGateway(deps: GatewayDeps) {
 
   // ─── Global error handler ───
   app.onError((err, c) => {
-    log.error({ err, path: c.req.path, method: c.req.method }, 'Unhandled error');
+    const requestId = c.res.headers.get('X-Request-Id') ?? undefined;
+    log.error({ err, path: c.req.path, method: c.req.method, requestId }, 'Unhandled error');
     if (err instanceof SyntaxError && err.message.includes('JSON')) {
       return c.json({ error: 'Invalid JSON in request body' }, 400);
     }
+    captureException(err, {
+      tags: { path: c.req.path, method: c.req.method, requestId },
+    });
     return c.json({ error: 'Internal server error' }, 500);
   });
 
@@ -64,6 +73,10 @@ export function createGateway(deps: GatewayDeps) {
 
   // ─── Prometheus metrics collection ───
   app.use('*', metricsMiddleware());
+
+  // ─── Body size limits (defense-in-depth) ───
+  app.use('*', bodyLimit(1_000_000));              // 1MB global default
+  app.use('/api/auth/*', bodyLimit(100_000));      // 100KB on auth endpoints
 
   // ─── Security headers ───
   app.use('*', secureHeaders());
@@ -113,6 +126,7 @@ export function createGateway(deps: GatewayDeps) {
       // DB unreachable
     }
     const bossOk = !!deps.orchestrator.boss;
+    const eventBusOk = deps.eventBus ? deps.eventBus.isConnected() : false;
     const healthy = dbOk;
     return c.json(
       {
@@ -120,7 +134,7 @@ export function createGateway(deps: GatewayDeps) {
         service: 'helm-pilot',
         version: '0.1.0',
         uptime: Math.floor(process.uptime()),
-        checks: { db: dbOk, pgboss: bossOk },
+        checks: { db: dbOk, pgboss: bossOk, eventBus: eventBusOk },
       },
       healthy ? 200 : 503,
     );
@@ -156,6 +170,7 @@ export function createGateway(deps: GatewayDeps) {
   app.route('/api/audit', auditRoutes(deps));
   app.route('/api/connectors', connectorRoutes(deps));
   app.route('/api/status', statusRoutes(deps));
+  app.route('/api/users', userRoutes(deps));
 
   // ─── Telegram Mini App (static files) ───
   app.get(

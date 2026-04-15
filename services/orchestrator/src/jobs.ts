@@ -1,7 +1,7 @@
 import PgBoss from 'pg-boss';
-import { eq } from 'drizzle-orm';
+import { and, eq, lt } from 'drizzle-orm';
 import { type Db } from '@helm-pilot/db/client';
-import { opportunityScores, opportunities } from '@helm-pilot/db/schema';
+import { opportunityScores, opportunities, tasks, taskRuns } from '@helm-pilot/db/schema';
 import { type MemoryService } from '@helm-pilot/memory';
 import { type LlmProvider } from '@helm-pilot/shared/llm';
 import { type ActionRecord } from './agent-loop.js';
@@ -20,7 +20,7 @@ export interface JobDeps {
 /**
  * Register background job handlers on a pg-boss instance.
  */
-export function registerJobHandlers(boss: PgBoss, deps: JobDeps) {
+export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<void> {
   // ─── Opportunity Scoring ───
   boss.work('opportunity.score', async (jobs: PgBoss.Job<{ opportunityId: string }>[]) => {
     for (const job of jobs) {
@@ -231,9 +231,58 @@ Respond with JSON only: {"overall":N,"founderFit":N,"marketSignal":N,"feasibilit
     }
   });
 
-  // ─── Scheduled Pipeline Runs ───
-  boss.schedule('pipeline.yc-scrape', '0 3 * * 0', {}, { tz: 'UTC' }); // Weekly Sunday 3am UTC
-  boss.schedule('pipeline.startup-school', '0 4 * * 0', {}, { tz: 'UTC' }); // Weekly Sunday 4am UTC
+  // ─── Crashed-Task Reaper ───
+  // If the gateway/orchestrator crashes mid-agent-loop, a task row stays in
+  // 'running' forever. This job reaps anything stuck for >10min.
+  boss.work('tasks.reap_stuck', async (jobs: PgBoss.Job[]) => {
+    for (const _job of jobs) {
+      try {
+        const cutoff = new Date(Date.now() - 10 * 60 * 1000);
+        const stuck = await deps.db
+          .update(tasks)
+          .set({ status: 'failed', updatedAt: new Date() })
+          .where(and(eq(tasks.status, 'running'), lt(tasks.updatedAt, cutoff)))
+          .returning({ id: tasks.id });
+
+        if (stuck.length === 0) continue;
+
+        for (const row of stuck) {
+          await deps.db.insert(taskRuns).values({
+            taskId: row.id,
+            status: 'failed',
+            verdict: 'reaped',
+            error: 'Task reaped after 10min without progress — presumed crashed',
+            completedAt: new Date(),
+          });
+        }
+        log.warn({ count: stuck.length, taskIds: stuck.map((r) => r.id) }, 'Reaped stuck tasks');
+      } catch (err) {
+        log.error({ err }, 'Task reaper failed');
+        throw err;
+      }
+    }
+  });
+
+  // ─── Scheduled Jobs ───
+  // pg-boss v10 requires queues to exist before scheduling. createQueue is idempotent
+  // on already-existing queues but errors if not called first for a new queue.
+  const scheduledJobs: Array<[string, string]> = [
+    ['pipeline.yc-scrape', '0 3 * * 0'],       // Weekly Sunday 3am UTC
+    ['pipeline.startup-school', '0 4 * * 0'],  // Weekly Sunday 4am UTC
+    ['tasks.reap_stuck', '*/5 * * * *'],       // Every 5 minutes
+  ];
+  for (const [name, cron] of scheduledJobs) {
+    try {
+      await boss.createQueue(name);
+    } catch {
+      // Queue already exists — continue to schedule
+    }
+    try {
+      await boss.schedule(name, cron, {}, { tz: 'UTC' });
+    } catch (err) {
+      log.warn({ err, name, cron }, 'Failed to schedule job — continuing without it');
+    }
+  }
 
   log.info('Background job handlers registered');
 }

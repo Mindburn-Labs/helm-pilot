@@ -1,4 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 import * as schema from './schema/index.js';
 
@@ -33,3 +34,22 @@ export function createDb(databaseUrl: string) {
 }
 
 export type Db = ReturnType<typeof createDb>['db'];
+
+/**
+ * Apply pending migrations against the given database URL.
+ *
+ * Uses a short-lived dedicated connection so it doesn't interfere with the
+ * main pool. Exits fast-fail if migrations fail.
+ *
+ * @param databaseUrl Connection string
+ * @param migrationsFolder Absolute path to the migrations folder
+ */
+export async function runMigrations(databaseUrl: string, migrationsFolder: string): Promise<void> {
+  const client = postgres(databaseUrl, { max: 1, connect_timeout: 30 });
+  try {
+    const db = drizzle(client);
+    await migrate(db, { migrationsFolder });
+  } finally {
+    await client.end();
+  }
+}

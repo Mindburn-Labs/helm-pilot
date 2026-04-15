@@ -1,4 +1,4 @@
-app = "helm-pilot-app"
+app = "helm-pilot"
 primary_region = "ams"
 
 [build]

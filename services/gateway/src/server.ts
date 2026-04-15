@@ -1,6 +1,8 @@
 import { serve } from '@hono/node-server';
 import PgBoss from 'pg-boss';
-import { createDb } from '@helm-pilot/db/client';
+import { createDb, runMigrations } from '@helm-pilot/db/client';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Orchestrator } from '@helm-pilot/orchestrator';
 import { MemoryService } from '@helm-pilot/memory';
 import { FounderIntelService } from '@helm-pilot/founder-intel';
@@ -13,14 +15,33 @@ import { createLogger } from '@helm-pilot/shared/logger';
 import { createGateway } from './index.js';
 import { configureRateLimit } from './middleware/rate-limit.js';
 import { EventBus } from './events/bus.js';
+import { createEmailProvider } from './services/email-provider.js';
+import { initSentry, flushSentry } from '@helm-pilot/shared/errors/sentry';
 
 const log = createLogger('helm-pilot');
 
 async function main() {
+  // Initialize Sentry first — captures errors even during startup
+  await initSentry();
+
   const databaseUrl = process.env['DATABASE_URL'];
   if (!databaseUrl) {
     log.fatal('DATABASE_URL is required');
     process.exit(1);
+  }
+
+  // ─── Apply pending migrations (fail-fast) ───
+  const runMigrationsEnv = (process.env['RUN_MIGRATIONS_ON_STARTUP'] ?? 'true').toLowerCase();
+  if (runMigrationsEnv !== 'false') {
+    try {
+      const here = dirname(fileURLToPath(import.meta.url));
+      const migrationsFolder = resolve(here, '../../../packages/db/migrations');
+      await runMigrations(databaseUrl, migrationsFolder);
+      log.info('Migrations applied');
+    } catch (err) {
+      log.fatal({ err }, 'Migration failed — refusing to start');
+      process.exit(1);
+    }
   }
 
   // ─── Initialize services ───
@@ -63,6 +84,7 @@ async function main() {
   const memory = new MemoryService(db);
   const connectors = new ConnectorRegistry(db);
   const oauth = new OAuthFlowManager(connectors, db);
+  oauth.validateProviders(); // Fail-fast in prod if enabled connectors lack credentials
 
   // LLM provider (optional — gracefully degrades)
   let llm;
@@ -110,7 +132,24 @@ async function main() {
     log.warn({ err }, 'Event bus failed to start — SSE will fall back to polling');
   }
 
-  const app = createGateway({ db, orchestrator, memory, founderIntel, connectors, oauth, cofounderEngine, eventBus });
+  // ─── Email provider (transactional emails: magic link, notifications) ───
+  const emailProvider = createEmailProvider({
+    provider: process.env['EMAIL_PROVIDER'] ?? 'noop',
+    from: process.env['EMAIL_FROM'],
+    resendApiKey: process.env['RESEND_API_KEY'],
+    smtp: process.env['SMTP_HOST']
+      ? {
+          host: process.env['SMTP_HOST'],
+          port: Number(process.env['SMTP_PORT'] ?? '587'),
+          user: process.env['SMTP_USER'],
+          pass: process.env['SMTP_PASS'],
+          secure: process.env['SMTP_SECURE'] === 'true',
+        }
+      : undefined,
+  });
+  log.info({ emailProvider: emailProvider.kind }, 'Email provider configured');
+
+  const app = createGateway({ db, orchestrator, memory, founderIntel, connectors, oauth, cofounderEngine, eventBus, emailProvider });
 
   // ─── Telegram bot (webhook mode) ───
   const botToken = process.env['TELEGRAM_BOT_TOKEN'];
@@ -162,6 +201,7 @@ async function main() {
     if (redis) {
       try { await redis.quit(); } catch { /* ignore */ }
     }
+    await flushSentry();
     await dbClose();
     log.info('Shutdown complete');
     process.exit(0);

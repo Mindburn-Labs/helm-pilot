@@ -28,8 +28,68 @@ export TELEGRAM_WEBHOOK_SECRET=$(openssl rand -hex 32)
 Rotating secrets requires careful coordination:
 
 1. **SESSION_SECRET rotation:** All active sessions become invalid. Users must re-authenticate.
-2. **ENCRYPTION_KEY rotation:** All stored connector tokens become unreadable. Users must re-authorize connectors.
+2. **ENCRYPTION_KEY rotation:** Use the rotation tool (below) to re-encrypt tokens without losing them.
 3. **TELEGRAM_WEBHOOK_SECRET rotation:** Update the webhook via Telegram API after changing.
+
+#### ENCRYPTION_KEY Rotation Procedure
+
+```bash
+# 1. Generate the new key
+NEW_KEY=$(openssl rand -hex 32)
+
+# 2. Dry run to see how many rows will rotate
+ENCRYPTION_KEY_OLD=$CURRENT_ENCRYPTION_KEY \
+ENCRYPTION_KEY_NEW=$NEW_KEY \
+DATABASE_URL=$PROD_DATABASE_URL \
+  tsx scripts/rotate-encryption-key.ts --dry-run
+
+# 3. Run the rotation (writes to DB)
+ENCRYPTION_KEY_OLD=$CURRENT_ENCRYPTION_KEY \
+ENCRYPTION_KEY_NEW=$NEW_KEY \
+DATABASE_URL=$PROD_DATABASE_URL \
+  tsx scripts/rotate-encryption-key.ts
+
+# 4. Swap the env var in production (Fly.io example)
+fly secrets set ENCRYPTION_KEY=$NEW_KEY --app helm-pilot
+
+# 5. Verify — a subsequent agent run that uses a connector token should succeed
+```
+
+The rotation is idempotent per row; failed rows are logged and skipped so the rest continue.
+
+## Prompt Injection Defense
+
+The agent loop treats all user-controlled and tool-output content as **untrusted data**, not instructions. Strategy:
+
+1. **Tagged context blocks.** User input (task context, operator goal, role, tool outputs) is JSON-encoded and wrapped in `<context tag="...">...</context>` tags. The LLM sees explicit framing, not raw prose.
+2. **System-level instruction.** The plan prompt begins with a `SECURITY NOTICE` that tells the model content inside `<context>` blocks is untrusted.
+3. **Tool allowlist.** The tool registry presents only the tools available for the current mode; requests for any other tool are rejected by the trust boundary.
+4. **Trust boundary checks.** Before executing any tool call, the `TrustBoundary` evaluates kill switches, blocklists, budget, connector scope, and approval requirements. Fail-closed.
+
+**Known gaps:**
+
+- LLMs can still be convinced to misuse *allowed* tools in unexpected ways. Defense-in-depth: approval-gated sensitive tools (email send, financial actions, external posts).
+- The model may leak short strings from context into its reply. Do not place credentials, other users' data, or raw secrets into agent-visible context.
+
+**Testing:** See `services/orchestrator/src/__tests__/agent-loop.test.ts` for injection-resistance assertions.
+
+## Data Deletion (GDPR Right to Erasure)
+
+Authenticated users can delete their account via:
+
+```http
+DELETE /api/users/me
+Authorization: Bearer <session-token>
+```
+
+Behaviour:
+
+- The user row is deleted. FK cascades clean up `sessions`, `api_keys`, and `workspace_members`.
+- Founder profile rows are `set_null`'d (FK policy).
+- Any workspace where the user was the **sole member** is also deleted, cascading to its `tasks`, `operators`, `audit_log`, etc.
+- Workspaces with other members are left intact; the user is just unlinked.
+
+Admins may execute the same deletion on behalf of a user via a direct DB query; follow the same sequence.
 
 ## Authentication
 

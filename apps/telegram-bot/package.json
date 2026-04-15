@@ -19,6 +19,7 @@
     "@helm-pilot/db": "*",
     "@helm-pilot/founder-intel": "*",
     "@helm-pilot/shared": "*",
+    "@sentry/node": "^10.48.0",
     "drizzle-orm": "^0.44.7",
     "grammy": "^1.35.0",
     "pino": "^9.6.0"

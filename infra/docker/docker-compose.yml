@@ -108,6 +108,24 @@ services:
     profiles:
       - debug
 
+  # Scheduled daily backup — enable with `--profile backup`.
+  # Uses Ofelia (a lightweight cron daemon) to run scripts/backup.sh every day at 3am UTC.
+  backup-cron:
+    image: mcuadros/ofelia:latest
+    depends_on:
+      helm-pilot:
+        condition: service_healthy
+    command: daemon --docker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      ofelia.job-exec.backup.schedule: '0 3 * * *'
+      ofelia.job-exec.backup.container: 'helm-pilot'
+      ofelia.job-exec.backup.command: 'bash /app/scripts/backup.sh create'
+    profiles:
+      - backup
+    restart: unless-stopped
+
 volumes:
   pgdata:
   pgadmin_data:

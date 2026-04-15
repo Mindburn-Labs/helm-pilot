@@ -49,13 +49,17 @@ export class Orchestrator {
     }
     this.agentLoop.setTools(this.tools);
 
-    // Register background job handlers
+    // Register background job handlers (async — fire and forget with error log)
     if (config.boss) {
       registerJobHandlers(config.boss, {
         db: config.db,
         memory: config.memory,
         llm: config.llm,
         orchestrator: this,
+      }).catch((err) => {
+        // Non-fatal: schedule errors are logged inside registerJobHandlers;
+        // anything reaching here is unexpected.
+        console.error('registerJobHandlers failed:', err);
       });
     }
   }

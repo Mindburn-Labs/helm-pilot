@@ -19,6 +19,8 @@ const log = createLogger('oauth');
 export class OAuthFlowManager {
   private readonly providers = new Map<string, OAuthProviderConfig>();
   private readonly pendingStates = new Map<string, PendingOAuthState>();
+  /** Per-grant in-flight refresh promises — prevents duplicate refresh races. */
+  private readonly refreshLocks = new Map<string, Promise<string | null>>();
   private readonly stateSecret: string;
 
   constructor(
@@ -27,6 +29,37 @@ export class OAuthFlowManager {
   ) {
     this.stateSecret = process.env['SESSION_SECRET'] ?? 'dev-state-secret';
     this.registerDefaultProviders();
+  }
+
+  /**
+   * Validate that enabled providers have their credentials configured.
+   *
+   * Called at startup. In production, throws if any connector in the
+   * `ENABLED_CONNECTORS` list is missing its client_id or client_secret.
+   * Otherwise, just logs a warning so developers know the connector is disabled.
+   */
+  validateProviders(): void {
+    const enabledRaw = process.env['ENABLED_CONNECTORS'] ?? '';
+    const enabled = new Set(enabledRaw.split(',').map((s) => s.trim()).filter(Boolean));
+    const isProd = process.env['NODE_ENV'] === 'production';
+
+    const issues: string[] = [];
+    for (const [connectorId, provider] of this.providers) {
+      const hasCreds = !!provider.clientId && !!provider.clientSecret;
+      if (enabled.has(connectorId) && !hasCreds) {
+        issues.push(`${connectorId} (enabled but missing ${provider.clientIdEnv ?? 'client_id/secret'})`);
+      } else if (!hasCreds) {
+        log.warn({ connectorId }, `Connector registered without credentials — OAuth disabled`);
+      }
+    }
+
+    if (issues.length > 0) {
+      const msg = `OAuth config invalid: ${issues.join('; ')}`;
+      if (isProd) {
+        throw new OAuthError(msg);
+      }
+      log.warn(msg);
+    }
   }
 
   /** Register an OAuth provider configuration */
@@ -210,6 +243,18 @@ export class OAuthFlowManager {
    * Returns the new access token, or null if refresh is not possible.
    */
   async refreshToken(grantId: string, connectorId: string): Promise<string | null> {
+    // Mutex: coalesce concurrent refreshes of the same grant into one network call.
+    const existing = this.refreshLocks.get(grantId);
+    if (existing) return existing;
+
+    const promise = this.doRefreshToken(grantId, connectorId).finally(() => {
+      this.refreshLocks.delete(grantId);
+    });
+    this.refreshLocks.set(grantId, promise);
+    return promise;
+  }
+
+  private async doRefreshToken(grantId: string, connectorId: string): Promise<string | null> {
     const provider = this.providers.get(connectorId);
     if (!provider) return null;
 

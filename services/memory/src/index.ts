@@ -20,6 +20,9 @@ import { type EmbeddingProvider } from '@helm-pilot/shared/embeddings';
 export class MemoryService {
   private llm?: LlmProvider;
   private embeddings?: EmbeddingProvider;
+  /** True once we've confirmed the `embedding_vec` column exists in the DB. */
+  private vectorColumnAvailable = false;
+  private vectorProbePromise: Promise<boolean> | null = null;
 
   constructor(readonly db: Db) {}
 
@@ -31,6 +34,29 @@ export class MemoryService {
   /** Set embedding provider for semantic search + chunk indexing. */
   setEmbeddings(provider: EmbeddingProvider) {
     this.embeddings = provider;
+  }
+
+  /**
+   * Detect whether the `embedding_vec` column exists (pgvector installed).
+   * Cached after first call. Falls back to keyword-only search if absent.
+   */
+  private async isVectorColumnAvailable(): Promise<boolean> {
+    if (this.vectorProbePromise) return this.vectorProbePromise;
+    this.vectorProbePromise = (async () => {
+      try {
+        const result = await this.db.execute(sql`
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'content_chunks' AND column_name = 'embedding_vec'
+        `);
+        const rows = result as unknown as unknown[];
+        this.vectorColumnAvailable = rows.length > 0;
+        return this.vectorColumnAvailable;
+      } catch {
+        this.vectorColumnAvailable = false;
+        return false;
+      }
+    })();
+    return this.vectorProbePromise;
   }
 
   /**
@@ -77,6 +103,7 @@ export class MemoryService {
     workspaceId?: string,
   ): Promise<SearchResult[]> {
     if (!this.embeddings) return [];
+    if (!(await this.isVectorColumnAvailable())) return [];
     const trimmed = query.trim();
     if (!trimmed) return [];
 
@@ -253,8 +280,9 @@ export class MemoryService {
     const chunks = chunkText(content);
     if (chunks.length === 0) return;
 
+    const vectorOk = await this.isVectorColumnAvailable();
     let embeddings: (number[] | undefined)[] = new Array(chunks.length).fill(undefined);
-    if (this.embeddings) {
+    if (this.embeddings && vectorOk) {
       try {
         embeddings = await this.embeddings.embedBatch(chunks);
       } catch {
@@ -263,13 +291,14 @@ export class MemoryService {
     }
 
     for (let i = 0; i < chunks.length; i++) {
-      await this.db.insert(contentChunks).values({
+      const row: Record<string, unknown> = {
         pageId,
         content: chunks[i]!,
         chunkIndex: i,
-        embeddingVec: embeddings[i] ?? null,
         metadata: {},
-      });
+      };
+      if (vectorOk) row['embeddingVec'] = embeddings[i] ?? null;
+      await this.db.insert(contentChunks).values(row as typeof contentChunks.$inferInsert);
     }
   }
 

@@ -1,0 +1,78 @@
+groups:
+  - name: helm_pilot_api
+    interval: 30s
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(helm_pilot_http_errors_total[5m]))
+          / sum(rate(helm_pilot_http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "HELM Pilot error rate > 5%"
+          description: "Error rate has exceeded 5% for 5 minutes. Current: {{ $value | humanizePercentage }}."
+
+      - alert: HighP95Latency
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(helm_pilot_http_request_duration_seconds_bucket[5m]))
+          ) > 2
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "HELM Pilot p95 latency > 2s"
+          description: "p95 request latency has exceeded 2s for 10 minutes."
+
+      - alert: HealthCheckFailing
+        expr: up{job="helm-pilot"} == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "HELM Pilot is unreachable"
+          description: "Prometheus cannot scrape the gateway /metrics endpoint."
+
+  - name: helm_pilot_orchestrator
+    interval: 30s
+    rules:
+      - alert: JobQueueBacklog
+        expr: helm_pilot_job_queue_depth > 500
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "pg-boss backlog > 500"
+          description: "Queue {{ $labels.queue }} has {{ $value }} pending jobs for 10 minutes."
+
+      - alert: AgentLoopCostSpike
+        expr: |
+          rate(helm_pilot_llm_tokens_total{direction="out"}[15m]) > 100000
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "LLM output tokens rate > 100K/min"
+          description: "Unusual agent loop activity. Check for runaway tasks or abuse."
+
+  - name: helm_pilot_infrastructure
+    interval: 30s
+    rules:
+      - alert: ProcessMemoryHigh
+        expr: process_resident_memory_bytes{job="helm-pilot"} > 800 * 1024 * 1024
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Gateway memory > 800MB"
+          description: "Process RSS is {{ $value | humanize1024 }}B. Possible memory leak."
+
+      - alert: EventLoopLagHigh
+        expr: helm_pilot_nodejs_eventloop_lag_p95_seconds > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Event loop p95 lag > 100ms"
+          description: "Node.js event loop is saturating. Check for CPU-bound work in hot path."

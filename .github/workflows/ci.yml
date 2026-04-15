@@ -45,3 +45,114 @@ jobs:
 
       - name: Lint
         run: npx turbo lint
+
+  db-migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: helm
+          POSTGRES_PASSWORD: helm
+          POSTGRES_DB: helm_pilot_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build shared packages
+        run: npx turbo build --filter=@helm-pilot/db --filter=@helm-pilot/shared
+
+      - name: Apply migrations
+        env:
+          DATABASE_URL: postgresql://helm:helm@localhost:5432/helm_pilot_test
+        run: npm run db:push
+
+      - name: Verify schema (pgvector + triggers + cost_usd)
+        env:
+          DATABASE_URL: postgresql://helm:helm@localhost:5432/helm_pilot_test
+        run: npx tsx scripts/verify-schema.ts
+
+  e2e-integration:
+    runs-on: ubuntu-latest
+    needs: check
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: helm
+          POSTGRES_PASSWORD: helm
+          POSTGRES_DB: helm_pilot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build all packages
+        run: npx turbo build
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: e2e
+
+      - name: Start gateway
+        env:
+          DATABASE_URL: postgresql://helm:helm@localhost:5432/helm_pilot
+          SESSION_SECRET: ci-test-session-secret-64chars-minimum-for-safety-0123456789ab
+          ENCRYPTION_KEY: ci-test-encryption-key-64chars-minimum-for-safety-0123456789ab
+          NODE_ENV: development
+          PORT: '3100'
+          EMAIL_PROVIDER: noop
+        run: |
+          npm start -w services/gateway &
+          echo $! > gateway.pid
+          # Wait for health endpoint
+          for i in {1..30}; do
+            if curl -sf http://localhost:3100/health > /dev/null; then
+              echo "Gateway up"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Run E2E tests
+        env:
+          BASE_URL: http://localhost:3100
+        working-directory: e2e
+        run: npm run test:e2e
+
+      - name: Stop gateway
+        if: always()
+        run: kill $(cat gateway.pid) || true
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 14

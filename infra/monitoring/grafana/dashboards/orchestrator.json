@@ -1,0 +1,59 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "panels": [
+    {
+      "title": "LLM Tokens In / Out (per min)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(helm_pilot_llm_tokens_total{direction=\"in\"}[1m]))",
+          "legendFormat": "in",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(helm_pilot_llm_tokens_total{direction=\"out\"}[1m]))",
+          "legendFormat": "out",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "Tokens by Model",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum by (model) (rate(helm_pilot_llm_tokens_total[5m]))",
+          "legendFormat": "{{model}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Job Queue Depth",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "helm_pilot_job_queue_depth",
+          "legendFormat": "{{queue}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Active Sessions",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [{ "expr": "helm_pilot_active_sessions", "refId": "A" }]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 37,
+  "tags": ["helm-pilot"],
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "HELM Pilot — Orchestrator",
+  "version": 1
+}

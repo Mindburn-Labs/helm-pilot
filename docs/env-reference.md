@@ -45,6 +45,7 @@ These enable real OAuth flows for external services. Without them, connectors op
 | `GOOGLE_CLIENT_ID` | No | Google OAuth client ID (for Gmail + Drive) |
 | `GOOGLE_CLIENT_SECRET` | No | Google OAuth client secret |
 | `GOOGLE_REDIRECT_URI` | No | Google OAuth redirect URI. Default: `{APP_URL}/api/connectors/gmail/oauth/callback` |
+| `ENABLED_CONNECTORS` | No | Comma-separated list of connectors to strictly validate at startup (e.g., `github,gmail,gdrive`). Missing credentials for enabled connectors cause `fatal error → exit 1` in production. |
 
 ### Setting up GitHub OAuth
 
@@ -83,6 +84,24 @@ These enable real OAuth flows for external services. Without them, connectors op
 | `LOG_LEVEL` | No | `info` | Pino log level (`debug`, `info`, `warn`, `error`, `fatal`) |
 | `ALLOWED_ORIGINS` | No | `*` (dev) | Comma-separated CORS allowed origins. Set to your domain in production. |
 | `APP_URL` | No | `http://localhost:3100` | Public-facing URL of the app (used for OAuth redirect URIs) |
+| `RUN_MIGRATIONS_ON_STARTUP` | No | `true` | When `true` (default), gateway runs pending Drizzle migrations on boot. Set `false` to manage migrations manually. |
+
+## Email (Transactional)
+
+Required in production to send magic-link login codes. In development, the `noop` provider logs the code and returns it in the HTTP response.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `EMAIL_PROVIDER` | No | `noop` | `resend` \| `smtp` \| `noop`. Use `noop` only in development. |
+| `EMAIL_FROM` | No | `HELM Pilot <onboarding@helm-pilot.dev>` | Sender address |
+| `RESEND_API_KEY` | If `resend` | — | API key from [resend.com](https://resend.com) |
+| `SMTP_HOST` | If `smtp` | — | SMTP server hostname |
+| `SMTP_PORT` | If `smtp` | `587` | SMTP port (587 STARTTLS, 465 TLS) |
+| `SMTP_USER` | No | — | SMTP auth username |
+| `SMTP_PASS` | No | — | SMTP auth password |
+| `SMTP_SECURE` | No | auto | `true` for port 465, else STARTTLS |
+
+> ⚠️ **Production requirement:** `EMAIL_PROVIDER` must be `resend` or `smtp`. The `noop` provider is dev-only; users cannot log in.
 
 ## Object Storage
 
@@ -97,6 +116,13 @@ For storing artifacts, launch assets, and raw ingestion captures. Falls back to 
 | `S3_ACCESS_KEY` | No | — | S3 access key |
 | `S3_SECRET_KEY` | No | — | S3 secret key |
 | `S3_REGION` | No | `us-east-1` | S3 region |
+
+## Error Reporting (Optional)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `SENTRY_DSN` | No | — | Sentry DSN for error reporting. When unset, errors only hit local logs. |
+| `RELEASE_VERSION` | No | — | Release tag for Sentry (e.g., git SHA). Helps correlate errors to deploys. |
 
 ## Search & Ranking
 

@@ -1,0 +1,36 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "panels": [
+    {
+      "title": "Process Memory (RSS)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [{ "expr": "process_resident_memory_bytes", "refId": "A" }]
+    },
+    {
+      "title": "Event Loop Lag (p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [{ "expr": "helm_pilot_nodejs_eventloop_lag_p95_seconds", "refId": "A" }]
+    },
+    {
+      "title": "Process CPU (seconds/sec)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [{ "expr": "rate(process_cpu_seconds_total[1m])", "refId": "A" }]
+    },
+    {
+      "title": "Open File Descriptors",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [{ "expr": "process_open_fds", "refId": "A" }]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 37,
+  "tags": ["helm-pilot"],
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "HELM Pilot — Infrastructure",
+  "version": 1
+}

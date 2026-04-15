@@ -151,15 +151,31 @@ export function authRoutes(deps: GatewayDeps) {
       expiresAt,
     });
 
-    // In production, send email with the code. V1: log it.
-    const log = (await import('@helm-pilot/shared/logger')).createLogger('auth');
-    log.info({ email, code }, 'Magic link code generated (email sending not configured — use code directly)');
+    // Send email with the code + link. In dev (noop provider), also return code in response.
+    const appUrl = process.env['APP_URL'] ?? 'http://localhost:3000';
+    const linkUrl = `${appUrl}/login?email=${encodeURIComponent(email)}&code=${code}`;
+    const isDev = process.env['NODE_ENV'] !== 'production';
+
+    try {
+      if (deps.emailProvider) {
+        await deps.emailProvider.sendMagicLink({ to: email, code, linkUrl });
+      }
+    } catch (err) {
+      const log = (await import('@helm-pilot/shared/logger')).createLogger('auth');
+      log.error({ err, email }, 'Failed to send magic link email');
+      // In production, fail the request — user has no way to get the code.
+      // In dev, still return the code so developers can log in.
+      if (!isDev) {
+        return c.json({ error: 'Failed to send login email. Please try again.' }, 502);
+      }
+    }
 
     return c.json({
       sent: true,
       email,
-      // V1: return code in response for development. Remove in production.
-      ...(process.env['NODE_ENV'] !== 'production' ? { code } : {}),
+      // Dev-only: return code in response when the provider is noop.
+      // In production (resend/smtp), the code is delivered via email only.
+      ...(isDev && deps.emailProvider?.kind === 'noop' ? { code } : {}),
     });
   });
 

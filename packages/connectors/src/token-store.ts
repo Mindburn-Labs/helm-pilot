@@ -57,3 +57,30 @@ export function decryptToken(encoded: string): string {
 
   return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
 }
+
+/**
+ * Rotate a token's ciphertext from OLD key to NEW key (decrypt + re-encrypt).
+ * Used by the `scripts/rotate-encryption-key.ts` tool.
+ */
+export function rotateTokenCiphertext(
+  encoded: string,
+  oldKeyRaw: string,
+  newKeyRaw: string,
+): string {
+  const oldKey = scryptSync(oldKeyRaw, 'helm-pilot-salt', 32);
+  const newKey = scryptSync(newKeyRaw, 'helm-pilot-salt', 32);
+  const data = Buffer.from(encoded, 'base64');
+  const iv = data.subarray(0, IV_LENGTH);
+  const tag = data.subarray(IV_LENGTH, IV_LENGTH + TAG_LENGTH);
+  const ciphertext = data.subarray(IV_LENGTH + TAG_LENGTH);
+
+  const decipher = createDecipheriv(ALGORITHM, oldKey, iv);
+  decipher.setAuthTag(tag);
+  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+
+  const newIv = randomBytes(IV_LENGTH);
+  const cipher = createCipheriv(ALGORITHM, newKey, newIv);
+  const newCiphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  const newTag = cipher.getAuthTag();
+  return Buffer.concat([newIv, newTag, newCiphertext]).toString('base64');
+}

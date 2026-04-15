@@ -9,6 +9,8 @@
     "./events": "./dist/events/index.js",
     "./config": "./dist/config/index.js",
     "./llm": "./dist/llm/index.js",
+    "./llm/pricing": "./dist/llm/pricing.js",
+    "./errors/sentry": "./dist/errors/sentry.js",
     "./embeddings": "./dist/embeddings/index.js",
     "./logger": "./dist/logger.js"
   },

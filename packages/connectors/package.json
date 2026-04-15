@@ -6,7 +6,8 @@
   "exports": {
     ".": "./dist/index.js",
     "./storage": "./dist/storage.js",
-    "./github": "./dist/github.js"
+    "./github": "./dist/github.js",
+    "./linear": "./dist/linear.js"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

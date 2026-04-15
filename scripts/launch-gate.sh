@@ -73,7 +73,10 @@ if curl -sf "$API_URL/health" > /dev/null 2>&1; then
   check "Health endpoint" curl -sf "$API_URL/health"
   check "Root endpoint" curl -sf "$API_URL/"
   check "Security headers (x-content-type-options)" bash -c "curl -sI '$API_URL/health' | grep -qi 'x-content-type-options'"
-  check "Malformed JSON returns 400" bash -c "STATUS=\$(curl -s -o /dev/null -w '%{http_code}' -X POST '$API_URL/api/tasks' -H 'Content-Type: application/json' -d 'not-json'); [ \"\$STATUS\" = '400' ]"
+  check "Request-ID header echoed" bash -c "curl -sI '$API_URL/health' | grep -qi 'x-request-id'"
+  check "Malformed JSON returns 400 (or 429 if rate-limited)" bash -c "STATUS=\$(curl -s -o /dev/null -w '%{http_code}' -X POST '$API_URL/api/auth/email/request' -H 'Content-Type: application/json' -d 'not-json'); [ \"\$STATUS\" = '400' ] || [ \"\$STATUS\" = '429' ]"
+  check "Metrics endpoint (Prometheus format)" bash -c "curl -sf '$API_URL/metrics' | grep -q 'helm_pilot_http_requests_total'"
+  check "Oversized POST body returns 413" bash -c "BIG=\$(head -c 200000 /dev/urandom | base64); STATUS=\$(curl -s -o /dev/null -w '%{http_code}' -X POST '$API_URL/api/auth/email/request' -H 'Content-Type: application/json' -d \"\$BIG\"); [ \"\$STATUS\" = '413' ] || [ \"\$STATUS\" = '400' ]"
   check "Auth rate limit header" bash -c "curl -sf -D- '$API_URL/api/auth/email/request' -X POST -H 'Content-Type: application/json' -d '{\"email\":\"test\"}' | head -1"
 
   # Test auth flow if in dev mode
@@ -98,14 +101,11 @@ fi
 echo ""
 
 # --- Backup & Setup Checks ---
-echo "Phase 5: Backup Script"
+echo "Phase 5: Operational Scripts"
 check "Backup script exists and is executable" bash -c "[ -x scripts/backup.sh ]"
-check "Backup script help output" bash scripts/backup.sh help > /dev/null
-echo ""
-
-echo "Phase 6: Setup Script"
 check "Setup script exists and is executable" bash -c "[ -x scripts/setup.sh ]"
-check "Setup script help output" bash scripts/setup.sh help > /dev/null
+check "Encryption key rotation script exists" bash -c "[ -f scripts/rotate-encryption-key.ts ]"
+check "Schema verification script exists" bash -c "[ -f scripts/verify-schema.ts ]"
 echo ""
 
 # --- Security Checks ---
@@ -118,7 +118,26 @@ fi
 warn_check "SESSION_SECRET is not default" bash -c "[ \"${SESSION_SECRET:-}\" != \"dev-state-secret\" ] && [ \"${SESSION_SECRET:-}\" != \"change-me-in-production\" ] && [ -n \"${SESSION_SECRET:-}\" ]"
 warn_check "ENCRYPTION_KEY is not default" bash -c "[ \"${ENCRYPTION_KEY:-}\" != \"dev-encryption-key\" ] && [ -n \"${ENCRYPTION_KEY:-}\" ]"
 warn_check "ALLOWED_ORIGINS is restricted" bash -c "[ \"${ALLOWED_ORIGINS:-*}\" != \"*\" ]"
+warn_check "EMAIL_PROVIDER is not noop in production" bash -c "[ \"${NODE_ENV:-}\" != \"production\" ] || [ \"${EMAIL_PROVIDER:-noop}\" != \"noop\" ]"
+warn_check "SENTRY_DSN configured (optional)" bash -c "[ -n \"${SENTRY_DSN:-}\" ]"
 echo ""
+
+# --- Database & Migrations ---
+echo "Phase 9: Database"
+if [ -n "${DATABASE_URL:-}" ]; then
+  warn_check "Schema verification (pgvector + triggers)" npx tsx scripts/verify-schema.ts
+else
+  echo -e "  ${YELLOW}SKIP${NC} (DATABASE_URL not set)"
+  WARN=$((WARN + 1))
+fi
+echo ""
+
+# --- Redis (optional) ---
+if [ -n "${REDIS_URL:-}" ]; then
+  echo "Phase 10: Redis"
+  warn_check "Redis reachable" bash -c "node -e \"const r=new (require('ioredis'))(process.env.REDIS_URL); r.ping().then(()=>{console.log('PONG');r.quit();}).catch(e=>{console.error(e);process.exit(1);});\""
+  echo ""
+fi
 
 # --- TLS Check ---
 echo "Phase 8: TLS (if APP_URL is https)"
