@@ -10,6 +10,7 @@ import { createLogger } from '@helm-pilot/shared/logger';
 import { secureHeaders } from 'hono/secure-headers';
 import { requireAuth } from './middleware/auth.js';
 import { rateLimit } from './middleware/rate-limit.js';
+import { ROUTE_CLASSES, rateLimitPg } from './middleware/rate-limit-pg.js';
 import { auditMiddleware } from './middleware/audit.js';
 import { metricsMiddleware, metricsEndpoint } from './middleware/metrics.js';
 import { requestId } from './middleware/request-id.js';
@@ -119,12 +120,21 @@ export function createGateway(deps: GatewayDeps) {
     );
   });
 
-  // ─── Rate limiting (per-user when authenticated, per-IP otherwise) ───
-  app.use('/api/auth/*', rateLimit({ windowMs: 60_000, max: 5 }));  // Strict on auth endpoints
-  app.use('/api/connectors/*/grant', rateLimit({ windowMs: 60_000, max: 10 }));
-  app.use('/api/connectors/*/token', rateLimit({ windowMs: 60_000, max: 10 }));
-  app.use('/api/tasks', rateLimit({ windowMs: 60_000, max: 30 }));
-  app.use('/api/*', rateLimit({ windowMs: 60_000, max: 100 }));
+  // ─── Rate limiting ─────────────────────────────────────────────────
+  // Phase 2c: per-(workspace, route-class) Postgres token buckets so a
+  // single noisy workspace can't starve the platform. Falls back to the
+  // in-memory limiter when the DB is unreachable (fail-open). Route
+  // classes have distinct ceilings — auth is strictest, default is most
+  // permissive. Anonymous callers are keyed by forwarded IP so pre-auth
+  // brute-force remains capped.
+  app.use('/api/auth/*', rateLimitPg(deps.db, ROUTE_CLASSES.AUTH));
+  app.use('/api/connectors/*/grant', rateLimitPg(deps.db, ROUTE_CLASSES.CONNECTOR_OAUTH));
+  app.use('/api/connectors/*/token', rateLimitPg(deps.db, ROUTE_CLASSES.CONNECTOR_OAUTH));
+  app.use('/api/tasks', rateLimitPg(deps.db, ROUTE_CLASSES.TASK));
+  app.use('/api/*', rateLimitPg(deps.db, ROUTE_CLASSES.DEFAULT));
+  // Legacy in-memory limiter retained for tests that mount routes without a
+  // real DB. New production paths use rateLimitPg above.
+  void rateLimit;
 
   // ─── Health (public, enriched) ───
   app.get('/health', async (c) => {

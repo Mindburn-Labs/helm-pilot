@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, timestamp, doublePrecision, primaryKey, index } from 'drizzle-orm/pg-core';
 import { workspaces } from './workspace.js';
 
 // ─── Tenancy Domain ───
@@ -38,4 +38,36 @@ export const tenantSecrets = pgTable(
   (table) => [
     index('tenant_secrets_workspace_idx').on(table.workspaceId),
   ],
+);
+
+// ─── Rate-limit buckets (Phase 2c) ────────────────────────────────────────
+//
+// Token-bucket state for tenant-partitioned rate limiting. Each row tracks
+// a single (subject, routeClass) pair:
+//   - subject     — either a workspaceId UUID, a userId UUID, or an IP for
+//                   unauthenticated paths. Free-form text so all three fit.
+//   - routeClass  — 'auth' | 'task' | 'connector_oauth' | 'default' |
+//                   'llm_inference' | etc. Keyed so different route families
+//                   can have different ceilings.
+//   - tokens      — current bucket level (float; refilled lazily on read).
+//   - capacity    — max bucket size (= burst allowance).
+//   - refillPerSec — steady-state refill rate.
+//   - lastRefillAt — wall clock of the last refill; the next query computes
+//                    elapsed seconds to advance the bucket.
+//
+// Postgres MVCC serializes concurrent UPDATEs on the same (subject, routeClass)
+// so two parallel requests can't both consume the last token. See
+// services/gateway/src/middleware/rate-limit.ts for the atomic consume SQL.
+export const rateLimitBuckets = pgTable(
+  'ratelimit_buckets',
+  {
+    subject: text('subject').notNull(),
+    routeClass: text('route_class').notNull(),
+    tokens: doublePrecision('tokens').notNull(),
+    capacity: doublePrecision('capacity').notNull(),
+    refillPerSec: doublePrecision('refill_per_sec').notNull(),
+    lastRefillAt: timestamp('last_refill_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.subject, t.routeClass] })],
 );
