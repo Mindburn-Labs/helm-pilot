@@ -1,6 +1,12 @@
 import { Hono } from 'hono';
 import { YcIntelService } from '@helm-pilot/yc-intel';
+import {
+  YcPrivateIngestionInput,
+  YcPublicIngestionInput,
+  YcReplayIngestionInput,
+} from '@helm-pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
+import { getWorkspaceId } from '../lib/workspace.js';
 
 export function ycRoutes(deps: GatewayDeps) {
   const yc = new YcIntelService(deps.db);
@@ -61,10 +67,87 @@ export function ycRoutes(deps: GatewayDeps) {
     return c.json(history);
   });
 
-  // Note: POST /ingestion/trigger was removed — the YC scraper is scheduled via
-  // pg-boss cron (see pipelines/yc-scraper and services/orchestrator/src/jobs.ts).
-  // A proper admin trigger endpoint will be reintroduced in Phase 3 once the
-  // scraper is wired through pg-boss.
+  app.get('/ingestion/:id', async (c) => {
+    const record = await yc.getIngestionRecord(c.req.param('id'));
+    if (!record) return c.json({ error: 'Ingestion record not found' }, 404);
+    return c.json(record);
+  });
+
+  app.post('/ingestion/public', async (c) => {
+    if (!deps.orchestrator.boss) return c.json({ error: 'Background jobs unavailable' }, 503);
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
+    const raw = await c.req.json().catch(() => ({}));
+    const parsed = YcPublicIngestionInput.safeParse(raw);
+    if (!parsed.success) {
+      return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
+    }
+
+    const jobs: Array<{ queue: string; jobId: string | null }> = [];
+    if (parsed.data.source === 'companies' || parsed.data.source === 'all') {
+      const jobId = await deps.orchestrator.boss.send('pipeline.yc-scrape', {
+        workspaceId,
+        batch: parsed.data.batch,
+        limit: parsed.data.limit,
+      });
+      jobs.push({ queue: 'pipeline.yc-scrape', jobId: jobId ?? null });
+    }
+
+    if (parsed.data.source === 'library' || parsed.data.source === 'all') {
+      const jobId = await deps.orchestrator.boss.send('pipeline.startup-school', {
+        workspaceId,
+        limit: parsed.data.limit,
+      });
+      jobs.push({ queue: 'pipeline.startup-school', jobId: jobId ?? null });
+    }
+
+    return c.json({ queued: true, jobs }, 202);
+  });
+
+  app.post('/ingestion/private', async (c) => {
+    if (!deps.orchestrator.boss) return c.json({ error: 'Background jobs unavailable' }, 503);
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
+    const raw = await c.req.json().catch(() => ({}));
+    const parsed = YcPrivateIngestionInput.safeParse(raw);
+    if (!parsed.success) {
+      return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
+    }
+
+    const jobId = await deps.orchestrator.boss.send('pipeline.yc-private', {
+      workspaceId,
+      grantId: parsed.data.grantId,
+      action: parsed.data.action,
+      limit: parsed.data.limit,
+    });
+
+    return c.json({ queued: true, queue: 'pipeline.yc-private', jobId }, 202);
+  });
+
+  app.post('/ingestion/replay', async (c) => {
+    if (!deps.orchestrator.boss) return c.json({ error: 'Background jobs unavailable' }, 503);
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
+    const raw = await c.req.json().catch(() => ({}));
+    const parsed = YcReplayIngestionInput.safeParse(raw);
+    if (!parsed.success) {
+      return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
+    }
+
+    let replayPath = parsed.data.replayPath;
+    if (!replayPath && parsed.data.ingestionRecordId) {
+      const record = await yc.getIngestionRecord(parsed.data.ingestionRecordId);
+      replayPath = record?.rawStoragePath ?? undefined;
+    }
+    if (!replayPath) return c.json({ error: 'Replay source not found' }, 404);
+
+    const queue = parsed.data.source === 'companies' ? 'pipeline.yc-scrape' : 'pipeline.startup-school';
+    const jobId = await deps.orchestrator.boss.send(queue, { workspaceId, replayPath });
+    return c.json({ queued: true, queue, jobId, replayPath }, 202);
+  });
 
   return app;
 }
