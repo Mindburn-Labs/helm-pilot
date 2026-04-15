@@ -2,17 +2,142 @@ name: Deploy
 
 on:
   push:
-    branches: [main]
+    tags:
+      - 'v*'
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  build-and-test:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx turbo typecheck
+
+      - name: Build
+        run: npx turbo build
+
+      - name: Test
+        run: npx turbo test
+
+      - name: Tenancy lint
+        run: npm run lint:tenancy
+
+  docker:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: mindburn-labs/helm-pilot
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Extract tag
+        id: tag
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-staging:
+    needs: docker
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: mindburn-labs/helm-pilot
     steps:
       - uses: actions/checkout@v4
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
-      - name: Deploy to Fly.io
-        run: flyctl deploy --config infra/fly/fly.toml --remote-only
+      - name: Extract tag
+        id: tag
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy to staging
+        run: >
+          flyctl deploy
+          --config infra/fly/pilot.fly.toml
+          --image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.version }}
+          --app helm-pilot-staging
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 20); do
+            if curl -sf https://helm-pilot-staging.fly.dev/health | grep -q '"status"'; then
+              echo "Staging is healthy"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Staging health check failed"
+          exit 1
+
+  deploy-production:
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: mindburn-labs/helm-pilot
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Extract tag
+        id: tag
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy to production
+        run: >
+          flyctl deploy
+          --config infra/fly/pilot.fly.toml
+          --image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.version }}
+          --app helm-pilot
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 20); do
+            if curl -sf https://helm-pilot.fly.dev/health | grep -q '"status"'; then
+              echo "Production is healthy"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Production health check failed"
+          exit 1

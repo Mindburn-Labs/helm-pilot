@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract tag
+        id: tag
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/mindburn-labs/helm-pilot:${{ steps.tag.outputs.version }}
+            ghcr.io/mindburn-labs/helm-pilot:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/mindburn-labs/helm-pilot:${{ steps.tag.outputs.version }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          # Extract the section for the current tag (between ## [version] headers)
+          version="${{ steps.tag.outputs.version }}"
+          version="${version#v}"  # strip leading v
+          awk "/^## \\[${version}\\]/{found=1; next} /^## \\[/{found=0} found" CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "Release ${version}" > release-notes.md
+          fi
+          # Append Docker image links
+          cat >> release-notes.md <<EOF
+
+          ---
+
+          ### Docker Images
+
+          \`\`\`
+          docker pull ghcr.io/mindburn-labs/helm-pilot:${{ steps.tag.outputs.version }}
+          \`\`\`
+
+          Architectures: \`linux/amd64\`, \`linux/arm64\`
+          EOF
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release-notes.md
+          files: sbom.spdx.json
+          generate_release_notes: false

@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 30s
+
+rule_files:
+  - prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: helm-pilot
+    static_configs:
+      - targets: ['localhost:3100']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  - job_name: helm-sidecar
+    static_configs:
+      - targets: ['localhost:8420']
+    metrics_path: /metrics
+    scrape_interval: 15s
