@@ -33,6 +33,7 @@ import { connectorRoutes } from './routes/connector.js';
 import { statusRoutes } from './routes/status.js';
 import { userRoutes } from './routes/users.js';
 import { governanceRoutes } from './routes/governance.js';
+import { decideRoutes } from './routes/decide.js';
 import { secretsRoutes } from './routes/secrets.js';
 import { adminRoutes } from './routes/admin.js';
 import { type ConnectorRegistry, type OAuthFlowManager } from '@helm-pilot/connectors';
@@ -219,6 +220,7 @@ export function createGateway(deps: GatewayDeps) {
   app.route('/api/status', statusRoutes(deps));
   app.route('/api/users', userRoutes(deps));
   app.route('/api/governance', governanceRoutes(deps));
+  app.route('/api/decide', decideRoutes(deps));
   app.route('/api/workspace/secrets', secretsRoutes(deps));
   // Admin surface — platform-wide, gated by HELM_ADMIN_API_KEY. Mounted
   // BEFORE the requireAuth workspace gate could hijack its subtree, and the

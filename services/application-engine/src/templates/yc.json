@@ -1,0 +1,143 @@
+{
+  "id": "yc",
+  "name": "Y Combinator",
+  "description": "YC batch application — covers company basics, traction, team, and vision.",
+  "fields": [
+    {
+      "id": "company_name",
+      "label": "Company Name",
+      "maxLength": 100,
+      "required": true,
+      "evidenceLinkable": false,
+      "promptHint": "The official company or project name."
+    },
+    {
+      "id": "one_liner",
+      "label": "One-Liner Description",
+      "maxLength": 120,
+      "required": true,
+      "evidenceLinkable": false,
+      "promptHint": "Describe what the company does in one sentence, plain English, no jargon."
+    },
+    {
+      "id": "what_do_you_do",
+      "label": "What does your company do?",
+      "maxLength": 2000,
+      "required": true,
+      "evidenceLinkable": true,
+      "promptHint": "Explain the product in detail: what it is, who uses it, and how it works. Be concrete."
+    },
+    {
+      "id": "why_this_idea",
+      "label": "Why did you pick this idea to work on?",
+      "maxLength": 1500,
+      "required": true,
+      "evidenceLinkable": true,
+      "promptHint": "Personal motivation and insight. What do you know that others don't?"
+    },
+    {
+      "id": "progress_so_far",
+      "label": "What progress have you made?",
+      "maxLength": 1500,
+      "required": true,
+      "evidenceLinkable": true,
+      "promptHint": "Traction metrics: users, revenue, LOIs, waitlist, launches. Quantify everything."
+    },
+    {
+      "id": "tech_stack",
+      "label": "Tech Stack",
+      "maxLength": 500,
+      "required": false,
+      "evidenceLinkable": true,
+      "promptHint": "Key technologies, languages, frameworks, and infrastructure used."
+    },
+    {
+      "id": "revenue_model",
+      "label": "How do or will you make money?",
+      "maxLength": 1000,
+      "required": true,
+      "evidenceLinkable": true,
+      "promptHint": "Revenue model, pricing, current MRR if any. Be specific about unit economics."
+    },
+    {
+      "id": "market_size",
+      "label": "How big is the market?",
+      "maxLength": 1000,
+      "required": true,
+      "evidenceLinkable": true,
+      "promptHint": "TAM/SAM/SOM with sources. Bottom-up sizing preferred over top-down."
+    },
+    {
+      "id": "competition",
+      "label": "Who are your competitors?",
+      "maxLength": 1000,
+      "required": true,
+      "evidenceLinkable": true,
+      "promptHint": "Name competitors directly. Explain how you differ — don't claim there are none."
+    },
+    {
+      "id": "unique_advantage",
+      "label": "What is your unique advantage?",
+      "maxLength": 1000,
+      "required": true,
+      "evidenceLinkable": true,
+      "promptHint": "Defensible moat: proprietary tech, data, network effects, regulatory, or founder-market fit."
+    },
+    {
+      "id": "founder_background",
+      "label": "Tell us about the founders",
+      "maxLength": 1500,
+      "required": true,
+      "evidenceLinkable": true,
+      "promptHint": "Background, prior exits, domain expertise, how you met, why this team wins."
+    },
+    {
+      "id": "team_size",
+      "label": "How many people work on this full-time?",
+      "maxLength": 200,
+      "required": true,
+      "evidenceLinkable": false,
+      "promptHint": "Number of full-time team members and key roles."
+    },
+    {
+      "id": "how_long_working",
+      "label": "How long have you been working on this?",
+      "maxLength": 300,
+      "required": true,
+      "evidenceLinkable": false,
+      "promptHint": "Duration in months. Include full-time vs part-time distinction."
+    },
+    {
+      "id": "biggest_challenge",
+      "label": "What is the biggest challenge you face?",
+      "maxLength": 1000,
+      "required": true,
+      "evidenceLinkable": false,
+      "promptHint": "Be honest about the hardest problem. Self-awareness matters more than perfection."
+    },
+    {
+      "id": "yc_batch_preference",
+      "label": "Which YC batch are you applying for?",
+      "maxLength": 100,
+      "required": false,
+      "evidenceLinkable": false,
+      "promptHint": "Preferred batch (e.g. S25, W26). State flexibility if any."
+    },
+    {
+      "id": "demo_url",
+      "label": "Demo URL",
+      "maxLength": 500,
+      "required": false,
+      "evidenceLinkable": false,
+      "promptHint": "Link to a live demo, prototype, or recorded walkthrough."
+    },
+    {
+      "id": "pitch_deck_url",
+      "label": "Pitch Deck URL",
+      "maxLength": 500,
+      "required": false,
+      "evidenceLinkable": false,
+      "promptHint": "Link to your pitch deck (Google Slides, Docsend, PDF)."
+    }
+  ]
+}

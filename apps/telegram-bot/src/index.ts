@@ -8,6 +8,7 @@ import { registerOnboarding } from './commands/onboarding.js';
 import { registerOperatorChat } from './commands/operator-chat.js';
 import { registerCandidates } from './commands/candidates.js';
 import { registerApprovals } from './commands/approvals.js';
+import { registerDiscover } from './commands/discover.js';
 
 export function createBot(token: string, db: Db, deps?: Partial<BotDeps>) {
   const bot = new Bot<BotContext>(token);
@@ -54,7 +55,8 @@ export function createBot(token: string, db: Db, deps?: Partial<BotDeps>) {
     );
   });
 
-  for (const mode of ['discover', 'decide', 'build', 'launch', 'apply'] as const) {
+  // Discover has its own rich handler; other modes are simple switches for now
+  for (const mode of ['decide', 'build', 'launch', 'apply'] as const) {
     bot.command(mode, async (ctx) => {
       const wsId = ctx.session.workspaceId;
       if (!wsId) return ctx.reply('Use /start first.');
@@ -66,6 +68,12 @@ export function createBot(token: string, db: Db, deps?: Partial<BotDeps>) {
       await ctx.reply(`Switched to *${mode.toUpperCase()}* mode.`, { parse_mode: 'Markdown' });
     });
   }
+
+  // Phase 3c: rich /discover with cluster-first view + inline actions
+  // Static import — the dynamic import was causing top-level-await errors
+  // because createBot() is not async. registerDiscover is safe to call
+  // synchronously since it only registers handlers.
+  registerDiscover(bot, db);
 
   bot.command('status', async (ctx) => {
     const wsId = ctx.session.workspaceId;

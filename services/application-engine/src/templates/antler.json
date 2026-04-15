@@ -1,0 +1,71 @@
+{
+  "id": "antler",
+  "name": "Antler",
+  "description": "Antler residency application — founder profile, idea, market, and ambition.",
+  "fields": [
+    {
+      "id": "founder_name",
+      "label": "Founder Name",
+      "maxLength": 200,
+      "required": true,
+      "evidenceLinkable": false,
+      "promptHint": "Full name of the primary applicant."
+    },
+    {
+      "id": "professional_background",
+      "label": "Professional Background",
+      "maxLength": 1500,
+      "required": true,
+      "evidenceLinkable": true,
+      "promptHint": "Career history, key roles, achievements. Focus on what makes you credible."
+    },
+    {
+      "id": "startup_idea",
+      "label": "What is your startup idea?",
+      "maxLength": 2000,
+      "required": true,
+      "evidenceLinkable": true,
+      "promptHint": "The idea, target customer, and how it works. Okay if still forming."
+    },
+    {
+      "id": "why_now",
+      "label": "Why is now the right time?",
+      "maxLength": 1000,
+      "required": true,
+      "evidenceLinkable": true,
+      "promptHint": "Market timing: regulatory shift, technology inflection, behavior change."
+    },
+    {
+      "id": "target_market",
+      "label": "Target Market",
+      "maxLength": 1000,
+      "required": true,
+      "evidenceLinkable": true,
+      "promptHint": "Who are your customers? Market size and segmentation."
+    },
+    {
+      "id": "cofounder_preference",
+      "label": "Co-founder Preference",
+      "maxLength": 500,
+      "required": false,
+      "evidenceLinkable": false,
+      "promptHint": "Looking for a co-founder? Describe ideal complementary skills."
+    },
+    {
+      "id": "biggest_achievement",
+      "label": "Biggest Professional Achievement",
+      "maxLength": 1000,
+      "required": true,
+      "evidenceLinkable": true,
+      "promptHint": "One standout accomplishment that demonstrates your ability to execute."
+    },
+    {
+      "id": "long_term_vision",
+      "label": "Long-Term Vision",
+      "maxLength": 1000,
+      "required": true,
+      "evidenceLinkable": false,
+      "promptHint": "Where does this go in 10 years? Think big but stay grounded."
+    }
+  ]
+}

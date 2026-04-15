@@ -1,0 +1,71 @@
+{
+  "id": "techstars",
+  "name": "Techstars",
+  "description": "Techstars accelerator application — product, traction, team, and ask.",
+  "fields": [
+    {
+      "id": "company_name",
+      "label": "Company Name",
+      "maxLength": 100,
+      "required": true,
+      "evidenceLinkable": false,
+      "promptHint": "The official company or project name."
+    },
+    {
+      "id": "elevator_pitch",
+      "label": "Elevator Pitch",
+      "maxLength": 300,
+      "required": true,
+      "evidenceLinkable": false,
+      "promptHint": "Two to three sentences explaining what you do and why it matters."
+    },
+    {
+      "id": "problem_solved",
+      "label": "What problem are you solving?",
+      "maxLength": 1500,
+      "required": true,
+      "evidenceLinkable": true,
+      "promptHint": "The pain point, who feels it, and how severe it is. Use customer quotes if available."
+    },
+    {
+      "id": "product_description",
+      "label": "Describe your product or service",
+      "maxLength": 2000,
+      "required": true,
+      "evidenceLinkable": true,
+      "promptHint": "What you built, how it works, current stage (MVP, beta, GA)."
+    },
+    {
+      "id": "traction",
+      "label": "What traction do you have?",
+      "maxLength": 1000,
+      "required": true,
+      "evidenceLinkable": true,
+      "promptHint": "Users, revenue, growth rate, partnerships, LOIs. Numbers over narratives."
+    },
+    {
+      "id": "business_model",
+      "label": "Business Model",
+      "maxLength": 1000,
+      "required": true,
+      "evidenceLinkable": true,
+      "promptHint": "How you make money, pricing structure, current revenue if any."
+    },
+    {
+      "id": "team",
+      "label": "Who is on the team?",
+      "maxLength": 1500,
+      "required": true,
+      "evidenceLinkable": true,
+      "promptHint": "Founders, key hires, backgrounds, and why this team is uniquely suited."
+    },
+    {
+      "id": "what_do_you_need",
+      "label": "What do you need from Techstars?",
+      "maxLength": 1000,
+      "required": true,
+      "evidenceLinkable": false,
+      "promptHint": "Beyond funding — mentorship, intros, market access. Be specific about gaps."
+    }
+  ]
+}

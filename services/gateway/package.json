@@ -12,9 +12,11 @@
     "test:coverage": "vitest run --coverage --passWithNoTests"
   },
   "dependencies": {
+    "@helm-pilot/application-engine": "*",
     "@helm-pilot/cofounder-engine": "*",
     "@helm-pilot/connectors": "*",
     "@helm-pilot/db": "*",
+    "@helm-pilot/decision-court": "*",
     "@helm-pilot/founder-intel": "*",
     "@helm-pilot/helm-client": "*",
     "@helm-pilot/launch-engine": "*",
