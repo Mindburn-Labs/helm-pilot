@@ -15,6 +15,61 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── HELM Governance Sidecar ──────────────────────────────────────────
+  # Runs helm-oss as a fail-closed governance engine. Pilot's LLM calls are
+  # proxied through helm at /v1/chat/completions; Guardian inspects every
+  # request, attaches signed receipt headers (X-Helm-Decision-ID, X-Helm-Verdict,
+  # X-Helm-Policy-Version, X-Helm-Decision-Hash), and denies with 403 when
+  # policy blocks an action.
+  #
+  # Build context points to the sibling helm-oss repo (not a submodule).
+  # If HELM_IMAGE is set in .env, that published image is used instead.
+  helm:
+    image: ${HELM_IMAGE:-}
+    build:
+      context: ../../../helm-oss
+      dockerfile: Dockerfile.slim
+    ports:
+      - '${HELM_PORT:-8420}:8080'
+      - '${HELM_HEALTH_PORT:-8421}:8081'
+    environment:
+      HELM_BIND_ADDR: '0.0.0.0'
+      HELM_PORT: '8080'
+      HELM_HEALTH_PORT: '8081'
+      HELM_REGION: '${HELM_REGION:-pilot-local}'
+      HELM_ENABLE_OPENAI_PROXY: '1'
+      HELM_UPSTREAM_URL: '${HELM_UPSTREAM_URL:-https://openrouter.ai/api/v1}'
+      # Ephemeral demo-mode signing key — override with Docker secret in prod
+      EVIDENCE_SIGNING_KEY: '${EVIDENCE_SIGNING_KEY:-pilot-dev-ephemeral-key-change-me}'
+      # HELM uses its own DB namespace in the shared Postgres instance
+      DATABASE_URL: 'postgres://helm:helm@postgres:5432/helm_governance?sslmode=disable'
+      HELM_OSS_EVIDENCE_DIR: '/home/helm/data/evidence'
+      HELM_OSS_RECEIPTS_DIR: '/home/helm/data/receipts'
+    volumes:
+      - helm_data:/home/helm/data
+      # Mount the founder_ops policy pack read-only so HELM can load it at startup
+      - ../../packs/founder_ops.v1.json:/home/helm/packs/founder_ops.v1.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://localhost:8081/healthz || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    logging:
+      driver: json-file
+      options:
+        max-size: '20m'
+        max-file: '3'
+
   helm-pilot:
     build:
       context: ../..
@@ -28,11 +83,18 @@ services:
       DATABASE_URL: postgresql://helm:helm@postgres:5432/helm_pilot
       APP_URL: http://localhost:3100
       NODE_ENV: production
+      # HELM sidecar URL — Pilot's LLM provider routes through this so Guardian
+      # governs every LLM call and attaches signed receipts.
+      HELM_GOVERNANCE_URL: http://helm:8080
+      HELM_HEALTH_URL: http://helm:8081
+      HELM_FAIL_CLOSED: '1'
     volumes:
       - app_storage:/app/data/storage
       - app_backups:/app/backups
     depends_on:
       postgres:
+        condition: service_healthy
+      helm:
         condition: service_healthy
     healthcheck:
       test: ['CMD', 'node', '-e', "fetch('http://localhost:3100/health').then(r => process.exit(r.ok ? 0 : 1))"]
@@ -133,3 +195,4 @@ volumes:
   app_backups:
   caddy_data:
   caddy_config:
+  helm_data:

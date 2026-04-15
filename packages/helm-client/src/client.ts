@@ -1,0 +1,270 @@
+import {
+  HelmDeniedError,
+  HelmEscalationError,
+  HelmNotImplementedError,
+  HelmUnreachableError,
+} from './errors.js';
+import { parseReceiptHeaders } from './receipts.js';
+import type {
+  ChatCompletionRequest,
+  ChatCompletionResult,
+  EvaluateRequest,
+  EvaluateResult,
+  HealthSnapshot,
+  HelmClientConfig,
+  HelmReceipt,
+} from './types.js';
+
+const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_MAX_RETRIES = 3;
+const DEFAULT_BASE_BACKOFF_MS = 100;
+
+/**
+ * Thin TypeScript client for helm-oss v0.3.0+.
+ *
+ * Fail-closed discipline:
+ *   - 2xx with governance headers + verdict=ALLOW → return the response + receipt
+ *   - 403 with governance headers + verdict=DENY   → throw HelmDeniedError
+ *   - 403 with governance headers + verdict=ESCALATE → throw HelmEscalationError
+ *   - any other condition (network, 5xx, parse error, missing headers) → treat
+ *     as HELM_UNREACHABLE which callers MUST interpret as DENY.
+ *
+ * Retries apply ONLY to transient unreachability (5xx, timeout, network). A
+ * definitive governance verdict (403 with headers) is never retried.
+ */
+export class HelmClient {
+  private readonly cfg: Required<
+    Omit<HelmClientConfig, 'healthUrl' | 'defaultPrincipal' | 'adminApiKey' | 'onReceipt' | 'fetchImpl'>
+  > & Pick<HelmClientConfig, 'healthUrl' | 'defaultPrincipal' | 'adminApiKey' | 'onReceipt' | 'fetchImpl'>;
+
+  constructor(cfg: HelmClientConfig) {
+    if (!cfg.baseUrl) throw new Error('HelmClient: baseUrl is required');
+    this.cfg = {
+      baseUrl: stripTrailingSlash(cfg.baseUrl),
+      healthUrl: cfg.healthUrl ? stripTrailingSlash(cfg.healthUrl) : undefined,
+      defaultPrincipal: cfg.defaultPrincipal,
+      adminApiKey: cfg.adminApiKey,
+      timeoutMs: cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      maxRetries: cfg.maxRetries ?? DEFAULT_MAX_RETRIES,
+      baseBackoffMs: cfg.baseBackoffMs ?? DEFAULT_BASE_BACKOFF_MS,
+      failClosed: cfg.failClosed ?? true,
+      onReceipt: cfg.onReceipt,
+      fetchImpl: cfg.fetchImpl ?? globalThis.fetch,
+    };
+  }
+
+  /**
+   * Request a HELM-governed chat completion. Pilot's LLM provider should
+   * funnel every inference call through here so Guardian can enforce policy
+   * and attach signed receipts.
+   */
+  async chatCompletion(
+    principal: string | undefined,
+    body: ChatCompletionRequest,
+  ): Promise<ChatCompletionResult> {
+    const effectivePrincipal = principal ?? this.cfg.defaultPrincipal ?? 'anonymous';
+    const url = `${this.cfg.baseUrl}/v1/chat/completions`;
+
+    const response = await this.governedFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Helm-Principal': effectivePrincipal,
+        ...(this.cfg.adminApiKey ? { Authorization: `Bearer ${this.cfg.adminApiKey}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+
+    const ctx = { action: 'LLM_INFERENCE', resource: body.model, principal: effectivePrincipal };
+    const receipt = parseReceiptHeaders(response.headers, ctx);
+
+    if (response.status === 403) {
+      await this.handleForbidden(response, receipt);
+      // handleForbidden always throws — this is unreachable
+      throw new Error('unreachable');
+    }
+
+    if (!response.ok) {
+      // 5xx or unexpected: caller treats as unreachable/fail-closed
+      throw new HelmUnreachableError(
+        `HELM returned HTTP ${response.status} for chatCompletion`,
+        await safeReadText(response),
+      );
+    }
+
+    if (!receipt) {
+      // 200 with missing governance headers is a protocol violation — fail closed
+      throw new HelmUnreachableError(
+        'HELM response missing governance receipt headers on a 2xx chatCompletion',
+      );
+    }
+
+    await this.emitReceipt(receipt);
+
+    const parsed = (await response.json()) as ChatCompletionResult['body'];
+    return { body: parsed, receipt };
+  }
+
+  /**
+   * Check whether HELM is up. Not governed — safe to call from health probes
+   * and circuit-breakers.
+   */
+  async health(): Promise<HealthSnapshot> {
+    const started = Date.now();
+    const target = this.cfg.healthUrl ?? this.cfg.baseUrl;
+    try {
+      const response = await this.rawFetch(`${target}/healthz`, { method: 'GET' });
+      const latencyMs = Date.now() - started;
+      if (!response.ok) {
+        return {
+          gatewayOk: false,
+          latencyMs,
+          checkedAt: new Date(),
+          error: `HTTP ${response.status}`,
+        };
+      }
+      const text = await safeReadText(response);
+      const version = extractVersionFromHealth(text) ?? undefined;
+      return { gatewayOk: true, latencyMs, checkedAt: new Date(), version };
+    } catch (err) {
+      return {
+        gatewayOk: false,
+        latencyMs: Date.now() - started,
+        checkedAt: new Date(),
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  /**
+   * Generic governance evaluation — reserved for the upstream `POST
+   * /api/v1/guardian/evaluate` endpoint that helm-oss does not yet expose.
+   *
+   * Until that endpoint ships, tool-call governance is performed by the local
+   * Pilot TrustBoundary while LLM calls are already governed via
+   * {@link chatCompletion}.
+   */
+  async evaluate(_req: EvaluateRequest): Promise<EvaluateResult> {
+    throw new HelmNotImplementedError(
+      'Generic HELM evaluate() is not available in helm-oss v0.3.0. ' +
+        'Use chatCompletion() for LLM governance; tool-call governance falls back ' +
+        'to the local TrustBoundary until a POST /api/v1/guardian/evaluate endpoint ' +
+        'ships upstream.',
+    );
+  }
+
+  // ─── internals ───
+
+  private async governedFetch(url: string, init: RequestInit): Promise<Response> {
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= this.cfg.maxRetries; attempt++) {
+      try {
+        const response = await this.rawFetch(url, init);
+        // 403 is a definitive verdict, do not retry
+        if (response.status === 403) return response;
+        // 2xx succeeds, return
+        if (response.ok) return response;
+        // 5xx / unexpected — retry
+        lastErr = new HelmUnreachableError(
+          `HELM HTTP ${response.status}`,
+          await safeReadText(response),
+          attempt,
+        );
+      } catch (err) {
+        lastErr = err instanceof HelmUnreachableError
+          ? err
+          : new HelmUnreachableError(
+              err instanceof Error ? err.message : String(err),
+              err,
+              attempt,
+            );
+      }
+      if (attempt < this.cfg.maxRetries) {
+        await sleep(this.backoffFor(attempt));
+      }
+    }
+    throw lastErr instanceof HelmUnreachableError
+      ? lastErr
+      : new HelmUnreachableError('HELM unreachable after retries', lastErr);
+  }
+
+  private async rawFetch(url: string, init: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.cfg.timeoutMs);
+    try {
+      return await this.cfg.fetchImpl!(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private backoffFor(attempt: number): number {
+    // Exponential backoff with ±25% jitter.
+    const base = this.cfg.baseBackoffMs * Math.pow(4, attempt - 1);
+    const jitter = base * 0.25;
+    return Math.round(base + (Math.random() * 2 - 1) * jitter);
+  }
+
+  private async handleForbidden(
+    response: Response,
+    receipt: HelmReceipt | null,
+  ): Promise<never> {
+    const reason = await readReason(response);
+    if (!receipt) {
+      throw new HelmUnreachableError(
+        'HELM returned 403 without governance receipt headers (protocol violation)',
+      );
+    }
+    const enriched: HelmReceipt = { ...receipt, reason };
+    await this.emitReceipt(enriched);
+    if (enriched.verdict === 'ESCALATE') throw new HelmEscalationError(enriched, reason);
+    throw new HelmDeniedError(enriched, reason);
+  }
+
+  private async emitReceipt(receipt: HelmReceipt): Promise<void> {
+    if (!this.cfg.onReceipt) return;
+    try {
+      await this.cfg.onReceipt(receipt);
+    } catch {
+      // Receipt persistence failure must not break the governed call.
+    }
+  }
+}
+
+// ─── helpers ───
+
+function stripTrailingSlash(url: string): string {
+  return url.endsWith('/') ? url.slice(0, -1) : url;
+}
+
+async function safeReadText(response: Response): Promise<string> {
+  try {
+    return await response.text();
+  } catch {
+    return '';
+  }
+}
+
+async function readReason(response: Response): Promise<string> {
+  const text = await safeReadText(response);
+  if (!text) return 'governance denied (no body)';
+  try {
+    const parsed = JSON.parse(text) as { message?: string; reason?: string; error?: string };
+    return parsed.reason ?? parsed.message ?? parsed.error ?? text.slice(0, 500);
+  } catch {
+    return text.slice(0, 500);
+  }
+}
+
+function extractVersionFromHealth(text: string): string | null {
+  try {
+    const parsed = JSON.parse(text) as { version?: string };
+    return parsed.version ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

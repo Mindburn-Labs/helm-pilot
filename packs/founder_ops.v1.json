@@ -1,0 +1,304 @@
+{
+  "pack_id": "founder-ops-v1",
+  "label": "Founder Operations",
+  "description": "Governs the founder loop — opportunity discovery, cofounder assessment, MVP building, launch preparation, and accelerator applications — for a single-founder workspace running HELM Pilot.",
+  "version": 1,
+
+  "programs": [
+    {
+      "program_id": "prog-founder-intake",
+      "label": "Founder Intake",
+      "status": "active",
+      "signal_filters": [
+        { "class": "PROFILE_UPDATE" },
+        { "class": "ASSESSMENT_COMPLETED" }
+      ]
+    },
+    {
+      "program_id": "prog-opportunity-discovery",
+      "label": "Opportunity Discovery",
+      "status": "active",
+      "signal_filters": [
+        { "class": "OPPORTUNITY_INGESTED", "source": ["yc", "hn", "producthunt", "indiehackers", "github", "crunchbase"] },
+        { "class": "OPPORTUNITY_SCORED" }
+      ]
+    },
+    {
+      "program_id": "prog-cofounder-assessment",
+      "label": "Cofounder Assessment",
+      "status": "active",
+      "signal_filters": [
+        { "class": "CANDIDATE_IMPORTED" },
+        { "class": "CANDIDATE_SCORED" },
+        { "class": "OPERATOR_RECOMMENDED" }
+      ]
+    },
+    {
+      "program_id": "prog-decision-court",
+      "label": "Decision Court",
+      "status": "active",
+      "signal_filters": [
+        { "class": "DECISION_REQUESTED" },
+        { "class": "DEBATE_COMPLETED" },
+        { "class": "VERDICT_ISSUED" }
+      ]
+    },
+    {
+      "program_id": "prog-mvp-build",
+      "label": "MVP Build",
+      "status": "active",
+      "signal_filters": [
+        { "class": "SPEC_GENERATED" },
+        { "class": "SCAFFOLD_CREATED" },
+        { "class": "COMMIT_ATTEMPTED" },
+        { "class": "PR_OPENED" }
+      ]
+    },
+    {
+      "program_id": "prog-launch-prep",
+      "label": "Launch Preparation",
+      "status": "active",
+      "signal_filters": [
+        { "class": "DEPLOY_ATTEMPTED", "provider_class": ["fly", "vercel", "digitalocean"] },
+        { "class": "DISTRIBUTION_DRAFTED" },
+        { "class": "EXTERNAL_POST_REQUESTED" }
+      ]
+    },
+    {
+      "program_id": "prog-yc-application",
+      "label": "YC / Accelerator Application",
+      "status": "active",
+      "signal_filters": [
+        { "class": "APPLICATION_DRAFTED" },
+        { "class": "APPLICATION_EDITED" },
+        { "class": "APPLICATION_SUBMITTED" }
+      ]
+    }
+  ],
+
+  "employees": [
+    {
+      "employee_id": "ve-engineering-operator",
+      "display_name": "Engineering Operator",
+      "role": "engineering",
+      "execution_mode": "SUPERVISED",
+      "tool_scope": {
+        "allowed_tools": [
+          "github.read_repo", "github.list_issues", "github.list_prs",
+          "github.create_branch", "github.commit", "github.open_pr",
+          "files.write_scaffold", "files.read_spec",
+          "product_factory.generate_spec", "product_factory.scaffold"
+        ],
+        "max_risk_class": "R2",
+        "requires_approval_above": "R1"
+      },
+      "presence": [
+        { "channel_type": "telegram", "active": true },
+        { "channel_type": "web", "active": true },
+        { "channel_type": "github", "active": true }
+      ]
+    },
+    {
+      "employee_id": "ve-product-operator",
+      "display_name": "Product Operator",
+      "role": "product",
+      "execution_mode": "SUPERVISED",
+      "tool_scope": {
+        "allowed_tools": [
+          "product_factory.generate_spec", "product_factory.revise_spec",
+          "memory.search", "memory.ingest",
+          "opportunity.score", "opportunity.cluster"
+        ],
+        "max_risk_class": "R2",
+        "requires_approval_above": "R1"
+      },
+      "presence": [
+        { "channel_type": "telegram", "active": true },
+        { "channel_type": "web", "active": true }
+      ]
+    },
+    {
+      "employee_id": "ve-growth-operator",
+      "display_name": "Growth Operator",
+      "role": "growth",
+      "execution_mode": "SUPERVISED",
+      "tool_scope": {
+        "allowed_tools": [
+          "launch.draft_distribution", "launch.schedule_post",
+          "memory.search",
+          "opportunity.research",
+          "gmail.draft_create", "gmail.read_thread"
+        ],
+        "max_risk_class": "R2",
+        "requires_approval_above": "R1"
+      },
+      "presence": [
+        { "channel_type": "telegram", "active": true },
+        { "channel_type": "gmail", "active": true }
+      ]
+    },
+    {
+      "employee_id": "ve-design-operator",
+      "display_name": "Design Operator",
+      "role": "design",
+      "execution_mode": "SUPERVISED",
+      "tool_scope": {
+        "allowed_tools": [
+          "files.write_scaffold", "files.read_spec",
+          "product_factory.generate_landing",
+          "memory.search"
+        ],
+        "max_risk_class": "R1",
+        "requires_approval_above": "R1"
+      },
+      "presence": [
+        { "channel_type": "telegram", "active": true },
+        { "channel_type": "web", "active": true }
+      ]
+    },
+    {
+      "employee_id": "ve-ops-operator",
+      "display_name": "Ops Operator",
+      "role": "ops",
+      "execution_mode": "SUPERVISED",
+      "tool_scope": {
+        "allowed_tools": [
+          "launch.provision", "launch.deploy", "launch.health_check", "launch.rollback",
+          "fly.deploy", "vercel.deploy", "digitalocean.deploy",
+          "memory.search"
+        ],
+        "max_risk_class": "R3",
+        "requires_approval_above": "R2"
+      },
+      "presence": [
+        { "channel_type": "telegram", "active": true },
+        { "channel_type": "fly", "active": true }
+      ]
+    }
+  ],
+
+  "capability_grants": [
+    {
+      "employee_id": "ve-engineering-operator",
+      "connector_id": "github-v1",
+      "tool_names": ["github.read_repo", "github.list_issues", "github.list_prs", "github.create_branch", "github.commit", "github.open_pr"],
+      "max_daily_actions": 200,
+      "first_action_per_repo_requires_approval": true
+    },
+    {
+      "employee_id": "ve-growth-operator",
+      "connector_id": "gmail-v1",
+      "tool_names": ["gmail.draft_create", "gmail.read_thread"],
+      "max_daily_actions": 80,
+      "external_email_requires_draft_preview": true
+    },
+    {
+      "employee_id": "ve-ops-operator",
+      "connector_id": "fly-v1",
+      "tool_names": ["fly.deploy", "fly.rollback"],
+      "max_daily_actions": 30,
+      "first_deploy_per_app_requires_approval": true
+    },
+    {
+      "employee_id": "ve-ops-operator",
+      "connector_id": "vercel-v1",
+      "tool_names": ["vercel.deploy", "vercel.rollback"],
+      "max_daily_actions": 30,
+      "first_deploy_per_project_requires_approval": true
+    },
+    {
+      "employee_id": "ve-ops-operator",
+      "connector_id": "digitalocean-v1",
+      "tool_names": ["digitalocean.deploy", "digitalocean.rollback"],
+      "max_daily_actions": 30,
+      "first_deploy_per_droplet_requires_approval": true
+    }
+  ],
+
+  "budget_envelopes": [
+    {
+      "scope": "workspace",
+      "window": "daily",
+      "currency": "USD",
+      "ceiling": 50.0,
+      "hard_stop": true
+    },
+    {
+      "scope": "workspace",
+      "window": "weekly",
+      "currency": "USD",
+      "ceiling": 250.0,
+      "hard_stop": true
+    },
+    {
+      "scope": "workspace",
+      "window": "monthly",
+      "currency": "USD",
+      "ceiling": 800.0,
+      "hard_stop": true
+    },
+    {
+      "scope": "operator",
+      "operator_role": "engineering",
+      "window": "daily",
+      "currency": "USD",
+      "ceiling": 20.0,
+      "hard_stop": false
+    },
+    {
+      "scope": "operator",
+      "operator_role": "ops",
+      "window": "daily",
+      "currency": "USD",
+      "ceiling": 15.0,
+      "hard_stop": false
+    }
+  ],
+
+  "policy_overlay": [
+    {
+      "rule_id": "external_email_requires_draft_preview",
+      "description": "Any outbound email via gmail.send must be drafted first and previewed by the founder before send.",
+      "applies_to": { "tool_names": ["gmail.send"] },
+      "mode": "escalate"
+    },
+    {
+      "rule_id": "deploy_requires_approval",
+      "description": "First deploy per (connector, project) requires explicit founder approval. Subsequent deploys to the same target within 24h auto-allow unless code diff exceeds threshold.",
+      "applies_to": { "tool_names": ["fly.deploy", "vercel.deploy", "digitalocean.deploy"] },
+      "mode": "escalate_on_first_per_target"
+    },
+    {
+      "rule_id": "financial_action_requires_approval",
+      "description": "Any tool call that moves money or sets up billing escalates to the founder with a signed intent preview.",
+      "applies_to": { "tool_names": ["stripe.charge", "stripe.subscription_create", "fly.upgrade_plan", "vercel.upgrade_plan"] },
+      "mode": "escalate"
+    },
+    {
+      "rule_id": "application_submit_requires_approval",
+      "description": "Submitting an application to YC or any accelerator is an irreversible external action and must be confirmed.",
+      "applies_to": { "tool_names": ["application.submit"] },
+      "mode": "escalate"
+    },
+    {
+      "rule_id": "external_post_requires_approval",
+      "description": "Posts to ProductHunt, HN, Twitter/X, LinkedIn all escalate — launch distribution never happens autonomously.",
+      "applies_to": { "tool_names": ["launch.post_producthunt", "launch.post_hackernews", "launch.post_twitter", "launch.post_linkedin"] },
+      "mode": "escalate"
+    },
+    {
+      "rule_id": "llm_spend_hard_ceiling",
+      "description": "Workspace-wide hard stop on daily LLM spend — even with approval — prevents runaway-loop bills.",
+      "applies_to": { "action_class": "LLM_INFERENCE" },
+      "mode": "hard_stop_on_daily_budget"
+    }
+  ],
+
+  "metadata": {
+    "authored_by": "mindburn-labs",
+    "authored_at": "2026-04-15",
+    "target_product": "helm-pilot",
+    "target_product_version": "0.1.0",
+    "helm_oss_min_version": "0.3.0"
+  }
+}

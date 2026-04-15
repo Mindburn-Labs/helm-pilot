@@ -11,3 +11,4 @@ export * from './application.js';
 export * from './knowledge.js';
 export * from './deploy.js';
 export * from './audit.js';
+export * from './governance.js';

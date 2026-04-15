@@ -47,6 +47,13 @@ export const taskRuns = pgTable('task_runs', {
   tokensOut: integer('tokens_out').default(0),
   costUsd: numeric('cost_usd', { precision: 10, scale: 4 }).default('0'),
   error: text('error'),
+  // ─── HELM governance anchors (Phase 1) ───
+  // Every row produced by the orchestrator after Phase 1 carries the upstream
+  // HELM decision ID and policy version. Inspectable alongside the action it
+  // governed; cross-referenced with evidence_packs for full audit chain.
+  helmDecisionId: text('helm_decision_id'),
+  helmPolicyVersion: text('helm_policy_version'),
+  helmReasonCode: text('helm_reason_code'),
   startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp('completed_at', { withTimezone: true }),
 });

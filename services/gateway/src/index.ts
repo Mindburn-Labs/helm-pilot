@@ -31,8 +31,10 @@ import { auditRoutes } from './routes/audit.js';
 import { connectorRoutes } from './routes/connector.js';
 import { statusRoutes } from './routes/status.js';
 import { userRoutes } from './routes/users.js';
+import { governanceRoutes } from './routes/governance.js';
 import { type ConnectorRegistry, type OAuthFlowManager } from '@helm-pilot/connectors';
 import { type CofounderEngine } from '@helm-pilot/cofounder-engine';
+import { type HelmClient } from '@helm-pilot/helm-client';
 import { type EventBus } from './events/bus.js';
 import { type EmailProvider } from './services/email-provider.js';
 
@@ -48,6 +50,13 @@ export interface GatewayDeps {
   cofounderEngine?: CofounderEngine;
   eventBus?: EventBus;
   emailProvider?: EmailProvider;
+  /**
+   * HELM governance client. When present the orchestrator routes LLM calls
+   * through HELM's /v1/chat/completions and persists receipts to
+   * `evidence_packs`. When absent the gateway falls back to local-only policy
+   * enforcement.
+   */
+  helmClient?: HelmClient;
 }
 
 export function createGateway(deps: GatewayDeps) {
@@ -171,6 +180,7 @@ export function createGateway(deps: GatewayDeps) {
   app.route('/api/connectors', connectorRoutes(deps));
   app.route('/api/status', statusRoutes(deps));
   app.route('/api/users', userRoutes(deps));
+  app.route('/api/governance', governanceRoutes(deps));
 
   // ─── Telegram Mini App (static files) ───
   app.get(

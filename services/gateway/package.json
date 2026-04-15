@@ -16,6 +16,7 @@
     "@helm-pilot/connectors": "*",
     "@helm-pilot/db": "*",
     "@helm-pilot/founder-intel": "*",
+    "@helm-pilot/helm-client": "*",
     "@helm-pilot/launch-engine": "*",
     "@helm-pilot/memory": "*",
     "@helm-pilot/orchestrator": "*",
