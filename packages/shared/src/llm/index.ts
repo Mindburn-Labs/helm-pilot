@@ -12,10 +12,29 @@ export interface LlmUsage {
   model: string;
 }
 
+/**
+ * Governance anchor for an LLM call. Populated by providers that route through
+ * HELM (the HelmLlmProvider); absent on direct providers (OpenRouter, etc.).
+ * Downstream consumers (AgentLoop) persist this into evidence_packs and the
+ * task_runs.helm_* columns to build the audit chain.
+ */
+export interface LlmGovernance {
+  decisionId: string;
+  verdict: 'ALLOW' | 'DENY' | 'ESCALATE';
+  policyVersion: string;
+  decisionHash?: string;
+  reason?: string;
+  principal: string;
+  /** Raw signed blob when HELM returns one — stored verbatim for offline verify. */
+  signedBlob?: unknown;
+}
+
 /** Result of an LLM completion including content and usage metrics. */
 export interface LlmResult {
   content: string;
   usage: LlmUsage;
+  /** Governance receipt when the call was routed through HELM. */
+  governance?: LlmGovernance;
 }
 
 export interface LlmProvider {

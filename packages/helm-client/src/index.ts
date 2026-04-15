@@ -1,4 +1,5 @@
 export { HelmClient } from './client.js';
+export { HelmLlmProvider } from './provider.js';
 export {
   HelmDeniedError,
   HelmEscalationError,
@@ -17,3 +18,4 @@ export type {
   HelmReceipt,
   HelmVerdict,
 } from './types.js';
+export type { HelmLlmProviderOptions } from './provider.js';

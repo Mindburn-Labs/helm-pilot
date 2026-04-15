@@ -9,9 +9,10 @@ import { FounderIntelService } from '@helm-pilot/founder-intel';
 import { ConnectorRegistry, OAuthFlowManager } from '@helm-pilot/connectors';
 import { CofounderEngine } from '@helm-pilot/cofounder-engine';
 import { type PolicyConfig } from '@helm-pilot/shared/schemas';
-import { createLlmProvider } from '@helm-pilot/shared/llm';
+import { createLlmProvider, type LlmProvider } from '@helm-pilot/shared/llm';
 import { createEmbeddingProvider } from '@helm-pilot/shared/embeddings';
 import { createLogger } from '@helm-pilot/shared/logger';
+import { HelmClient, HelmLlmProvider } from '@helm-pilot/helm-client';
 import { createGateway } from './index.js';
 import { configureRateLimit } from './middleware/rate-limit.js';
 import { EventBus } from './events/bus.js';
@@ -86,18 +87,49 @@ async function main() {
   const oauth = new OAuthFlowManager(connectors, db);
   oauth.validateProviders(); // Fail-fast in prod if enabled connectors lack credentials
 
-  // LLM provider (optional — gracefully degrades)
-  let llm;
+  // ─── HELM governance sidecar (optional but vision-critical) ───
+  // When HELM_GOVERNANCE_URL is set, every LLM call is routed through the
+  // HELM sidecar's Guardian pipeline. The orchestrator persists each receipt
+  // to evidence_packs + task_runs for offline audit.
+  let helmClient: HelmClient | undefined;
+  const helmUrl = process.env['HELM_GOVERNANCE_URL'];
+  if (helmUrl) {
+    helmClient = new HelmClient({
+      baseUrl: helmUrl,
+      healthUrl: process.env['HELM_HEALTH_URL'],
+      failClosed: process.env['HELM_FAIL_CLOSED'] !== '0',
+    });
+    log.info({ helmUrl }, 'HELM governance client configured');
+  } else {
+    log.warn(
+      'HELM_GOVERNANCE_URL not set — LLM calls run without HELM Guardian. ' +
+        'Production deployments MUST configure the sidecar.',
+    );
+  }
+
+  // LLM provider (optional — gracefully degrades). When HELM is configured,
+  // the provider is a HelmLlmProvider that routes every call through the
+  // sidecar; otherwise falls back to direct OpenRouter/Anthropic/OpenAI.
+  let llm: LlmProvider | undefined;
   let founderIntel: FounderIntelService | undefined;
   try {
-    llm = createLlmProvider({
-      openrouterApiKey: process.env['OPENROUTER_API_KEY'],
-      anthropicApiKey: process.env['ANTHROPIC_API_KEY'],
-      openaiApiKey: process.env['OPENAI_API_KEY'],
-    });
+    if (helmClient) {
+      llm = new HelmLlmProvider({
+        helm: helmClient,
+        defaultPrincipal: 'workspace:pilot/operator:system',
+        model: process.env['HELM_LLM_MODEL'] ?? 'anthropic/claude-sonnet-4',
+      });
+      log.info('LLM provider: HELM-governed (proxied through sidecar)');
+    } else {
+      llm = createLlmProvider({
+        openrouterApiKey: process.env['OPENROUTER_API_KEY'],
+        anthropicApiKey: process.env['ANTHROPIC_API_KEY'],
+        openaiApiKey: process.env['OPENAI_API_KEY'],
+      });
+      log.info('LLM provider: direct (no HELM)');
+    }
     founderIntel = new FounderIntelService(db, llm);
     memory.setLlm(llm);
-    log.info('LLM provider configured');
   } catch {
     log.warn('No LLM API key configured — agent loop + founder intake degraded');
   }
@@ -115,7 +147,14 @@ async function main() {
   await boss.start();
   log.info('pg-boss started');
 
-  const orchestrator = new Orchestrator({ db, policy: defaultPolicy, llm, memory, boss });
+  const orchestrator = new Orchestrator({
+    db,
+    policy: defaultPolicy,
+    llm,
+    memory,
+    boss,
+    helmClient,
+  });
   const cofounderEngine = new CofounderEngine(db, llm);
 
   for (const connector of connectors.listConnectors()) {
@@ -149,7 +188,18 @@ async function main() {
   });
   log.info({ emailProvider: emailProvider.kind }, 'Email provider configured');
 
-  const app = createGateway({ db, orchestrator, memory, founderIntel, connectors, oauth, cofounderEngine, eventBus, emailProvider });
+  const app = createGateway({
+    db,
+    orchestrator,
+    memory,
+    founderIntel,
+    connectors,
+    oauth,
+    cofounderEngine,
+    eventBus,
+    emailProvider,
+    helmClient,
+  });
 
   // ─── Telegram bot (webhook mode) ───
   const botToken = process.env['TELEGRAM_BOT_TOKEN'];

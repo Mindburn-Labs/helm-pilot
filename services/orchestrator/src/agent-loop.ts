@@ -1,5 +1,5 @@
 import { type Db } from '@helm-pilot/db/client';
-import { type LlmProvider, type LlmUsage } from '@helm-pilot/shared/llm';
+import { type LlmGovernance, type LlmProvider, type LlmUsage } from '@helm-pilot/shared/llm';
 import { computeCostUsd } from '@helm-pilot/shared/llm/pricing';
 import { captureException } from '@helm-pilot/shared/errors/sentry';
 import { MAX_ITERATION_BUDGET } from '@helm-pilot/shared/schemas';
@@ -64,6 +64,8 @@ export class AgentLoop {
       return this.result('completed', 0, params.iterationBudget ?? 50, [], 'No LLM configured');
     }
 
+    this.currentWorkspaceId = params.workspaceId;
+
     const maxIterations = Math.min(params.iterationBudget ?? 50, MAX_ITERATION_BUDGET);
     const actions: ActionRecord[] = [];
 
@@ -123,6 +125,8 @@ export class AgentLoop {
     if (!this.llm) {
       return this.result('completed', 0, params.iterationBudget ?? 50, [], 'No LLM configured');
     }
+
+    this.currentWorkspaceId = params.workspaceId;
 
     const maxIterations = Math.min(params.iterationBudget ?? 50, MAX_ITERATION_BUDGET);
     const actions: ActionRecord[] = [...params.priorActions];
@@ -187,6 +191,20 @@ export class AgentLoop {
   /** Cumulative USD cost of the run (sum over all LLM calls). */
   private runCost = 0;
 
+  /**
+   * Governance receipt from the most recent planning LLM call. Persisted onto
+   * the task_runs row alongside the action it governed. Resets each call —
+   * when the LLM call wasn't governed (no HelmLlmProvider), it stays null.
+   */
+  private lastGovernance: LlmGovernance | null = null;
+
+  /**
+   * Workspace of the currently-executing run. Populated at the top of
+   * executeLoop / resume so persistAction can mirror receipts into
+   * evidence_packs without threading the id through every call site.
+   */
+  private currentWorkspaceId: string | null = null;
+
   private async planNextAction(
     params: AgentRunParams,
     history: ActionRecord[],
@@ -211,10 +229,13 @@ export class AgentLoop {
         result.usage.tokensIn,
         result.usage.tokensOut,
       );
+      this.lastGovernance = result.governance ?? null;
       return parsePlanResponse(result.content);
     }
 
-    // Fallback for providers that don't support usage tracking
+    // Fallback for providers that don't support usage tracking — also no
+    // governance surface, so the lastGovernance slot is cleared.
+    this.lastGovernance = null;
     const response = await this.llm.complete(prompt);
     return parsePlanResponse(response);
   }
@@ -235,27 +256,70 @@ export class AgentLoop {
     }
   }
 
-  /** Persist an action record to the task_runs table for audit + resume */
+  /**
+   * Persist an action record to the task_runs table for audit + resume.
+   *
+   * When the planning LLM call was HELM-governed, the governance anchor is
+   * written onto the task_runs row (helm_decision_id / helm_policy_version /
+   * helm_reason_code) and a mirror row is inserted into evidence_packs so the
+   * Governance admin surface can browse receipts without round-tripping to
+   * HELM. All persistence errors are swallowed — the loop never crashes
+   * because the audit layer degraded.
+   */
   private async persistAction(taskId: string, action: ActionRecord): Promise<void> {
+    const gov = this.lastGovernance;
+    const workspaceId = this.currentWorkspaceId;
+    let taskRunId: string | undefined;
     try {
       const { taskRuns } = await import('@helm-pilot/db/schema');
-      await this.db.insert(taskRuns).values({
-        taskId,
-        status: mapActionStatus(action),
-        actionTool: action.tool,
-        actionInput: toJsonValue(action.input),
-        actionOutput: toJsonValue(action.output),
-        verdict: action.verdict,
-        iterationsUsed: action.iteration,
-        modelUsed: this.runUsage.model || 'agent-loop',
-        tokensIn: this.runUsage.tokensIn,
-        tokensOut: this.runUsage.tokensOut,
-        costUsd: this.runCost.toFixed(4),
-        error: action.verdict === 'deny' ? stringifyError(action.output) : undefined,
-        completedAt: action.verdict === 'require_approval' ? undefined : new Date(),
-      });
+      const [row] = await this.db
+        .insert(taskRuns)
+        .values({
+          taskId,
+          status: mapActionStatus(action),
+          actionTool: action.tool,
+          actionInput: toJsonValue(action.input),
+          actionOutput: toJsonValue(action.output),
+          verdict: action.verdict,
+          iterationsUsed: action.iteration,
+          modelUsed: this.runUsage.model || 'agent-loop',
+          tokensIn: this.runUsage.tokensIn,
+          tokensOut: this.runUsage.tokensOut,
+          costUsd: this.runCost.toFixed(4),
+          error: action.verdict === 'deny' ? stringifyError(action.output) : undefined,
+          completedAt: action.verdict === 'require_approval' ? undefined : new Date(),
+          helmDecisionId: gov?.decisionId ?? null,
+          helmPolicyVersion: gov?.policyVersion ?? null,
+          helmReasonCode: gov?.reason ?? null,
+        })
+        .returning({ id: taskRuns.id });
+      taskRunId = row?.id;
     } catch {
       // Non-critical — don't crash the loop if persistence fails
+    }
+
+    // Mirror the HELM receipt into evidence_packs. Workspace-scoped so the
+    // founder can browse "every governed decision in my workspace" without
+    // joining task_runs → tasks.
+    if (gov && workspaceId) {
+      try {
+        const { evidencePacks } = await import('@helm-pilot/db/schema');
+        await this.db.insert(evidencePacks).values({
+          workspaceId,
+          decisionId: gov.decisionId,
+          taskRunId: taskRunId ?? null,
+          verdict: gov.verdict,
+          reasonCode: gov.reason ?? null,
+          policyVersion: gov.policyVersion,
+          decisionHash: gov.decisionHash ?? null,
+          action: 'LLM_INFERENCE',
+          resource: this.runUsage.model || 'agent-loop',
+          principal: gov.principal,
+          signedBlob: gov.signedBlob ?? null,
+        });
+      } catch {
+        // Non-critical — governance mirroring is best-effort
+      }
     }
   }
 

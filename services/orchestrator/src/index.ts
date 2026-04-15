@@ -3,6 +3,7 @@ import { type Db } from '@helm-pilot/db/client';
 import { type LlmProvider } from '@helm-pilot/shared/llm';
 import { type PolicyConfig } from '@helm-pilot/shared/schemas';
 import { type MemoryService } from '@helm-pilot/memory';
+import { type HelmClient } from '@helm-pilot/helm-client';
 import { TrustBoundary } from './trust.js';
 import { AgentLoop } from './agent-loop.js';
 import { ToolRegistry } from './tools.js';
@@ -14,6 +15,13 @@ export interface OrchestratorConfig {
   llm?: LlmProvider;
   memory?: MemoryService;
   boss?: PgBoss;
+  /**
+   * HELM client. When present the orchestrator emits governance receipts and
+   * can be surfaced via the gateway's /api/governance routes. The LLM provider
+   * passed in should be wired to this client (see HelmLlmProvider in
+   * @helm-pilot/helm-client) so every inference call goes through HELM.
+   */
+  helmClient?: HelmClient;
 }
 
 /**
@@ -33,11 +41,13 @@ export class Orchestrator {
   readonly tools: ToolRegistry;
   readonly db: Db;
   readonly boss?: PgBoss;
+  readonly helmClient?: HelmClient;
   private readonly basePolicy: PolicyConfig;
 
   constructor(config: OrchestratorConfig) {
     this.db = config.db;
     this.boss = config.boss;
+    this.helmClient = config.helmClient;
     this.basePolicy = config.policy;
     this.trust = new TrustBoundary(config.policy);
     this.tools = new ToolRegistry(config.db, config.memory);

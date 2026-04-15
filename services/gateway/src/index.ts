@@ -136,14 +136,40 @@ export function createGateway(deps: GatewayDeps) {
     }
     const bossOk = !!deps.orchestrator.boss;
     const eventBusOk = deps.eventBus ? deps.eventBus.isConnected() : false;
-    const healthy = dbOk;
+
+    // HELM sub-check — probes the sidecar when configured. A "not_configured"
+    // state is distinct from "unreachable" so operators can tell whether HELM
+    // is down versus just disabled in dev. When HELM_FAIL_CLOSED=1 and HELM is
+    // unreachable, the gateway reports degraded (503) — matching the
+    // orchestrator's fail-closed behaviour.
+    let helmState: 'ok' | 'unreachable' | 'not_configured' = 'not_configured';
+    let helmLatencyMs: number | undefined;
+    let helmVersion: string | undefined;
+    if (deps.helmClient) {
+      const snap = await deps.helmClient.health();
+      helmState = snap.gatewayOk ? 'ok' : 'unreachable';
+      helmLatencyMs = snap.latencyMs;
+      helmVersion = snap.version;
+    }
+
+    const failClosed = process.env['HELM_FAIL_CLOSED'] !== '0';
+    const helmBlockHealth = failClosed && helmState === 'unreachable';
+    const healthy = dbOk && !helmBlockHealth;
+
     return c.json(
       {
         status: healthy ? 'ok' : 'degraded',
         service: 'helm-pilot',
         version: '0.1.0',
         uptime: Math.floor(process.uptime()),
-        checks: { db: dbOk, pgboss: bossOk, eventBus: eventBusOk },
+        checks: {
+          db: dbOk,
+          pgboss: bossOk,
+          eventBus: eventBusOk,
+          helm: helmState,
+          helmLatencyMs,
+          helmVersion,
+        },
       },
       healthy ? 200 : 503,
     );
