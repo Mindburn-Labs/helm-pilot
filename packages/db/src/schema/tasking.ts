@@ -54,6 +54,16 @@ export const taskRuns = pgTable('task_runs', {
   helmDecisionId: text('helm_decision_id'),
   helmPolicyVersion: text('helm_policy_version'),
   helmReasonCode: text('helm_reason_code'),
+  // ─── Governed-subagent lineage (Phase 12) ───
+  // When this row represents a subagent run, parentTaskRunId points at the
+  // parent conductor's run. operatorRole carries the subagent's role for
+  // audit queries ("every Content Operator action last week"). Budget slice
+  // columns track USD allocated vs consumed inside this child. All null for
+  // non-subagent rows — additive, zero-regression.
+  parentTaskRunId: uuid('parent_task_run_id'),
+  operatorRole: text('operator_role'),
+  budgetSliceUsed: numeric('budget_slice_used', { precision: 10, scale: 4 }).default('0'),
+  budgetSliceAllocated: numeric('budget_slice_allocated', { precision: 10, scale: 4 }),
   startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp('completed_at', { withTimezone: true }),
 });

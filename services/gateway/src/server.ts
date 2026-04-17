@@ -15,6 +15,7 @@ import { createEmbeddingProvider } from '@helm-pilot/shared/embeddings';
 import { createLogger } from '@helm-pilot/shared/logger';
 import { TenantSecretStore } from '@helm-pilot/db/tenant-secret-store';
 import { HelmClient, HelmLlmProvider } from '@helm-pilot/helm-client';
+import { SubagentRegistry } from '@helm-pilot/shared/subagents';
 import { createGateway } from './index.js';
 import { configureRateLimit } from './middleware/rate-limit.js';
 import { EventBus } from './events/bus.js';
@@ -160,6 +161,14 @@ async function main() {
     model: process.env['HELM_LLM_MODEL'] ?? 'anthropic/claude-sonnet-4',
   });
 
+  // Phase 12 — load governed subagent registry from packs/subagents/*.md.
+  // Empty registry is fine; conductor tools just return a clear error.
+  const subagentRegistry = SubagentRegistry.loadFromDisk();
+  log.info(
+    { count: subagentRegistry.size() },
+    'Subagent registry loaded',
+  );
+
   const orchestrator = new Orchestrator({
     db,
     policy: defaultPolicy,
@@ -168,6 +177,7 @@ async function main() {
     boss,
     helmClient,
     llmResolver,
+    subagentRegistry,
   });
   const cofounderEngine = new CofounderEngine(db, llm);
 

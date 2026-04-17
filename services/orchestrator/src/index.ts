@@ -5,9 +5,11 @@ import { type TenantLlmResolver } from '@helm-pilot/shared/llm/tenant-resolver';
 import { type PolicyConfig } from '@helm-pilot/shared/schemas';
 import { type MemoryService } from '@helm-pilot/memory';
 import { type HelmClient } from '@helm-pilot/helm-client';
+import { type SubagentRegistry } from '@helm-pilot/shared/subagents';
 import { TrustBoundary } from './trust.js';
 import { AgentLoop } from './agent-loop.js';
 import { ToolRegistry } from './tools.js';
+import { Conductor, type ParentContext } from './conductor.js';
 import { registerJobHandlers } from './jobs.js';
 
 export interface OrchestratorConfig {
@@ -30,6 +32,13 @@ export interface OrchestratorConfig {
    * BYO key. Undefined preserves legacy single-provider behaviour.
    */
   llmResolver?: TenantLlmResolver;
+  /**
+   * Phase 12 — governed subagent registry loaded from packs/subagents/*.md.
+   * When present the orchestrator wires a Conductor and exposes
+   * `runConduct()` + registers `subagent.spawn`/`subagent.parallel` tools.
+   * When absent the main orchestrator path is unchanged.
+   */
+  subagentRegistry?: SubagentRegistry;
 }
 
 /**
@@ -51,6 +60,7 @@ export class Orchestrator {
   readonly boss?: PgBoss;
   readonly helmClient?: HelmClient;
   readonly llmResolver?: TenantLlmResolver;
+  readonly conductor?: Conductor;
   private readonly basePolicy: PolicyConfig;
   private readonly fallbackLlm: LlmProvider | undefined;
 
@@ -72,6 +82,18 @@ export class Orchestrator {
       this.agentLoop.setLlm(config.llm);
     }
     this.agentLoop.setTools(this.tools);
+
+    // Phase 12 — wire the Conductor when a registry is provided.
+    if (config.subagentRegistry && config.llm) {
+      this.conductor = new Conductor(
+        config.db,
+        config.subagentRegistry,
+        this.tools,
+        config.policy,
+        config.llm,
+      );
+      this.tools.setConductor(this.conductor);
+    }
 
     // Register background job handlers (async — fire and forget with error log)
     if (config.boss) {
@@ -113,6 +135,57 @@ export class Orchestrator {
       systemPrompt: runtime.systemPrompt,
       operatorGoal: runtime.operatorGoal,
     });
+  }
+
+  /**
+   * Phase 12 — run an agent loop with the Conductor live, so the LLM can
+   * call `subagent.spawn` / `subagent.parallel`. Identical shape to
+   * runTask(); the only difference is that parent context is threaded
+   * into the ToolRegistry for the duration of the run so the conductor
+   * tools know which workspace / task / budget they're operating against.
+   *
+   * If no Conductor is configured this falls back to runTask() and the
+   * LLM's spawn calls will return an error via the tool.
+   */
+  async runConduct(params: {
+    taskId: string;
+    workspaceId: string;
+    operatorId?: string;
+    context: string;
+    iterationBudget?: number;
+  }) {
+    if (!this.conductor) {
+      return this.runTask(params);
+    }
+
+    const runtime = await this.resolveRuntime(
+      params.workspaceId,
+      params.operatorId,
+      params.iterationBudget,
+    );
+    this.trust.setPolicy(runtime.policy);
+    await this.swapLlm(params.workspaceId);
+
+    const parentCtx: ParentContext = {
+      workspaceId: params.workspaceId,
+      taskId: params.taskId,
+      parentTaskRunId: null,
+      operatorRole: runtime.systemPrompt ? 'operator' : 'conductor',
+      policyVersion: 'founder-ops-v1',
+      remainingBudgetUsd: runtime.policy.budget.perTaskMax,
+    };
+    this.tools.setParentContext(parentCtx);
+    try {
+      return await this.agentLoop.execute({
+        ...params,
+        iterationBudget: runtime.iterationBudget,
+        mode: runtime.mode,
+        systemPrompt: runtime.systemPrompt,
+        operatorGoal: runtime.operatorGoal,
+      });
+    } finally {
+      this.tools.setParentContext(null);
+    }
   }
 
   async resumeTask(params: {
@@ -258,6 +331,8 @@ export class Orchestrator {
 export { TrustBoundary } from './trust.js';
 export { AgentLoop } from './agent-loop.js';
 export { ToolRegistry } from './tools.js';
+export { Conductor, type ParentContext } from './conductor.js';
+export { SubagentLoop } from './subagent-loop.js';
 
 function toFiniteNumber(value: unknown) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;

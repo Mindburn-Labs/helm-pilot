@@ -17,7 +17,8 @@
     "./secrets": "./dist/secrets/index.js",
     "./scoring": "./dist/scoring/index.js",
     "./dedup": "./dist/dedup/index.js",
-    "./prompts/opportunity-score.v1": "./dist/prompts/opportunity-score.v1.js"
+    "./prompts/opportunity-score.v1": "./dist/prompts/opportunity-score.v1.js",
+    "./subagents": "./dist/subagents/index.js"
   },
   "scripts": {
     "build": "tsc",

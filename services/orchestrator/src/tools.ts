@@ -1,6 +1,11 @@
 import { type Db } from '@helm-pilot/db/client';
 import { type MemoryService } from '@helm-pilot/memory';
+import {
+  SubagentSpawnRequestSchema,
+  SubagentParallelRequestSchema,
+} from '@helm-pilot/shared/subagents';
 import { type ToolDef } from './agent-loop.js';
+import { type Conductor, type ParentContext } from './conductor.js';
 
 /**
  * Tool Registry — dispatch layer for agent actions.
@@ -20,13 +25,93 @@ export class ToolRegistry {
   constructor(
     private readonly db: Db,
     private readonly memory?: MemoryService,
+    options?: { skipBuiltins?: boolean },
   ) {
-    this.registerBuiltins();
+    if (!options?.skipBuiltins) {
+      this.registerBuiltins();
+    }
   }
 
   /** Register a tool */
   register(tool: Tool) {
     this.tools.set(tool.name, tool);
+  }
+
+  /**
+   * Return a new ToolRegistry containing only the named tools. Used by the
+   * Conductor when wrapping a subagent — the child sees a narrowed universe
+   * of tools without re-registering builtins or duplicating DB state.
+   *
+   * If `allowedNames` is empty, the resulting registry has zero tools — the
+   * child can then only call `finish`.
+   */
+  subset(allowedNames: string[]): ToolRegistry {
+    const allowed = new Set(allowedNames);
+    const scoped = new ToolRegistry(this.db, this.memory, { skipBuiltins: true });
+    for (const [name, tool] of this.tools) {
+      if (allowed.has(name)) {
+        scoped.tools.set(name, tool);
+      }
+    }
+    return scoped;
+  }
+
+  /**
+   * Phase 12 — attach the Conductor so the `subagent.spawn` and
+   * `subagent.parallel` tools resolve. When unset (e.g. subagent
+   * definitions haven't been loaded), both tools return a clear error.
+   */
+  setConductor(conductor: Conductor): void {
+    this.conductor = conductor;
+    this.registerSubagentTools();
+  }
+
+  /**
+   * Phase 12 — set the parent context the conductor-tools use. Called by
+   * the Orchestrator at the top of a conduct run; cleared at the end. Each
+   * `subagent.spawn`/`.parallel` tool invocation reads from here.
+   */
+  setParentContext(ctx: ParentContext | null): void {
+    this.parentContext = ctx;
+  }
+
+  private conductor: Conductor | null = null;
+  private parentContext: ParentContext | null = null;
+
+  private registerSubagentTools(): void {
+    // subagent.spawn — single delegation
+    this.register({
+      name: 'subagent.spawn',
+      description:
+        'Delegate a bounded sub-task to a governed subagent. Input: {"name":"opportunity_scout","task":"scan YC recent batches for fintech"}. Returns: {name, summary, costUsd, iterationsUsed, verdict}.',
+      execute: async (input) => {
+        if (!this.conductor || !this.parentContext) {
+          return { error: 'Subagent conductor not configured for this run' };
+        }
+        const parsed = SubagentSpawnRequestSchema.safeParse(input);
+        if (!parsed.success) {
+          return { error: `invalid subagent.spawn input: ${parsed.error.message}` };
+        }
+        return this.conductor.spawn(this.parentContext, parsed.data);
+      },
+    });
+
+    // subagent.parallel — concurrent fan-out
+    this.register({
+      name: 'subagent.parallel',
+      description:
+        'Dispatch up to 6 subagents concurrently. Input: {"spawns":[{"name":"opportunity_scout","task":"..."},{"name":"decision_facilitator","task":"..."}]}. Returns an array of SubagentRunResult.',
+      execute: async (input) => {
+        if (!this.conductor || !this.parentContext) {
+          return { error: 'Subagent conductor not configured for this run' };
+        }
+        const parsed = SubagentParallelRequestSchema.safeParse(input);
+        if (!parsed.success) {
+          return { error: `invalid subagent.parallel input: ${parsed.error.message}` };
+        }
+        return this.conductor.parallel(this.parentContext, parsed.data.spawns);
+      },
+    });
   }
 
   /** List all available tools (for LLM prompt injection) */

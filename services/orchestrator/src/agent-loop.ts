@@ -50,6 +50,16 @@ export class AgentLoop {
   }
 
   /**
+   * Attach a subagent frame so every action this loop persists anchors to
+   * the parent's task run + evidence pack. Null = not a subagent; all
+   * subagent-lineage columns stay null and behaviour is identical to the
+   * pre-Phase-12 main-orchestrator path.
+   */
+  setSubagentFrame(frame: SubagentFrame | null): void {
+    this.currentSubagentFrame = frame;
+  }
+
+  /**
    * Execute an agent run with the given task context.
    */
   async execute(params: AgentRunParams): Promise<AgentRunResult> {
@@ -205,6 +215,14 @@ export class AgentLoop {
    */
   private currentWorkspaceId: string | null = null;
 
+  /**
+   * Phase 12 — subagent lineage frame. When non-null, every persisted row
+   * carries parent_task_run_id / parent_evidence_pack_id / operator_role /
+   * budget_slice_* so the proof graph materialises as a DAG traversable via
+   * recursive CTE. Null on the main-orchestrator path = unchanged behaviour.
+   */
+  private currentSubagentFrame: SubagentFrame | null = null;
+
   private async planNextAction(
     params: AgentRunParams,
     history: ActionRecord[],
@@ -269,6 +287,7 @@ export class AgentLoop {
   private async persistAction(taskId: string, action: ActionRecord): Promise<void> {
     const gov = this.lastGovernance;
     const workspaceId = this.currentWorkspaceId;
+    const frame = this.currentSubagentFrame;
     let taskRunId: string | undefined;
     try {
       const { taskRuns } = await import('@helm-pilot/db/schema');
@@ -291,6 +310,14 @@ export class AgentLoop {
           helmDecisionId: gov?.decisionId ?? null,
           helmPolicyVersion: gov?.policyVersion ?? null,
           helmReasonCode: gov?.reason ?? null,
+          // Phase 12 — subagent lineage. All four stay null on the main path.
+          parentTaskRunId: frame?.parentTaskRunId ?? null,
+          operatorRole: frame?.operatorRole ?? null,
+          budgetSliceUsed: frame ? this.runCost.toFixed(4) : undefined,
+          budgetSliceAllocated:
+            frame?.budgetSliceAllocated !== undefined
+              ? frame.budgetSliceAllocated.toFixed(4)
+              : null,
         })
         .returning({ id: taskRuns.id });
       taskRunId = row?.id;
@@ -316,6 +343,8 @@ export class AgentLoop {
           resource: this.runUsage.model || 'agent-loop',
           principal: gov.principal,
           signedBlob: gov.signedBlob ?? null,
+          // Phase 12 — anchor child's receipt to parent's SUBAGENT_SPAWN pack.
+          parentEvidencePackId: frame?.parentEvidencePackId ?? null,
         });
       } catch {
         // Non-critical — governance mirroring is best-effort
@@ -507,6 +536,22 @@ export interface ActionRecord {
   output: unknown;
   verdict: string;
   iteration: number;
+}
+
+/**
+ * Phase 12 — subagent lineage frame.
+ *
+ * Attached to an AgentLoop instance via `setSubagentFrame()` by the
+ * Conductor when wrapping a child run. `parentTaskRunId` binds child task
+ * runs to the parent's run row; `parentEvidencePackId` binds every child
+ * LLM-inference receipt to the parent's SUBAGENT_SPAWN evidence pack,
+ * producing a recursive-CTE-traversable DAG.
+ */
+export interface SubagentFrame {
+  parentTaskRunId: string;
+  parentEvidencePackId: string | null;
+  operatorRole: string;
+  budgetSliceAllocated?: number;
 }
 
 export interface ToolDef {

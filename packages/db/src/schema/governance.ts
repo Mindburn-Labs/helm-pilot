@@ -50,12 +50,24 @@ export const evidencePacks = pgTable(
     receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
     /** When this mirror row was verified against the upstream HELM signature. */
     verifiedAt: timestamp('verified_at', { withTimezone: true }),
+    /**
+     * Phase 12 — governed-subagent lineage. When set, this pack is a
+     * subagent's internal decision anchored to a parent pack (typically a
+     * SUBAGENT_SPAWN pack emitted by the Conductor). The proof graph
+     * becomes a DAG traversable via recursive CTE:
+     *   WITH RECURSIVE chain AS (SELECT * FROM evidence_packs WHERE id = ?
+     *   UNION ALL SELECT e.* FROM evidence_packs e
+     *   JOIN chain c ON e.parent_evidence_pack_id = c.id)
+     *   SELECT * FROM chain
+     */
+    parentEvidencePackId: uuid('parent_evidence_pack_id'),
   },
   (table) => [
     index('evidence_packs_workspace_idx').on(table.workspaceId),
     index('evidence_packs_decision_idx').on(table.decisionId),
     index('evidence_packs_task_run_idx').on(table.taskRunId),
     index('evidence_packs_received_idx').on(table.receivedAt),
+    index('evidence_packs_parent_idx').on(table.parentEvidencePackId),
   ],
 );
 
