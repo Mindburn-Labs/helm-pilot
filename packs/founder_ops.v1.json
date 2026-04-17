@@ -73,6 +73,44 @@
         { "class": "APPLICATION_EDITED" },
         { "class": "APPLICATION_SUBMITTED" }
       ]
+    },
+    {
+      "program_id": "prog-content-pipeline",
+      "label": "Content Pipeline",
+      "status": "active",
+      "signal_filters": [
+        { "class": "CONTENT_GENERATED", "content_type": ["blog_post", "email", "social_post", "video_script", "landing_copy"] },
+        { "class": "AUTHENTICITY_AUDIT_COMPLETED" }
+      ]
+    },
+    {
+      "program_id": "prog-seo-geo",
+      "label": "SEO + Generative Engine Optimization",
+      "status": "active",
+      "signal_filters": [
+        { "class": "SEO_AUDIT_REQUESTED" },
+        { "class": "SCHEMA_MARKUP_GENERATED" },
+        { "class": "AI_SEARCH_VISIBILITY_CHECK" }
+      ]
+    },
+    {
+      "program_id": "prog-finance-intelligence",
+      "label": "Finance Intelligence",
+      "status": "active",
+      "signal_filters": [
+        { "class": "REVENUE_RECORDED" },
+        { "class": "MRR_SNAPSHOT" },
+        { "class": "UNIT_ECONOMICS_CALCULATED" }
+      ]
+    },
+    {
+      "program_id": "prog-diagnose",
+      "label": "Business Diagnosis",
+      "status": "active",
+      "signal_filters": [
+        { "class": "DIAGNOSIS_REQUESTED" },
+        { "class": "WORKSPACE_STUCK_SIGNAL" }
+      ]
     }
   ],
 
@@ -174,6 +212,124 @@
         { "channel_type": "telegram", "active": true },
         { "channel_type": "fly", "active": true }
       ]
+    },
+    {
+      "employee_id": "ve-content-operator",
+      "display_name": "Content Operator",
+      "role": "content",
+      "execution_mode": "SUPERVISED",
+      "tool_scope": {
+        "allowed_tools": [
+          "content.generate", "content.rewrite_for_authenticity",
+          "content.audit_authenticity", "content.score_headline",
+          "memory.search", "memory.ingest",
+          "gmail.draft_create"
+        ],
+        "max_risk_class": "R1",
+        "requires_approval_above": "R1"
+      },
+      "presence": [
+        { "channel_type": "telegram", "active": true },
+        { "channel_type": "web", "active": true },
+        { "channel_type": "gmail", "active": true }
+      ]
+    },
+    {
+      "employee_id": "ve-seo-operator",
+      "display_name": "SEO + GEO Operator",
+      "role": "seo",
+      "execution_mode": "SUPERVISED",
+      "tool_scope": {
+        "allowed_tools": [
+          "seo.audit", "seo.generate_schema_markup",
+          "seo.analyze_geo", "seo.suggest_improvements",
+          "memory.search"
+        ],
+        "max_risk_class": "R1",
+        "requires_approval_above": "R1"
+      },
+      "presence": [
+        { "channel_type": "telegram", "active": true },
+        { "channel_type": "web", "active": true }
+      ]
+    },
+    {
+      "employee_id": "ve-ads-operator",
+      "display_name": "Ads Operator",
+      "role": "ads",
+      "execution_mode": "SUPERVISED",
+      "tool_scope": {
+        "allowed_tools": [
+          "ads.draft_campaign", "ads.suggest_keywords",
+          "ads.track_roas", "ads.pause_campaign",
+          "google_ads.read_campaign", "meta_ads.read_campaign"
+        ],
+        "max_risk_class": "R3",
+        "requires_approval_above": "R1"
+      },
+      "presence": [
+        { "channel_type": "telegram", "active": true },
+        { "channel_type": "web", "active": true }
+      ]
+    },
+    {
+      "employee_id": "ve-social-operator",
+      "display_name": "Social Operator",
+      "role": "social",
+      "execution_mode": "SUPERVISED",
+      "tool_scope": {
+        "allowed_tools": [
+          "social.draft_post", "social.schedule_post",
+          "content.score_headline",
+          "launch.post_producthunt", "launch.post_hackernews",
+          "launch.post_twitter", "launch.post_linkedin"
+        ],
+        "max_risk_class": "R2",
+        "requires_approval_above": "R1"
+      },
+      "presence": [
+        { "channel_type": "telegram", "active": true },
+        { "channel_type": "web", "active": true }
+      ]
+    },
+    {
+      "employee_id": "ve-finance-operator",
+      "display_name": "Finance Operator",
+      "role": "finance",
+      "execution_mode": "SUPERVISED",
+      "tool_scope": {
+        "allowed_tools": [
+          "finance.generate_report", "finance.calculate_mrr",
+          "finance.calculate_unit_economics", "finance.analyze_cohorts",
+          "stripe.read_transactions", "stripe.read_subscriptions"
+        ],
+        "max_risk_class": "R2",
+        "requires_approval_above": "R1"
+      },
+      "presence": [
+        { "channel_type": "telegram", "active": true },
+        { "channel_type": "web", "active": true }
+      ]
+    },
+    {
+      "employee_id": "ve-diagnostician",
+      "display_name": "Business Diagnostician",
+      "role": "diagnose",
+      "execution_mode": "SUPERVISED",
+      "tool_scope": {
+        "allowed_tools": [
+          "diagnose.ask_socratic", "diagnose.analyze_workspace_state",
+          "diagnose.audit_premise",
+          "memory.search",
+          "proofgraph.query"
+        ],
+        "max_risk_class": "R1",
+        "requires_approval_above": "R1"
+      },
+      "presence": [
+        { "channel_type": "telegram", "active": true },
+        { "channel_type": "web", "active": true }
+      ]
     }
   ],
 
@@ -212,6 +368,41 @@
       "tool_names": ["digitalocean.deploy", "digitalocean.rollback"],
       "max_daily_actions": 30,
       "first_deploy_per_droplet_requires_approval": true
+    },
+    {
+      "employee_id": "ve-content-operator",
+      "connector_id": "gmail-v1",
+      "tool_names": ["gmail.draft_create"],
+      "max_daily_actions": 50,
+      "external_email_requires_draft_preview": true
+    },
+    {
+      "employee_id": "ve-ads-operator",
+      "connector_id": "google-ads-v1",
+      "tool_names": ["google_ads.read_campaign"],
+      "max_daily_actions": 100,
+      "spend_change_requires_approval": true
+    },
+    {
+      "employee_id": "ve-ads-operator",
+      "connector_id": "meta-ads-v1",
+      "tool_names": ["meta_ads.read_campaign"],
+      "max_daily_actions": 100,
+      "spend_change_requires_approval": true
+    },
+    {
+      "employee_id": "ve-social-operator",
+      "connector_id": "launch-channels-v1",
+      "tool_names": ["launch.post_producthunt", "launch.post_hackernews", "launch.post_twitter", "launch.post_linkedin"],
+      "max_daily_actions": 20,
+      "every_external_post_requires_approval": true
+    },
+    {
+      "employee_id": "ve-finance-operator",
+      "connector_id": "stripe-v1",
+      "tool_names": ["stripe.read_transactions", "stripe.read_subscriptions"],
+      "max_daily_actions": 500,
+      "read_only": true
     }
   ],
 
@@ -252,6 +443,54 @@
       "currency": "USD",
       "ceiling": 15.0,
       "hard_stop": false
+    },
+    {
+      "scope": "operator",
+      "operator_role": "content",
+      "window": "daily",
+      "currency": "USD",
+      "ceiling": 10.0,
+      "hard_stop": false
+    },
+    {
+      "scope": "operator",
+      "operator_role": "seo",
+      "window": "daily",
+      "currency": "USD",
+      "ceiling": 5.0,
+      "hard_stop": false
+    },
+    {
+      "scope": "operator",
+      "operator_role": "ads",
+      "window": "daily",
+      "currency": "USD",
+      "ceiling": 200.0,
+      "hard_stop": true
+    },
+    {
+      "scope": "operator",
+      "operator_role": "social",
+      "window": "daily",
+      "currency": "USD",
+      "ceiling": 5.0,
+      "hard_stop": false
+    },
+    {
+      "scope": "operator",
+      "operator_role": "finance",
+      "window": "daily",
+      "currency": "USD",
+      "ceiling": 5.0,
+      "hard_stop": false
+    },
+    {
+      "scope": "operator",
+      "operator_role": "diagnose",
+      "window": "daily",
+      "currency": "USD",
+      "ceiling": 5.0,
+      "hard_stop": false
     }
   ],
 
@@ -291,14 +530,42 @@
       "description": "Workspace-wide hard stop on daily LLM spend — even with approval — prevents runaway-loop bills.",
       "applies_to": { "action_class": "LLM_INFERENCE" },
       "mode": "hard_stop_on_daily_budget"
+    },
+    {
+      "rule_id": "content_publication_requires_authenticity_audit",
+      "description": "Content published to any external channel (blog, email, social) must pass the 12-signal authenticity audit with verdict=authentic before publication. AI-tell content fails.",
+      "applies_to": { "tool_names": ["blog.publish", "gmail.send", "launch.post_producthunt", "launch.post_hackernews", "launch.post_twitter", "launch.post_linkedin"] },
+      "mode": "escalate"
+    },
+    {
+      "rule_id": "ad_spend_change_requires_approval",
+      "description": "Any change that increases daily ad spend or starts a new campaign escalates. Pausing or decreasing spend auto-allows.",
+      "applies_to": { "tool_names": ["google_ads.create_campaign", "google_ads.increase_budget", "meta_ads.create_campaign", "meta_ads.increase_budget"] },
+      "mode": "escalate"
+    },
+    {
+      "rule_id": "finance_read_only_by_default",
+      "description": "Finance operator is read-only by policy. Writes to Stripe (charge, refund, subscription change) always escalate.",
+      "applies_to": { "tool_names": ["stripe.charge", "stripe.refund", "stripe.subscription_update", "stripe.subscription_cancel"] },
+      "mode": "escalate"
+    },
+    {
+      "rule_id": "diagnose_no_writes",
+      "description": "Diagnose mode is strictly read-only. Writes from any diagnose operator deny outright — diagnosis produces recommendations, not actions.",
+      "applies_to": { "employee_roles": ["diagnose"], "tool_match": "*.write_*|*.create_*|*.update_*|*.delete_*|*.send*|*.post_*" },
+      "mode": "deny"
     }
   ],
 
   "metadata": {
     "authored_by": "mindburn-labs",
-    "authored_at": "2026-04-15",
+    "authored_at": "2026-04-16",
     "target_product": "helm-pilot",
     "target_product_version": "0.1.0",
-    "helm_oss_min_version": "0.3.0"
+    "helm_oss_min_version": "0.3.0",
+    "changelog": [
+      { "date": "2026-04-15", "change": "Initial pack — 7 programs, 5 operators, 5 capability grants, 6 policy overlays" },
+      { "date": "2026-04-16", "change": "Phase 11: added 5 programs (content/seo/finance/diagnose + SMTM-inspired), 7 operators (content/seo/ads/social/finance/diagnostician), 5 capability grants, 4 policy overlays, 6 per-operator budget envelopes" }
+    ]
   }
 }
