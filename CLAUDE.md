@@ -53,6 +53,10 @@ docker compose -f infra/docker/docker-compose.yml up -d postgres
 - MUST NOT modify `_archive/openclaw/` or `_archive/money-engine/` — archive only.
 - MUST NOT downgrade `helm-client` to bypass the trust boundary.
 
+## Design system
+
+Mindburn DS v1.0 — Parchment / Graphite. Canonical tokens live in `mindburn/app/styles/design-system.css`. `apps/web` consumes them via `src/app/layout.tsx` inline body style (Graphite background + bone ink + Inter Tight); `apps/telegram-miniapp/src/styles.css` sets DS fallbacks on `--tg-theme-*` for when the Mini App runs standalone (Telegram-injected theme values still win when present). Hardcoded hex outside the Ember / Sage / Amber / Ink-Blue ramps fails review. Palette changes cross-apply to `mindburn` first, then mirror here in the same PR.
+
 ## Subagents to prefer
 
 - `repo-auditor` — any cross-cutting change, before edits.

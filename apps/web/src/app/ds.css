@@ -1,0 +1,70 @@
+/* =========================================================
+   Mindburn DS v1.0 — Parchment / Graphite — HELM Pilot web.
+   Source of truth: mindburn/app/styles/design-system.css.
+   Palette mirror kept inline (no cross-workspace dependency).
+   Palette changes ripple into every repo; edit mindburn first.
+   ========================================================= */
+
+:root {
+  /* Brand-constant ramps */
+  --ember-50: #fdecea;
+  --ember-200: #f5a89d;
+  --ember-500: #c63a22;
+  --sage-300: #8fae86;
+  --sage-500: #4f7548;
+  --amber-300: #d4a24c;
+  --amber-500: #a5761c;
+  --ink-blue-300: #6e87ad;
+  --ink-blue-500: #2e4a74;
+
+  /* Graphite (default) */
+  --ds-bg: #13120f;
+  --ds-bg-2: #1a1814;
+  --ds-surface: #201e19;
+  --ds-surface-2: #272520;
+  --ink: #f0ead9;
+  --ink-2: #c9c2b0;
+  --ink-3: #8f897a;
+  --ink-4: #5c574c;
+  --ds-line: #332f27;
+  --ds-line-2: #4a4539;
+  --accent: #e86a51;
+  --accent-soft: #2a1a16;
+  --ok: #8fae86;
+  --ok-soft: #1c261a;
+  --warn: #d4a24c;
+  --warn-soft: #2a1f10;
+  --info: #8aa4c8;
+  --info-soft: #162036;
+  --danger: #e86a51;
+
+  /* Typography */
+  --ds-font-display: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --ds-font-sans: "Inter Tight", "Inter", -apple-system, "Helvetica Neue", sans-serif;
+  --ds-font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+
+[data-theme="light"] {
+  --ds-bg: #f4efe6;
+  --ds-bg-2: #ebe5d8;
+  --ds-surface: #faf6ed;
+  --ds-surface-2: #ffffff;
+  --ink: #1a1814;
+  --ink-2: #3d3a33;
+  --ink-3: #6b665b;
+  --ink-4: #968f80;
+  --ds-line: #d9d2c0;
+  --ds-line-2: #c4bca6;
+  --accent: var(--ember-500);
+  --accent-soft: var(--ember-50);
+  --ok: var(--sage-500);
+  --warn: var(--amber-500);
+  --info: var(--ink-blue-500);
+  --danger: var(--ember-500);
+}
+
+body {
+  background: var(--ds-bg);
+  color: var(--ink);
+  font-family: var(--ds-font-sans);
+}
