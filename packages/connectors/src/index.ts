@@ -34,6 +34,8 @@ export type {
   CreateMachineParams,
 } from './fly/index.js';
 export type { StorageClient, S3Config } from './storage.js';
+export { VoxCpmClient } from './voxcpm.js';
+export type { VoxCpmClientConfig, SynthesizeRequest } from './voxcpm.js';
 export type {
   Connector,
   ConnectorAuthType,
