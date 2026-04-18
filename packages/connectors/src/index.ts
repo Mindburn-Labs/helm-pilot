@@ -10,6 +10,14 @@ export { GmailConnector } from './gmail.js';
 export { DriveConnector } from './gdrive.js';
 export { OAuthFlowManager, OAuthError } from './oauth.js';
 export { encryptToken, decryptToken } from './token-store.js';
+export {
+  registerRefreshJobs,
+  listReauthRequired,
+  PROACTIVE_WINDOW_MS,
+  PERMANENT_AFTER_ATTEMPTS,
+  TICK_BATCH_LIMIT,
+} from './refresh.js';
+export type { RefreshNotifier, RefreshDeps } from './refresh.js';
 export type { StorageClient, S3Config } from './storage.js';
 export type {
   Connector,

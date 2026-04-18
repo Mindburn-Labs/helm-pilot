@@ -47,7 +47,21 @@ export class NotificationService {
         ],
       ],
     };
-    
+
     await this.notifyWorkspace(workspaceId, message, keyboard);
+  }
+
+  /**
+   * Phase 13 (Track B) — notify the workspace that a connector needs
+   * re-auth after the background refresh worker hit the permanent-failure
+   * threshold (3 consecutive failures or an immediate invalid_grant).
+   */
+  async requestReauth(workspaceId: string, connectorName: string) {
+    const pretty = connectorName.charAt(0).toUpperCase() + connectorName.slice(1);
+    const message =
+      `*Reconnect ${pretty}*\n\n` +
+      `The ${pretty} connector stopped refreshing. Open HELM Pilot and ` +
+      `reconnect via Settings → Connectors to resume automated actions.`;
+    await this.notifyWorkspace(workspaceId, message);
   }
 }

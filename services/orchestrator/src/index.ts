@@ -5,6 +5,7 @@ import { type TenantLlmResolver } from '@helm-pilot/shared/llm/tenant-resolver';
 import { type PolicyConfig } from '@helm-pilot/shared/schemas';
 import { type MemoryService } from '@helm-pilot/memory';
 import { type HelmClient } from '@helm-pilot/helm-client';
+import { type OAuthFlowManager, type RefreshNotifier } from '@helm-pilot/connectors';
 import { type SubagentRegistry } from '@helm-pilot/shared/subagents';
 import { TrustBoundary } from './trust.js';
 import { AgentLoop } from './agent-loop.js';
@@ -39,6 +40,18 @@ export interface OrchestratorConfig {
    * When absent the main orchestrator path is unchanged.
    */
   subagentRegistry?: SubagentRegistry;
+  /**
+   * Phase 13 (Track B) — OAuth flow manager. When present the background
+   * refresh worker is registered; connector tokens get proactively renewed
+   * when they're <30 minutes from expiry, and the re-auth banner is
+   * surfaced after 3 consecutive permanent failures.
+   */
+  oauth?: OAuthFlowManager;
+  /**
+   * Phase 13 (Track B) — notifier for permanent refresh failures. Typically
+   * wired to Telegram bot's `NotificationService.requestReauth`.
+   */
+  refreshNotifier?: RefreshNotifier;
 }
 
 /**
@@ -102,6 +115,8 @@ export class Orchestrator {
         memory: config.memory,
         llm: config.llm,
         orchestrator: this,
+        oauth: config.oauth,
+        refreshNotifier: config.refreshNotifier,
       }).catch((err) => {
         // Non-fatal: schedule errors are logged inside registerJobHandlers;
         // anything reaching here is unexpected.

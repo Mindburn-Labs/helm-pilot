@@ -6,6 +6,11 @@ import { isNull } from 'drizzle-orm';
 import { scoreOpportunity } from '@helm-pilot/shared/scoring';
 import { type MemoryService } from '@helm-pilot/memory';
 import { type LlmProvider } from '@helm-pilot/shared/llm';
+import {
+  type OAuthFlowManager,
+  type RefreshNotifier,
+  registerRefreshJobs,
+} from '@helm-pilot/connectors';
 import { type ActionRecord } from './agent-loop.js';
 import { createLogger } from '@helm-pilot/shared/logger';
 import { type Orchestrator } from './index.js';
@@ -17,6 +22,18 @@ export interface JobDeps {
   memory?: MemoryService;
   llm?: LlmProvider;
   orchestrator?: Orchestrator;
+  /**
+   * OAuth flow manager. When present, the connector-refresh background worker
+   * is registered alongside the other jobs. When absent, no refresh worker
+   * runs — appropriate for tests and dev instances without OAuth configured.
+   */
+  oauth?: OAuthFlowManager;
+  /**
+   * Notifier for permanent refresh failures. When a grant hits
+   * PERMANENT_AFTER_ATTEMPTS the worker calls `notifier.reauthRequired(
+   * workspaceId, connectorName)` so the re-auth banner surfaces.
+   */
+  refreshNotifier?: RefreshNotifier;
 }
 
 /**
@@ -412,6 +429,21 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
       await boss.schedule(name, cron, {}, { tz: 'UTC' });
     } catch (err) {
       log.warn({ err, name, cron }, 'Failed to schedule job — continuing without it');
+    }
+  }
+
+  // ─── Connector token refresh worker (Phase 13, Track B) ───
+  // Runs only when OAuth is configured. Idempotent — registers the two
+  // refresh queues + schedules the tick cron.
+  if (deps.oauth) {
+    try {
+      await registerRefreshJobs(boss, {
+        db: deps.db,
+        oauth: deps.oauth,
+        notifier: deps.refreshNotifier,
+      });
+    } catch (err) {
+      log.warn({ err }, 'Failed to register connector refresh worker — continuing');
     }
   }
 

@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, jsonb, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, jsonb, boolean, integer } from 'drizzle-orm/pg-core';
 import { workspaces } from './workspace.js';
 
 // ─── Connector Domain ───
@@ -25,6 +25,13 @@ export const connectorGrants = pgTable('connector_grants', {
   isActive: boolean('is_active').notNull().default(true),
   grantedAt: timestamp('granted_at', { withTimezone: true }).notNull().defaultNow(),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  // ─── Phase 13 (Track B) — token-refresh state ───
+  // Populated by packages/connectors/src/refresh.ts. needsReauth flips to
+  // true after N consecutive invalid_grant / revoked errors; the re-auth
+  // banner in Mini App + web reads this per workspace.
+  needsReauth: boolean('needs_reauth').notNull().default(false),
+  lastRefreshError: text('last_refresh_error'),
+  refreshAttempts: integer('refresh_attempts').notNull().default(0),
 });
 
 export const connectorTokens = pgTable('connector_tokens', {

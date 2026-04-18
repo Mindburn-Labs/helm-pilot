@@ -15,6 +15,7 @@ import { createEmbeddingProvider } from '@helm-pilot/shared/embeddings';
 import { createLogger } from '@helm-pilot/shared/logger';
 import { TenantSecretStore } from '@helm-pilot/db/tenant-secret-store';
 import { HelmClient, HelmLlmProvider } from '@helm-pilot/helm-client';
+import type { RefreshNotifier } from '@helm-pilot/connectors';
 import { SubagentRegistry } from '@helm-pilot/shared/subagents';
 import { createGateway } from './index.js';
 import { configureRateLimit } from './middleware/rate-limit.js';
@@ -169,6 +170,24 @@ async function main() {
     'Subagent registry loaded',
   );
 
+  // Phase 13 (Track B) — late-bound re-auth notifier. The Telegram bot is
+  // initialized AFTER the Orchestrator, but the refresh worker registered
+  // inside the Orchestrator needs a notifier now. Use an adapter that
+  // delegates to whichever NotificationService is later assigned.
+  let notificationsRef: import('@helm-pilot/telegram-bot/notifications').NotificationService | null = null;
+  const refreshNotifier: RefreshNotifier = {
+    async reauthRequired(workspaceId, connectorName) {
+      if (!notificationsRef) {
+        log.warn(
+          { workspaceId, connectorName },
+          'Connector needs re-auth but Telegram bot is not configured',
+        );
+        return;
+      }
+      await notificationsRef.requestReauth(workspaceId, connectorName);
+    },
+  };
+
   const orchestrator = new Orchestrator({
     db,
     policy: defaultPolicy,
@@ -178,6 +197,8 @@ async function main() {
     helmClient,
     llmResolver,
     subagentRegistry,
+    oauth,
+    refreshNotifier,
   });
   const cofounderEngine = new CofounderEngine(db, llm);
 
@@ -236,11 +257,12 @@ async function main() {
 
     // Wire approval push notifications via Telegram
     const notifications = new NotificationService(bot, db);
+    notificationsRef = notifications;
     orchestrator.agentLoop.setApprovalNotifier(
       (workspaceId, approvalId, action, reason) =>
         notifications.requestApproval(workspaceId, approvalId, action, reason),
     );
-    log.info('Approval notifications enabled via Telegram');
+    log.info('Approval + re-auth notifications enabled via Telegram');
 
     const handleUpdate = webhookCallback(bot, 'std/http');
     const webhookSecret = process.env['TELEGRAM_WEBHOOK_SECRET'];

@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { type Connector } from '@helm-pilot/connectors';
+import { type Connector, listReauthRequired } from '@helm-pilot/connectors';
 import { SaveConnectorSessionInput, ValidateConnectorSessionInput } from '@helm-pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId } from '../lib/workspace.js';
@@ -32,6 +32,20 @@ export function connectorRoutes(deps: GatewayDeps) {
 
     const grants = await deps.connectors.listWorkspaceGrants(workspaceId);
     return c.json(grants);
+  });
+
+  /**
+   * GET /api/connectors/reauth-status
+   *
+   * Phase 13 (Track B) — returns the list of grants the background refresh
+   * worker has permanently failed on. The Mini App + web use this to
+   * render the "Reconnect <provider>" banner and CTA.
+   */
+  app.get('/reauth-status', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const grants = await listReauthRequired(deps.db, workspaceId);
+    return c.json({ grants });
   });
 
   app.post('/:name/grant', async (c) => {
