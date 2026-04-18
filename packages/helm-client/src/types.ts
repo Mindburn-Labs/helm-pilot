@@ -122,6 +122,12 @@ export interface HelmClientConfig {
   timeoutMs?: number;
   /** Max attempts per governed call (including the first). Defaults to 3. */
   maxRetries?: number;
+  /**
+   * Phase 13.5 — opt in to the real `POST /api/v1/guardian/evaluate`
+   * endpoint once helm-oss v0.3.1+ ships it. When false/undefined the
+   * client's `evaluate()` method fails closed with HelmNotImplementedError.
+   */
+  evaluateEnabled?: boolean;
   /** Base backoff in ms for exponential retry. Defaults to 100. */
   baseBackoffMs?: number;
   /** Fail closed when true (default): any non-200 / non-403 error denies the call. */

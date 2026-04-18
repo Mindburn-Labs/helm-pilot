@@ -48,6 +48,7 @@ export class HelmClient {
       maxRetries: cfg.maxRetries ?? DEFAULT_MAX_RETRIES,
       baseBackoffMs: cfg.baseBackoffMs ?? DEFAULT_BASE_BACKOFF_MS,
       failClosed: cfg.failClosed ?? true,
+      evaluateEnabled: cfg.evaluateEnabled ?? false,
       onReceipt: cfg.onReceipt,
       fetchImpl: cfg.fetchImpl ?? globalThis.fetch,
     };
@@ -144,13 +145,72 @@ export class HelmClient {
    * Pilot TrustBoundary while LLM calls are already governed via
    * {@link chatCompletion}.
    */
-  async evaluate(_req: EvaluateRequest): Promise<EvaluateResult> {
-    throw new HelmNotImplementedError(
-      'Generic HELM evaluate() is not available in helm-oss v0.3.0. ' +
-        'Use chatCompletion() for LLM governance; tool-call governance falls back ' +
-        'to the local TrustBoundary until a POST /api/v1/guardian/evaluate endpoint ' +
-        'ships upstream.',
-    );
+  async evaluate(req: EvaluateRequest): Promise<EvaluateResult> {
+    // Phase 13.5 — real implementation. Gated on this.cfg.evaluateEnabled
+    // (or env HELM_EVALUATE_ENABLED=1) so builds against helm-oss v0.3.0
+    // (no endpoint) still fail closed. Flip to true once the upstream
+    // POST /api/v1/guardian/evaluate handler lands in v0.3.1.
+    const enabled =
+      this.cfg.evaluateEnabled === true ||
+      (typeof process !== 'undefined' &&
+        process.env?.['HELM_EVALUATE_ENABLED'] === '1');
+    if (!enabled) {
+      throw new HelmNotImplementedError(
+        'Generic HELM evaluate() is disabled. Set HELM_EVALUATE_ENABLED=1 ' +
+          '(or HelmClientConfig.evaluateEnabled=true) once the upstream ' +
+          'POST /api/v1/guardian/evaluate endpoint is available.',
+      );
+    }
+
+    const principal = req.principal || this.cfg.defaultPrincipal || 'anonymous';
+    const url = `${this.cfg.baseUrl}/api/v1/guardian/evaluate`;
+    const response = await this.governedFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Helm-Principal': principal,
+        ...(this.cfg.adminApiKey
+          ? { Authorization: `Bearer ${this.cfg.adminApiKey}` }
+          : {}),
+      },
+      body: JSON.stringify({
+        principal,
+        action: req.action,
+        resource: req.resource,
+        context: req.context ?? {},
+      }),
+    });
+
+    const ctx = {
+      action: req.action,
+      resource: req.resource,
+      principal,
+    };
+    const receipt = parseReceiptHeaders(response.headers, ctx);
+
+    if (response.status === 403) {
+      await this.handleForbidden(response, receipt);
+      throw new Error('unreachable');
+    }
+
+    if (!response.ok) {
+      throw new HelmUnreachableError(
+        `HELM returned HTTP ${response.status} for evaluate`,
+        await safeReadText(response),
+      );
+    }
+
+    if (!receipt) {
+      throw new HelmUnreachableError(
+        'HELM response missing governance receipt headers on a 2xx evaluate',
+      );
+    }
+
+    await this.emitReceipt(receipt);
+
+    const evidencePackId =
+      response.headers.get('x-helm-evidence-pack-id') ?? undefined;
+    return { receipt, evidencePackId };
   }
 
   // ─── internals ───
