@@ -253,6 +253,43 @@ export class AgentLoop {
         subagentName: frame?.parentTaskRunId ? frame.operatorRole : undefined,
       },
       async () => {
+        // Phase 14 Track H — if the provider supports structured prompts
+        // (Anthropic), call `completeStructured` with the stable prefix
+        // (system + tools + role) cacheable and the dynamic suffix
+        // (history + iteration number + task) as the user message. Saves
+        // 30-90% tokens on iterative agent loops. Falls back to the flat
+        // `completeWithUsage(prompt)` path for OpenRouter/OpenAI.
+        if (typeof this.llm!.completeStructured === 'function') {
+          const { system, user } = splitPlanPrompt(prompt);
+          const result = await this.llm!.completeStructured({
+            system,
+            user,
+            cacheSystem: true,
+          });
+          this.runUsage.tokensIn += result.usage.tokensIn;
+          this.runUsage.tokensOut += result.usage.tokensOut;
+          this.runUsage.model = result.usage.model;
+          this.runCost += computeCostUsd(
+            result.usage.model,
+            result.usage.tokensIn,
+            result.usage.tokensOut,
+          );
+          this.lastGovernance = result.governance ?? null;
+          setLlmUsageAttributes({
+            model: result.usage.model,
+            inputTokens: result.usage.tokensIn,
+            outputTokens: result.usage.tokensOut,
+          });
+          if (result.governance) {
+            setHelmAttributes({
+              verdict: result.governance.verdict,
+              policyVersion: result.governance.policyVersion,
+              reasonCode: result.governance.reason,
+            });
+          }
+          return parsePlanResponse(result.content);
+        }
+
         // Use completeWithUsage to track token consumption + cost
         if (typeof this.llm!.completeWithUsage === 'function') {
           const result = await this.llm!.completeWithUsage(prompt);
@@ -519,6 +556,36 @@ Decide the next action. Respond with JSON only (no markdown, no fences):
 
 If the task is complete, use: {"tool": "finish", "input": {"summary": "..."}}
 If you cannot proceed, use: {"tool": "finish", "input": {"summary": "Blocked: reason"}}`;
+}
+
+/**
+ * Phase 14 Track H — split the flat `buildPlanPrompt` output into a
+ * cacheable system prefix (security notice + role + goal + mode +
+ * workspace id + tools list) and a dynamic user suffix (action history
+ * + current iteration + ask).
+ *
+ * Splits on the first `\nACTION HISTORY:` marker emitted by
+ * `buildPlanPrompt`. The prefix is stable within a single run so
+ * Anthropic's `cache_control: ephemeral` yields 30-90% token savings
+ * across iterations.
+ *
+ * When the marker is absent (future prompt refactor), falls back to
+ * sending the whole thing as `user` with a minimal system — cache
+ * wouldn't hit but the call still succeeds.
+ */
+function splitPlanPrompt(prompt: string): { system: string; user: string } {
+  const marker = '\nACTION HISTORY:';
+  const idx = prompt.indexOf(marker);
+  if (idx < 0) {
+    return {
+      system: 'You are an autonomous operator in HELM Pilot.',
+      user: prompt,
+    };
+  }
+  return {
+    system: prompt.slice(0, idx),
+    user: prompt.slice(idx + 1), // drop the leading \n
+  };
 }
 
 function parsePlanResponse(response: string): Pick<ActionRecord, 'tool' | 'input'> | null {
