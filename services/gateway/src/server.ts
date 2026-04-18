@@ -252,7 +252,11 @@ async function main() {
     const { webhookCallback } = await import('grammy');
     const { createBot } = await import('@helm-pilot/telegram-bot');
     const { NotificationService } = await import('@helm-pilot/telegram-bot/notifications');
-    const bot = createBot(botToken, db, { founderIntel });
+    const bot = createBot(botToken, db, {
+      founderIntel,
+      runTask: (params) => orchestrator.runTask(params),
+      runConduct: (params) => orchestrator.runConduct(params),
+    });
     await bot.init();
 
     // Wire approval push notifications via Telegram

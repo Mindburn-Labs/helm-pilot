@@ -30,7 +30,7 @@ export function createBot(token: string, db: Db, deps?: Partial<BotDeps>) {
 
   // ─── Register Module Handlers ───
   const handleProfileInput = registerOnboarding(bot, db, deps);
-  const handleOperatorChat = registerOperatorChat(bot, db);
+  const handleOperatorChat = registerOperatorChat(bot, db, deps);
   registerCandidates(bot, db);
   registerApprovals(bot, db);
 

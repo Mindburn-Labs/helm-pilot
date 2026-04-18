@@ -1,10 +1,62 @@
 import { Bot } from 'grammy';
 import { eq, and } from 'drizzle-orm';
 import { type Db } from '@helm-pilot/db/client';
-import { operators } from '@helm-pilot/db/schema';
-import { type BotContext } from '../types.js';
+import { operators, tasks } from '@helm-pilot/db/schema';
+import {
+  type BotContext,
+  type BotDeps,
+} from '../types.js';
 
-export function registerOperatorChat(bot: Bot<BotContext>, db: Db) {
+export function registerOperatorChat(
+  bot: Bot<BotContext>,
+  db: Db,
+  deps?: Partial<BotDeps>,
+) {
+  // ─── Phase 13 Track C4 — /conduct command ───
+  bot.command('conduct', async (ctx) => {
+    const wsId = ctx.session.workspaceId;
+    if (!wsId) return ctx.reply('Use /start first.');
+    const prompt = (ctx.match ?? '').trim();
+    if (!prompt) {
+      return ctx.reply(
+        'Usage: /conduct <task description>\n\nRuns a subagent-enabled conduct loop — the orchestrator may delegate to governed subagents like opportunity_scout or decision_facilitator.',
+      );
+    }
+    if (!deps?.runConduct) {
+      return ctx.reply('Orchestrator not configured for /conduct on this deployment.');
+    }
+    const [row] = await db
+      .insert(tasks)
+      .values({
+        workspaceId: wsId,
+        title: prompt.slice(0, 60),
+        description: prompt,
+        mode: 'conduct',
+        status: 'running',
+      })
+      .returning();
+    if (!row) return ctx.reply('Failed to create task.');
+    await ctx.reply(`Running conduct loop on task \`${row.id.slice(0, 8)}\`…`, {
+      parse_mode: 'Markdown',
+    });
+    try {
+      const result = await deps.runConduct({
+        taskId: row.id,
+        workspaceId: wsId,
+        context: prompt,
+      });
+      const cost = result.costUsd ? `$${result.costUsd.toFixed(4)}` : 'n/a';
+      await ctx.reply(
+        `*Conduct result*: ${result.status}\nIterations: ${result.iterationsUsed}/${result.iterationBudget}\nCost: ${cost}${result.error ? `\nError: ${result.error}` : ''}`,
+        { parse_mode: 'Markdown' },
+      );
+    } catch (err) {
+      await ctx.reply(
+        `Conduct failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+      );
+    }
+  });
+
   bot.command('chat', async (ctx) => {
     const wsId = ctx.session.workspaceId;
     if (!wsId) return ctx.reply('Use /start first.');
@@ -75,11 +127,62 @@ export function registerOperatorChat(bot: Bot<BotContext>, db: Db) {
       .where(and(eq(operators.id, opId), eq(operators.workspaceId, wsId)))
       .limit(1);
 
-    const replyText = operator
-      ? `*${operator.name}* received: _${ctx.message.text}_\n\nDirect orchestrator chat integration is still being wired through the runtime.`
-      : `Operator ${opId.slice(0, 6)} is no longer available.`;
+    if (!operator) {
+      await ctx.reply(`Operator ${opId.slice(0, 6)} is no longer available.`, {
+        parse_mode: 'Markdown',
+      });
+      return true;
+    }
 
-    await ctx.reply(replyText, { parse_mode: 'Markdown' });
+    // Phase 13 Track C4 — real orchestrator wiring. When deps.runTask is
+    // present (gateway-composed process), we create a task row and run the
+    // agent loop against the user's message. When absent (e.g. in the
+    // polling-mode standalone runner), fall back to the prior echo stub
+    // so the bot still responds coherently.
+    if (!deps?.runTask) {
+      await ctx.reply(
+        `*${operator.name}* received: _${ctx.message.text}_\n\n_Orchestrator not wired on this deployment — message logged but not executed._`,
+        { parse_mode: 'Markdown' },
+      );
+      return true;
+    }
+
+    const msg = ctx.message.text;
+    const [row] = await db
+      .insert(tasks)
+      .values({
+        workspaceId: wsId,
+        operatorId: opId,
+        title: msg.slice(0, 60),
+        description: msg,
+        mode: 'build',
+        status: 'running',
+      })
+      .returning();
+    if (!row) {
+      await ctx.reply('Failed to create task row.');
+      return true;
+    }
+
+    await ctx.reply(`*${operator.name}* is thinking…`, { parse_mode: 'Markdown' });
+
+    try {
+      const result = await deps.runTask({
+        taskId: row.id,
+        workspaceId: wsId,
+        operatorId: opId,
+        context: msg,
+      });
+      const cost = result.costUsd ? `$${result.costUsd.toFixed(4)}` : 'n/a';
+      await ctx.reply(
+        `*${operator.name}* · ${result.status}\nIterations: ${result.iterationsUsed}/${result.iterationBudget}\nCost: ${cost}${result.error ? `\nError: ${result.error}` : ''}`,
+        { parse_mode: 'Markdown' },
+      );
+    } catch (err) {
+      await ctx.reply(
+        `Task failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+      );
+    }
     return true;
   }
 }
