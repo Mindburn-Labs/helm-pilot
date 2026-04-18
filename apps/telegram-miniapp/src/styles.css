@@ -1,15 +1,18 @@
+/* Mindburn DS v1.0 — Parchment / Graphite fallbacks.
+   Telegram-provided theme values (--tg-theme-*) always win when
+   running inside Telegram. These fallbacks paint when standalone. */
 :root {
-  --tg-bg: var(--tg-theme-bg-color, #ffffff);
-  --tg-text: var(--tg-theme-text-color, #000000);
-  --tg-hint: var(--tg-theme-hint-color, #999999);
-  --tg-link: var(--tg-theme-link-color, #2481cc);
-  --tg-btn: var(--tg-theme-button-color, #2481cc);
+  --tg-bg: var(--tg-theme-bg-color, #f4efe6);
+  --tg-text: var(--tg-theme-text-color, #1a1814);
+  --tg-hint: var(--tg-theme-hint-color, #8f897a);
+  --tg-link: var(--tg-theme-link-color, #2e4a74);
+  --tg-btn: var(--tg-theme-button-color, #c63a22);
   --tg-btn-text: var(--tg-theme-button-text-color, #ffffff);
-  --tg-secondary-bg: var(--tg-theme-secondary-bg-color, #f0f0f0);
-  --tg-section-bg: var(--tg-theme-section-bg-color, #ffffff);
-  --tg-section-header: var(--tg-theme-section-header-text-color, #6d6d72);
-  --tg-accent: var(--tg-theme-accent-text-color, #2481cc);
-  --tg-destructive: var(--tg-theme-destructive-text-color, #ff3b30);
+  --tg-secondary-bg: var(--tg-theme-secondary-bg-color, #ebe5d8);
+  --tg-section-bg: var(--tg-theme-section-bg-color, #faf6ed);
+  --tg-section-header: var(--tg-theme-section-header-text-color, #6b665b);
+  --tg-accent: var(--tg-theme-accent-text-color, #c63a22);
+  --tg-destructive: var(--tg-theme-destructive-text-color, #c63a22);
   --nav-height: 56px;
 }
 
