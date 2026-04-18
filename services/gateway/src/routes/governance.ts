@@ -97,6 +97,86 @@ export function governanceRoutes(deps: GatewayDeps) {
     return c.json({ receipt: toReceiptDto(row), signedBlob: row.signedBlob });
   });
 
+  // GET /api/governance/proofgraph/:taskId
+  //
+  // Phase 13 (Track C2) — returns the recursive DAG of evidence packs
+  // rooted at the given task's task_runs. Nodes are flat; edges are
+  // parent_evidence_pack_id → id. Traversal uses Postgres recursive CTE.
+  app.get('/proofgraph/:taskId', async (c) => {
+    const workspaceId = c.req.query('workspaceId') ?? c.get('workspaceId');
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
+    const taskId = c.req.param('taskId');
+    const { sql } = await import('drizzle-orm');
+
+    // Recursive CTE: seed with all evidence_packs whose task_run belongs to
+    // the given taskId + workspace, then walk parent_evidence_pack_id chain
+    // in both directions so ancestors + descendants of the seed set are
+    // included. Workspace predicate on every union branch guards tenancy.
+    const result = (await deps.db.execute(sql`
+      WITH RECURSIVE chain AS (
+        SELECT ep.*
+        FROM evidence_packs ep
+        JOIN task_runs tr ON tr.id = ep.task_run_id
+        WHERE tr.task_id = ${taskId}
+          AND ep.workspace_id = ${workspaceId}
+        UNION
+        SELECT ep.*
+        FROM evidence_packs ep
+        JOIN chain c ON c.parent_evidence_pack_id = ep.id
+        WHERE ep.workspace_id = ${workspaceId}
+        UNION
+        SELECT ep.*
+        FROM evidence_packs ep
+        JOIN chain c ON ep.parent_evidence_pack_id = c.id
+        WHERE ep.workspace_id = ${workspaceId}
+      )
+      SELECT DISTINCT id, decision_id, task_run_id, verdict, reason_code,
+        policy_version, decision_hash, action, resource, principal,
+        signed_blob, received_at, verified_at, parent_evidence_pack_id
+      FROM chain
+      ORDER BY received_at ASC
+    `)) as unknown as
+      | { rows?: Array<Record<string, unknown>> }
+      | Array<Record<string, unknown>>;
+
+    const rows = (Array.isArray(result)
+      ? result
+      : (result.rows ?? [])) as Array<Record<string, unknown>>;
+
+    const nodes = rows.map((r) => ({
+      id: String(r['id']),
+      decisionId: String(r['decision_id']),
+      taskRunId: r['task_run_id'] ? String(r['task_run_id']) : null,
+      verdict: String(r['verdict']),
+      reasonCode: r['reason_code'] ? String(r['reason_code']) : null,
+      policyVersion: String(r['policy_version']),
+      decisionHash: r['decision_hash'] ? String(r['decision_hash']) : null,
+      action: String(r['action']),
+      resource: String(r['resource']),
+      principal: String(r['principal']),
+      receivedAt:
+        r['received_at'] instanceof Date
+          ? (r['received_at'] as Date).toISOString()
+          : String(r['received_at']),
+      verifiedAt:
+        r['verified_at'] instanceof Date
+          ? (r['verified_at'] as Date).toISOString()
+          : r['verified_at']
+            ? String(r['verified_at'])
+            : null,
+      parentEvidencePackId: r['parent_evidence_pack_id']
+        ? String(r['parent_evidence_pack_id'])
+        : null,
+    }));
+
+    const edges = nodes
+      .filter((n) => n.parentEvidencePackId)
+      .map((n) => ({ from: n.parentEvidencePackId as string, to: n.id }));
+
+    return c.json({ taskId, nodes, edges });
+  });
+
   return app;
 }
 
