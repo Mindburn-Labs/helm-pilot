@@ -20,7 +20,9 @@
     "./prompts/opportunity-score.v1": "./dist/prompts/opportunity-score.v1.js",
     "./subagents": "./dist/subagents/index.js",
     "./otel": "./dist/otel/index.js",
-    "./skills": "./dist/skills/index.js"
+    "./skills": "./dist/skills/index.js",
+    "./observability": "./dist/observability/index.js",
+    "./eval": "./dist/eval/index.js"
   },
   "scripts": {
     "build": "tsc",
