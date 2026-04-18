@@ -5,6 +5,7 @@ import {
   type SubagentRunResult,
 } from '@helm-pilot/shared/subagents';
 import { type PolicyConfig } from '@helm-pilot/shared/schemas';
+import { type SkillRegistry } from '@helm-pilot/shared/skills';
 import {
   AgentLoop,
   type AgentRunResult,
@@ -41,6 +42,12 @@ export class SubagentLoop {
     private readonly parentTools: ToolRegistry,
     private readonly parentPolicy: PolicyConfig,
     private readonly llm: LlmProvider,
+    /**
+     * Phase 14 Track E — optional skill registry. When supplied, every
+     * subagent run matches the task description against available skills
+     * and prepends matched skill bodies to the child's system prompt.
+     */
+    private readonly skillRegistry?: SkillRegistry,
   ) {}
 
   /**
@@ -85,6 +92,12 @@ export class SubagentLoop {
     const context = this.buildChildContext(def, input);
     const iterationBudget = def.iterationBudget;
 
+    // Phase 14 Track E — prepend matched skill bodies to the child's
+    // system prompt. Registry may be undefined (backward-compat); match
+    // against the natural-language input + optional def.skills list
+    // (future extension — Phase 14 subagent frontmatter gains `skills:`).
+    const effectiveSystemPrompt = this.composeSystemPrompt(def, input);
+
     // 5. Execute.
     let result: AgentRunResult;
     try {
@@ -93,7 +106,7 @@ export class SubagentLoop {
         workspaceId,
         iterationBudget,
         context,
-        systemPrompt: def.systemPrompt,
+        systemPrompt: effectiveSystemPrompt,
         operatorGoal: def.description,
       });
     } catch (err) {
@@ -166,6 +179,25 @@ export class SubagentLoop {
         perTaskMax: frame.budgetSliceAllocated ?? base.budget.perTaskMax,
       },
     };
+  }
+
+  /**
+   * Phase 14 Track E — compose the final system prompt from the
+   * subagent's base prompt + matched skill bodies. When `skillRegistry`
+   * is absent or no skills match the input, returns `def.systemPrompt`
+   * verbatim.
+   */
+  private composeSystemPrompt(def: SubagentDefinition, input: string): string {
+    if (!this.skillRegistry) return def.systemPrompt;
+    const matches = this.skillRegistry.match(input, []);
+    if (matches.length === 0) return def.systemPrompt;
+    const blocks = matches
+      .slice(0, 3) // cap at 3 skills so the prompt doesn't explode
+      .map(
+        (m) =>
+          `## Skill: ${m.skill.name} (${m.reason}, score=${m.score})\n\n${m.skill.body}`,
+      );
+    return `${def.systemPrompt}\n\n---\n\n${blocks.join('\n\n---\n\n')}`;
   }
 
   private buildChildContext(def: SubagentDefinition, input: string): string {

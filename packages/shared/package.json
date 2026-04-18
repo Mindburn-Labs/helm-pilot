@@ -19,7 +19,8 @@
     "./dedup": "./dist/dedup/index.js",
     "./prompts/opportunity-score.v1": "./dist/prompts/opportunity-score.v1.js",
     "./subagents": "./dist/subagents/index.js",
-    "./otel": "./dist/otel/index.js"
+    "./otel": "./dist/otel/index.js",
+    "./skills": "./dist/skills/index.js"
   },
   "scripts": {
     "build": "tsc",
