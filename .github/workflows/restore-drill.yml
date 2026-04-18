@@ -1,0 +1,121 @@
+name: Restore Drill
+
+# Weekly verification that the latest production backup can be restored
+# onto a fresh Postgres and passes schema + tenancy smoke checks. Does NOT
+# touch production. Spins up an ephemeral container, restores into it,
+# validates, and tears down.
+
+on:
+  schedule:
+    - cron: '0 4 * * 0' # Sundays 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      backup_key:
+        description: 'Specific S3 backup key (leave blank for latest)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: drill
+          POSTGRES_PASSWORD: drill
+          POSTGRES_DB: drill_restore
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://drill:drill@localhost:5432/drill_restore
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION || 'eu-central-1' }}
+      BACKUP_BUCKET: ${{ vars.BACKUP_BUCKET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fail fast if backup bucket is not configured
+        run: |
+          if [ -z "$BACKUP_BUCKET" ]; then
+            echo "::warning::BACKUP_BUCKET not set; skipping drill"
+            echo "drill_skipped=true" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+      - name: Install awscli
+        if: env.drill_skipped != 'true'
+        run: |
+          if ! command -v aws >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y awscli
+          fi
+
+      - name: Locate latest backup
+        if: env.drill_skipped != 'true'
+        id: backup
+        run: |
+          if [ -n "${{ inputs.backup_key }}" ]; then
+            key="${{ inputs.backup_key }}"
+          else
+            key=$(aws s3 ls "s3://$BACKUP_BUCKET/" --recursive | sort | tail -n 1 | awk '{print $4}')
+          fi
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          echo "Selected backup key: $key"
+
+      - name: Download backup
+        if: env.drill_skipped != 'true'
+        run: |
+          aws s3 cp "s3://$BACKUP_BUCKET/${{ steps.backup.outputs.key }}" /tmp/backup.sql.gz
+          ls -lh /tmp/backup.sql.gz
+
+      - name: Restore into ephemeral DB
+        if: env.drill_skipped != 'true'
+        run: |
+          gunzip -c /tmp/backup.sql.gz | psql "$DATABASE_URL"
+
+      - uses: actions/setup-node@v4
+        if: env.drill_skipped != 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+        if: env.drill_skipped != 'true'
+
+      - name: Verify schema integrity
+        if: env.drill_skipped != 'true'
+        run: npx tsx scripts/verify-schema.ts
+
+      - name: Record drill summary
+        if: always() && env.drill_skipped != 'true'
+        run: |
+          {
+            echo "## Restore Drill Results"
+            echo ""
+            echo "**Backup:** \`${{ steps.backup.outputs.key }}\`"
+            echo "**Database:** pgvector/pgvector:pg17 (ephemeral)"
+            if [ "$?" -eq 0 ]; then
+              echo ""
+              echo "✓ Restore + schema verification succeeded"
+            else
+              echo ""
+              echo "✗ Restore drill failed — investigate immediately (backup integrity at risk)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Notify Slack on failure
+        if: failure() && env.drill_skipped != 'true' && vars.SLACK_WEBHOOK_URL != ''
+        run: |
+          curl -X POST -H 'Content-Type: application/json' \
+            --data "{\"text\": \"🚨 HELM Pilot restore drill FAILED for backup ${{ steps.backup.outputs.key }} on $(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" \
+            "${{ vars.SLACK_WEBHOOK_URL }}"

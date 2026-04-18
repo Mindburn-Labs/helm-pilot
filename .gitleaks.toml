@@ -1,0 +1,56 @@
+# Gitleaks config — Phase 13 Track E
+#
+# Extends the default ruleset with allowlists for placeholder files the
+# repo intentionally ships with (example env, seed data, test fixtures).
+
+[extend]
+# Inherit gitleaks' built-in rules (aws keys, github tokens, postgres DSNs,
+# etc.). Local rules below only add / suppress on top of that.
+useDefault = true
+
+# ─── Allowlisted paths ───
+# Files we accept as containing placeholder-looking values. Each path is a
+# regex matched against the full path relative to repo root.
+
+[allowlist]
+description = "Placeholder + test-fixture files — safe by design"
+paths = [
+  # Example env files are publicly documented to contain placeholder values.
+  '''\.env\.example$''',
+  '''\.env\.sample$''',
+
+  # Test fixtures contain synthetic tokens/keys.
+  '''.*/__tests__/.*\.fixtures?\.(?:ts|js|json)$''',
+  '''.*/test/fixtures/.*''',
+  '''.*/tests/fixtures/.*''',
+
+  # Package locks often contain integrity hashes that look secret-like.
+  '''package-lock\.json$''',
+  '''pnpm-lock\.yaml$''',
+  '''yarn\.lock$''',
+
+  # Generated artifacts + coverage reports.
+  '''^dist/''',
+  '''^build/''',
+  '''^coverage/''',
+  '''^\.next/''',
+  '''^artifacts/''',
+
+  # Archived code — not subject to active secret hygiene.
+  '''^_archive/''',
+]
+
+# Allowlist specific regex patterns that match examples in documentation
+# (e.g. JWT samples, the Telegram 123:abc demo bot token shape).
+regexes = [
+  # Public placeholder bot tokens used in docs.
+  '''TELEGRAM_BOT_TOKEN=<your[^>]*>''',
+
+  # Fake UUIDs used in code comments / synthetic samples.
+  '''ws_[a-f0-9]{4,8}''',
+  '''cg_[a-f0-9]{4,8}''',
+]
+
+# ─── Project-specific rules ───
+# (None today — the default ruleset covers GitHub tokens, OpenAI keys,
+# Anthropic keys, AWS keys, Google service-account JSONs, etc.)

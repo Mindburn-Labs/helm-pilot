@@ -98,12 +98,40 @@ jobs:
           for i in $(seq 1 20); do
             if curl -sf https://helm-pilot-staging.fly.dev/health | grep -q '"status"'; then
               echo "Staging is healthy"
-              exit 0
+              break
             fi
             sleep 5
+            if [ $i -eq 20 ]; then
+              echo "Staging health check failed"
+              exit 1
+            fi
           done
-          echo "Staging health check failed"
-          exit 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: e2e
+
+      - name: Smoke test staging (Playwright)
+        env:
+          BASE_URL: https://helm-pilot-staging.fly.dev
+          SMOKE: 'true'
+        working-directory: e2e
+        run: npx playwright test tests/health.spec.ts tests/security.spec.ts --reporter=line
+
+      - name: Upload smoke-test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-smoke-playwright
+          path: e2e/playwright-report/
+          retention-days: 14
 
   deploy-production:
     needs: deploy-staging
