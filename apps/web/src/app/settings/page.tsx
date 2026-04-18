@@ -674,5 +674,5 @@ const btnSecondary: React.CSSProperties = { padding: '0.65rem 1.1rem', backgroun
 const errorStyle: React.CSSProperties = { color: '#fecaca', marginTop: '1rem', padding: '0.65rem 0.8rem', border: '1px solid #7f1d1d', borderRadius: 8, fontSize: '0.85rem', background: 'rgba(69, 10, 10, 0.25)' };
 const successStyle: React.CSSProperties = { color: '#bbf7d0', marginTop: '1rem', padding: '0.65rem 0.8rem', border: '1px solid #166534', borderRadius: 8, fontSize: '0.85rem', background: 'rgba(20, 83, 45, 0.25)' };
 const connectorCardStyle: React.CSSProperties = { padding: '1rem', border: '1px solid #334155', borderRadius: 12, background: '#0b1120' };
-const pillStyle: React.CSSProperties = { padding: '0.2rem 0.5rem', borderRadius: 999, border: '1px solid #1d4ed8', color: '#93c5fd', fontSize: '0.72rem', textTransform: 'uppercase' };
+const pillStyle: React.CSSProperties = { padding: '0.2rem 0.5rem', borderRadius: 999, border: '1px solid #1d4ed8', color: '#ec7866', fontSize: '0.72rem', textTransform: 'uppercase' };
 const warningStyle: React.CSSProperties = { marginTop: '0.85rem', padding: '0.6rem 0.75rem', borderRadius: 8, background: 'rgba(120, 53, 15, 0.2)', border: '1px solid #92400e', color: '#fcd34d', fontSize: '0.82rem' };

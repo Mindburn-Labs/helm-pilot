@@ -169,16 +169,17 @@ export class ToolRegistry {
     this.register({
       name: 'scrapling_fetch',
       description:
-        'Fetch and optionally extract a web page using the internal Scrapling bridge. Input: {"url":"https://...","selector":"main","strategy":"auto|fetcher|dynamic|stealthy","waitSelector":"main","adaptiveDomain":"ycombinator.com","limit":5}',
+        'Fetch and optionally extract a web page using the internal Scrapling bridge. Input: {"url":"https://...","selector":"main","strategy":"auto|fetcher|dynamic|stealthy","waitSelector":"main","adaptiveDomain":"ycombinator.com","limit":5,"convertMarkdown":false}',
       modes: ['discover', 'build', 'launch', 'apply'],
       execute: async (input) => {
-        const { url, selector, strategy, waitSelector, adaptiveDomain, limit } = input as {
+        const { url, selector, strategy, waitSelector, adaptiveDomain, limit, convertMarkdown } = input as {
           url?: string;
           selector?: string;
           strategy?: 'auto' | 'fetcher' | 'dynamic' | 'stealthy';
           waitSelector?: string;
           adaptiveDomain?: string;
           limit?: number;
+          convertMarkdown?: boolean;
         };
         if (!url) return { error: 'url is required' };
 
@@ -197,6 +198,7 @@ export class ToolRegistry {
           ...(waitSelector ? ['--wait-selector', waitSelector] : []),
           ...(adaptiveDomain ? ['--adaptive-domain', adaptiveDomain] : []),
           ...(limit ? ['--limit', String(limit)] : []),
+          ...(convertMarkdown ? ['--convert-markdown'] : []),
         ];
 
         const { stdout } = await execFileAsync(pythonBin, args, {

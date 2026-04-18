@@ -20,6 +20,7 @@ YC_SCRAPER_ROOT = PIPELINES_ROOT / "yc-scraper"
 if str(YC_SCRAPER_ROOT) not in sys.path:
     sys.path.append(str(YC_SCRAPER_ROOT))
 
+from scraper.lib.markdown_convert import html_to_markdown  # noqa: E402
 from scraper.lib.scrapling_adapter import fetch_html  # noqa: E402
 from common import save_text_capture  # noqa: E402
 
@@ -32,6 +33,7 @@ def main() -> None:
     parser.add_argument("--wait-selector", help="Optional selector to wait for")
     parser.add_argument("--adaptive-domain", help="Optional canonical domain for adaptive storage")
     parser.add_argument("--limit", type=int, default=5, help="Maximum selected nodes to return")
+    parser.add_argument("--convert-markdown", action="store_true", help="Convert fetched HTML to markdown via markitdown")
     args = parser.parse_args()
 
     response = fetch_html(
@@ -62,7 +64,7 @@ def main() -> None:
 
     capture_path, _, _ = save_text_capture("operator_fetch", response.html_content, "capture", "html")
     text = response.get_all_text(separator="\n", strip=True)
-    payload = {
+    payload: dict[str, object] = {
         "url": response.url,
         "title": title,
         "selector": args.selector,
@@ -70,6 +72,9 @@ def main() -> None:
         "textPreview": text[:6000],
         "capturePath": capture_path,
     }
+    if args.convert_markdown:
+        md = html_to_markdown(response.html_content, source_url=response.url)
+        payload["markdown"] = md.markdown
     print(json.dumps(payload, ensure_ascii=False))
 
 

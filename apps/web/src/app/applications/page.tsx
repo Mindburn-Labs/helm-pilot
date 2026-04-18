@@ -109,7 +109,7 @@ export default function ApplicationsPage() {
 
   const statusColor: Record<string, string> = {
     draft: '#888',
-    in_progress: '#60a5fa',
+    in_progress: '#e86a51',
     submitted: '#4ade80',
     accepted: '#22d3ee',
     rejected: '#f87171',
@@ -161,7 +161,7 @@ export default function ApplicationsPage() {
                 key={a.id}
                 onClick={() => handleSelectApp(a.id)}
                 style={{
-                  border: `1px solid ${selectedApp === a.id ? '#2563eb' : '#333'}`,
+                  border: `1px solid ${selectedApp === a.id ? '#c63a22' : '#333'}`,
                   borderRadius: 8,
                   padding: '0.75rem',
                   cursor: 'pointer',
@@ -216,6 +216,6 @@ export default function ApplicationsPage() {
 }
 
 const inputStyle: React.CSSProperties = { padding: '0.75rem 1rem', background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, color: '#ededed', fontSize: '1rem' };
-const btnPrimary: React.CSSProperties = { padding: '0.6rem 1.2rem', background: '#2563eb', border: 'none', borderRadius: 6, color: '#fff', fontSize: '0.9rem', cursor: 'pointer' };
+const btnPrimary: React.CSSProperties = { padding: '0.6rem 1.2rem', background: '#c63a22', border: 'none', borderRadius: 6, color: '#fff', fontSize: '0.9rem', cursor: 'pointer' };
 const btnSmall: React.CSSProperties = { padding: '0.3rem 0.75rem', background: '#333', border: 'none', borderRadius: 4, color: '#ededed', fontSize: '0.8rem', cursor: 'pointer' };
 const errorStyle: React.CSSProperties = { color: '#f44', marginBottom: '0.75rem', padding: '0.5rem', border: '1px solid #f44', borderRadius: 4, fontSize: '0.85rem' };
