@@ -7,10 +7,12 @@ import {
   getApplications, createApplication, updateApplicationStatus,
   getApprovals, resolveApproval,
   switchMode, getProfile, getSettings, updateSettings,
+  getReauthStatus,
 } from './api.js';
 import { useAsync } from './hooks.js';
 import type {
   AuthResponse, OperatorRole, KnowledgeResult,
+  ReauthGrant,
 } from './api.js';
 
 const MODES = ['discover', 'decide', 'build', 'launch', 'apply'] as const;
@@ -94,6 +96,8 @@ export function App() {
         <h1>HELM Pilot <span className="mode-badge">v0.1</span></h1>
         <div className="subtitle">Hey, {auth.user.name} &middot; {auth.workspace.name}</div>
       </div>
+
+      <ReauthBanner workspaceId={wsId} />
 
       <div className="tab-content">
         {activeTab === 'home' && <HomeTab workspaceId={wsId} onNavigate={switchTab} />}
@@ -585,5 +589,64 @@ function SettingsTab({ workspaceId }: { workspaceId: string }) {
         </div>
       </div>
     </>
+  );
+}
+
+// ─── Re-auth banner (Phase 13 Track C3) ───
+//
+// Polls /api/connectors/reauth-status. When the background refresh worker
+// has marked any grant needs_reauth=true, the founder sees a dismissable
+// banner with a CTA to reconnect. Dismissal is session-local so the banner
+// reappears on next load if the grant is still broken.
+function ReauthBanner({ workspaceId }: { workspaceId: string }) {
+  const { data, reload } = useAsync(() => getReauthStatus(workspaceId), [workspaceId]);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const id = setInterval(() => void reload(), 60_000);
+    return () => clearInterval(id);
+  }, [reload]);
+
+  const grants = (data?.grants ?? []).filter((g: ReauthGrant) => !dismissed.has(g.grantId));
+  if (grants.length === 0) return null;
+
+  return (
+    <div
+      role="alert"
+      className="section"
+      style={{
+        background: '#3a1f1f',
+        border: '1px solid #5a2020',
+        padding: 10,
+        borderRadius: 8,
+        margin: '8px 0',
+      }}
+    >
+      {grants.map((g: ReauthGrant) => (
+        <div
+          key={g.grantId}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}
+        >
+          <span style={{ flex: 1, fontSize: 13 }}>
+            <strong>Reconnect {g.connectorName}</strong>
+            <br />
+            <span style={{ opacity: 0.7, fontSize: 11 }}>{g.lastError}</span>
+          </span>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => {
+              const next = new Set(dismissed);
+              next.add(g.grantId);
+              setDismissed(next);
+            }}
+            aria-label={`Dismiss ${g.connectorName} re-auth banner`}
+            style={{ background: '#222', color: '#ededed', border: '1px solid #444' }}
+          >
+            Dismiss
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }

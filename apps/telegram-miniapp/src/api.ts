@@ -46,6 +46,19 @@ export function authenticate(initData: string): Promise<AuthResponse> {
   });
 }
 
+// ─── Connector re-auth (Phase 13 Track C3) ───
+
+export interface ReauthGrant {
+  grantId: string;
+  connectorName: string;
+  lastError: string | null;
+}
+
+export function getReauthStatus(workspaceId: string): Promise<{ grants: ReauthGrant[] }> {
+  // workspaceId encoded as query param for the backend's getWorkspaceId fallback
+  return request(`/connectors/reauth-status?workspaceId=${workspaceId}`);
+}
+
 // ─── Status ───
 
 export interface StatusResponse {
