@@ -18,6 +18,21 @@ export {
   TICK_BATCH_LIMIT,
 } from './refresh.js';
 export type { RefreshNotifier, RefreshDeps } from './refresh.js';
+export {
+  FlyMachinesClient,
+  FlyApiError,
+  FlyAppSchema,
+  FlyMachineSchema,
+  FlyMachineStateSchema,
+  FlyRegionSchema,
+} from './fly/index.js';
+export type {
+  FlyApp,
+  FlyMachine,
+  FlyMachineState,
+  CreateAppParams,
+  CreateMachineParams,
+} from './fly/index.js';
 export type { StorageClient, S3Config } from './storage.js';
 export type {
   Connector,
