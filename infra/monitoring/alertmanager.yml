@@ -1,0 +1,85 @@
+# Alertmanager config — Phase 13 Track D
+#
+# Routes alerts emitted by prometheus/alerts.yml to the appropriate
+# receiver. Critical alerts page a human immediately via Telegram + email.
+# Warnings group for 4 hours before first delivery to reduce noise.
+#
+# Secrets are env-substituted by Alertmanager at startup:
+#   TELEGRAM_BOT_TOKEN — same bot token used by the Pilot itself
+#   TELEGRAM_ALERT_CHAT_ID — numeric chat ID of the alert channel
+#   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS — optional email delivery
+
+global:
+  resolve_timeout: 5m
+  smtp_from: ${SMTP_FROM:-alerts@mindburn.org}
+  smtp_smarthost: ${SMTP_HOST:-localhost}:${SMTP_PORT:-587}
+  smtp_auth_username: ${SMTP_USER}
+  smtp_auth_password: ${SMTP_PASS}
+  smtp_require_tls: true
+
+# Inhibit: when a critical HELM alert fires, suppress downstream warnings
+# (like ConductorSpawnFailureRate) that are symptoms of the same outage.
+inhibit_rules:
+  - source_match:
+      severity: critical
+      alertname: HelmUnavailable
+    target_match:
+      severity: warning
+    equal: ['cluster']
+
+# Default routing — severity-first, then alert-name for special cases.
+route:
+  receiver: telegram_warnings
+  group_by: ['alertname', 'cluster']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # Critical → immediate page to both channels.
+    - match:
+        severity: critical
+      receiver: telegram_critical_and_email
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 30m
+      continue: false
+
+    # Warning → Telegram only, slow repeat.
+    - match:
+        severity: warning
+      receiver: telegram_warnings
+      group_wait: 1m
+      group_interval: 10m
+      repeat_interval: 4h
+
+receivers:
+  - name: telegram_warnings
+    telegram_configs:
+      - bot_token: ${TELEGRAM_BOT_TOKEN}
+        chat_id: ${TELEGRAM_ALERT_CHAT_ID:-0}
+        parse_mode: MarkdownV2
+        message: |
+          ⚠️ *{{ .GroupLabels.alertname }}* ({{ .Status }})
+
+          {{ range .Alerts }}{{ .Annotations.summary }}
+          {{ .Annotations.description }}
+          {{ end }}
+
+  - name: telegram_critical_and_email
+    telegram_configs:
+      - bot_token: ${TELEGRAM_BOT_TOKEN}
+        chat_id: ${TELEGRAM_ALERT_CHAT_ID:-0}
+        parse_mode: MarkdownV2
+        message: |
+          🚨 *CRITICAL — {{ .GroupLabels.alertname }}*
+
+          {{ range .Alerts }}{{ .Annotations.summary }}
+          {{ .Annotations.description }}
+          {{ if .Annotations.runbook }}Runbook: {{ .Annotations.runbook }}{{ end }}
+          {{ end }}
+    email_configs:
+      - to: ${ALERT_EMAIL:-ops@mindburn.org}
+        require_tls: true
+        send_resolved: true
+        headers:
+          Subject: '[HELM Pilot CRITICAL] {{ .GroupLabels.alertname }}'

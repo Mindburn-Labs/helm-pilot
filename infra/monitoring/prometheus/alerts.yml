@@ -76,3 +76,66 @@ groups:
         annotations:
           summary: "Event loop p95 lag > 100ms"
           description: "Node.js event loop is saturating. Check for CPU-bound work in hot path."
+
+  # ─── Phase 13 (Track D) — governance + data-plane alerts ───
+  - name: helm_pilot_governance
+    interval: 30s
+    rules:
+      - alert: HelmUnavailable
+        expr: up{job="helm-sidecar"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HELM governance sidecar is down"
+          description: "Every tool call is failing closed. Agent loops are blocked. Restart the helm-sidecar container or check its logs."
+          runbook: https://github.com/Mindburn-Labs/helm-pilot/blob/main/docs/runbook.md#helm-sidecar-down
+
+      - alert: ConductorSpawnFailureRate
+        expr: |
+          sum(rate(helm_pilot_subagent_spawn_total{verdict="FAIL"}[15m]))
+          / clamp_min(sum(rate(helm_pilot_subagent_spawn_total[15m])), 1) > 0.10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Conductor subagent spawn failure rate > 10%"
+          description: "More than 10% of `subagent.spawn` attempts have failed over the last 15 minutes. Check the registry, HELM policy, or operator budget."
+
+  - name: helm_pilot_data
+    interval: 30s
+    rules:
+      - alert: DbPoolSaturated
+        expr: |
+          sum by (datname) (pg_stat_activity_count{datname="helm_pilot"})
+          / max(pg_settings_max_connections) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Postgres connection pool > 90% saturated"
+          description: "Active connections to helm_pilot DB have been above 90% of max_connections for 5 minutes. Connection leak or load spike."
+
+      - alert: BackupMissedTwoRuns
+        # Backup completes emit helm_pilot_backup_last_success_timestamp_seconds.
+        # Alert if the newest success is older than 2 full daily cycles.
+        expr: |
+          time() - max(helm_pilot_backup_last_success_timestamp_seconds) > 2 * 86400
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backup has not succeeded in >2 days"
+          description: "No backup success metric since {{ $value | humanizeDuration }} ago. Backups are the RPO floor — investigate urgently."
+          runbook: https://github.com/Mindburn-Labs/helm-pilot/blob/main/docs/runbook.md#backup-failing
+
+      - alert: TenantOverBudget
+        # Emitted by the orchestrator when a workspace exceeds its
+        # daily LLM budget. Per-tenant labelled.
+        expr: helm_pilot_tenant_cost_usd_daily > helm_pilot_tenant_budget_usd_daily
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tenant {{ $labels.workspace_id }} over daily budget"
+          description: "Workspace {{ $labels.workspace_id }} has spent {{ $value | humanize }} USD, exceeding its daily budget. Check for runaway agents or abuse."

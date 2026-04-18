@@ -114,7 +114,13 @@ function checkPackage(pkgDir: string, out: Finding[]): void {
 
     // Allow our own private workspace packages without license field.
     if (pkg.private && (!license || PRIVATE_MARKERS.has(license.toUpperCase()))) {
-      out.push({ name, version, license: license ?? 'UNLICENSED (private)', path: pkgDir, verdict: 'allowed' });
+      out.push({
+        name,
+        version,
+        license: license ?? 'UNLICENSED (private)',
+        path: pkgDir,
+        verdict: 'allowed',
+      });
       return;
     }
 
@@ -132,9 +138,10 @@ function checkPackage(pkgDir: string, out: Finding[]): void {
   }
 }
 
-function normalizeLicense(
-  pkg: { license?: string | { type?: string }; licenses?: Array<{ type?: string }> },
-): string | null {
+function normalizeLicense(pkg: {
+  license?: string | { type?: string };
+  licenses?: Array<{ type?: string }>;
+}): string | null {
   if (typeof pkg.license === 'string') return pkg.license.trim();
   if (pkg.license && typeof pkg.license === 'object' && pkg.license.type) return pkg.license.type;
   if (Array.isArray(pkg.licenses) && pkg.licenses.length > 0) {

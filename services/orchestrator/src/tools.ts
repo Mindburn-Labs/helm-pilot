@@ -4,6 +4,7 @@ import {
   SubagentSpawnRequestSchema,
   SubagentParallelRequestSchema,
 } from '@helm-pilot/shared/subagents';
+import { withToolSpan } from '@helm-pilot/shared/otel';
 import { type ToolDef } from './agent-loop.js';
 import { type Conductor, type ParentContext } from './conductor.js';
 
@@ -133,11 +134,19 @@ export class ToolRegistry {
   async execute(name: string, input: unknown): Promise<unknown> {
     const tool = this.tools.get(name);
     if (!tool) return { error: `Unknown tool: ${name}` };
-    try {
-      return await tool.execute(input);
-    } catch (err) {
-      return { error: err instanceof Error ? err.message : 'Tool execution failed' };
-    }
+    // Phase 13 (Track D) — emit an `execute_tool` OTel span. Best-effort
+    // conversation id pulled from input.taskId when the caller supplied it.
+    const conversationId =
+      typeof input === 'object' && input !== null && 'taskId' in input
+        ? String((input as { taskId: unknown }).taskId ?? '')
+        : '';
+    return withToolSpan({ toolName: name, conversationId }, async () => {
+      try {
+        return await tool.execute(input);
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : 'Tool execution failed' };
+      }
+    });
   }
 
   private registerBuiltins() {

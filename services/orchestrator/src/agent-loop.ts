@@ -3,6 +3,11 @@ import { type LlmGovernance, type LlmProvider, type LlmUsage } from '@helm-pilot
 import { computeCostUsd } from '@helm-pilot/shared/llm/pricing';
 import { captureException } from '@helm-pilot/shared/errors/sentry';
 import { MAX_ITERATION_BUDGET } from '@helm-pilot/shared/schemas';
+import {
+  withAgentSpan,
+  setLlmUsageAttributes,
+  setHelmAttributes,
+} from '@helm-pilot/shared/otel';
 import { type TrustBoundary } from './trust.js';
 import { type ToolRegistry } from './tools.js';
 
@@ -235,27 +240,53 @@ export class AgentLoop {
       : this.tools?.listTools() ?? [];
 
     const prompt = buildPlanPrompt(params, history, availableTools);
+    const frame = this.currentSubagentFrame;
 
-    // Use completeWithUsage to track token consumption + cost
-    if (this.llm.completeWithUsage) {
-      const result = await this.llm.completeWithUsage(prompt);
-      this.runUsage.tokensIn += result.usage.tokensIn;
-      this.runUsage.tokensOut += result.usage.tokensOut;
-      this.runUsage.model = result.usage.model;
-      this.runCost += computeCostUsd(
-        result.usage.model,
-        result.usage.tokensIn,
-        result.usage.tokensOut,
-      );
-      this.lastGovernance = result.governance ?? null;
-      return parsePlanResponse(result.content);
-    }
+    // Phase 13 (Track D) — wrap this iteration in an `invoke_agent` OTel
+    // span. No-op when no SDK is registered. Emits gen_ai.* attributes
+    // per the 2026 OTel GenAI semantic conventions.
+    return withAgentSpan(
+      {
+        agentName: frame?.operatorRole ?? params.mode ?? 'orchestrator',
+        conversationId: params.taskId,
+        model: this.runUsage.model || undefined,
+        subagentName: frame?.parentTaskRunId ? frame.operatorRole : undefined,
+      },
+      async () => {
+        // Use completeWithUsage to track token consumption + cost
+        if (typeof this.llm!.completeWithUsage === 'function') {
+          const result = await this.llm!.completeWithUsage(prompt);
+          this.runUsage.tokensIn += result.usage.tokensIn;
+          this.runUsage.tokensOut += result.usage.tokensOut;
+          this.runUsage.model = result.usage.model;
+          this.runCost += computeCostUsd(
+            result.usage.model,
+            result.usage.tokensIn,
+            result.usage.tokensOut,
+          );
+          this.lastGovernance = result.governance ?? null;
+          setLlmUsageAttributes({
+            model: result.usage.model,
+            inputTokens: result.usage.tokensIn,
+            outputTokens: result.usage.tokensOut,
+          });
+          if (result.governance) {
+            setHelmAttributes({
+              verdict: result.governance.verdict,
+              policyVersion: result.governance.policyVersion,
+              reasonCode: result.governance.reason,
+            });
+          }
+          return parsePlanResponse(result.content);
+        }
 
-    // Fallback for providers that don't support usage tracking — also no
-    // governance surface, so the lastGovernance slot is cleared.
-    this.lastGovernance = null;
-    const response = await this.llm.complete(prompt);
-    return parsePlanResponse(response);
+        // Fallback for providers that don't support usage tracking — also no
+        // governance surface, so the lastGovernance slot is cleared.
+        this.lastGovernance = null;
+        const response = await this.llm!.complete(prompt);
+        return parsePlanResponse(response);
+      },
+    );
   }
 
   private async executeAction(

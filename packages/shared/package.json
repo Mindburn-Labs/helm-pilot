@@ -18,7 +18,8 @@
     "./scoring": "./dist/scoring/index.js",
     "./dedup": "./dist/dedup/index.js",
     "./prompts/opportunity-score.v1": "./dist/prompts/opportunity-score.v1.js",
-    "./subagents": "./dist/subagents/index.js"
+    "./subagents": "./dist/subagents/index.js",
+    "./otel": "./dist/otel/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -28,6 +29,7 @@
     "test:coverage": "vitest run --coverage --passWithNoTests"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
     "pino": "^9.6.0",
     "zod": "^3.24.0"
   },
