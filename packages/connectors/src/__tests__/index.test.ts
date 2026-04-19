@@ -92,7 +92,8 @@ describe('ConnectorRegistry', () => {
 
   it('registers the default connector set on construction', () => {
     const all = registry.listConnectors();
-    expect(all).toHaveLength(8);
+    // Phase 15 Track I added slack + notion (10 defaults total).
+    expect(all).toHaveLength(10);
     const ids = all.map((c) => c.id);
     expect(ids).toContain('github');
     expect(ids).toContain('gmail');
@@ -136,7 +137,8 @@ describe('ConnectorRegistry', () => {
       requiresApproval: true,
     });
     expect(registry.getConnector('slack')).toBeDefined();
-    expect(registry.listConnectors()).toHaveLength(9);
+    // 'slack' is now a default connector → re-registering is idempotent.
+    expect(registry.listConnectors()).toHaveLength(10);
   });
 
   // --- DB operations ---

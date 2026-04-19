@@ -857,6 +857,111 @@ export class ToolRegistry {
       },
     });
 
+    // ─── Slack: Post Message ───
+    this.register({
+      name: 'slack_post',
+      description:
+        'Post a message into a Slack channel. Input: {"workspaceId":"...","channel":"#general or C0123…","text":"...","threadTs":"optional"}',
+      modes: ['build', 'launch'],
+      execute: async (input) => {
+        const { workspaceId, channel, text, threadTs } = input as {
+          workspaceId: string;
+          channel: string;
+          text: string;
+          threadTs?: string;
+        };
+        const token = await this.resolveConnectorToken(workspaceId, 'slack');
+        if (!token) return { error: 'Slack connector not authorized. Connect via /api/connectors/slack/oauth/initiate' };
+        const { SlackConnector } = await import('@helm-pilot/connectors');
+        const slack = new SlackConnector(token);
+        return slack.postMessage(channel, text, threadTs ? { threadTs } : undefined);
+      },
+    });
+
+    // ─── Slack: List Channels ───
+    this.register({
+      name: 'slack_list_channels',
+      description: 'List Slack channels visible to the bot. Input: {"workspaceId":"...","limit":200}',
+      modes: ['build', 'launch'],
+      execute: async (input) => {
+        const { workspaceId, limit } = input as { workspaceId: string; limit?: number };
+        const token = await this.resolveConnectorToken(workspaceId, 'slack');
+        if (!token) return { error: 'Slack connector not authorized' };
+        const { SlackConnector } = await import('@helm-pilot/connectors');
+        return new SlackConnector(token).listChannels(limit ? { limit } : undefined);
+      },
+    });
+
+    // ─── Slack: Search ───
+    this.register({
+      name: 'slack_search',
+      description: 'Full-text search Slack messages. Input: {"workspaceId":"...","query":"...","limit":20}',
+      modes: ['build', 'launch', 'discover'],
+      execute: async (input) => {
+        const { workspaceId, query, limit } = input as {
+          workspaceId: string;
+          query: string;
+          limit?: number;
+        };
+        const token = await this.resolveConnectorToken(workspaceId, 'slack');
+        if (!token) return { error: 'Slack connector not authorized' };
+        const { SlackConnector } = await import('@helm-pilot/connectors');
+        return new SlackConnector(token).search(query, limit ? { limit } : undefined);
+      },
+    });
+
+    // ─── Notion: Search ───
+    this.register({
+      name: 'notion_search',
+      description: 'Search Notion pages. Input: {"workspaceId":"...","query":"...","limit":20}',
+      modes: ['discover', 'build', 'launch', 'apply'],
+      execute: async (input) => {
+        const { workspaceId, query, limit } = input as {
+          workspaceId: string;
+          query: string;
+          limit?: number;
+        };
+        const token = await this.resolveConnectorToken(workspaceId, 'notion');
+        if (!token) return { error: 'Notion connector not authorized. Connect via /api/connectors/notion/oauth/initiate' };
+        const { NotionConnector } = await import('@helm-pilot/connectors');
+        return new NotionConnector(token).search(query, limit ? { limit } : undefined);
+      },
+    });
+
+    // ─── Notion: Create Page ───
+    this.register({
+      name: 'notion_create_page',
+      description:
+        'Create a Notion page. Input: {"workspaceId":"...","parentPageId":"...","title":"...","bodyParagraphs":["…","…"]}',
+      modes: ['build', 'launch', 'apply'],
+      execute: async (input) => {
+        const { workspaceId, parentPageId, title, bodyParagraphs } = input as {
+          workspaceId: string;
+          parentPageId: string;
+          title: string;
+          bodyParagraphs?: string[];
+        };
+        const token = await this.resolveConnectorToken(workspaceId, 'notion');
+        if (!token) return { error: 'Notion connector not authorized' };
+        const { NotionConnector } = await import('@helm-pilot/connectors');
+        return new NotionConnector(token).createPage(parentPageId, title, bodyParagraphs);
+      },
+    });
+
+    // ─── Notion: Get Page ───
+    this.register({
+      name: 'notion_get_page',
+      description: 'Fetch a Notion page. Input: {"workspaceId":"...","pageId":"..."}',
+      modes: ['discover', 'build', 'launch', 'apply'],
+      execute: async (input) => {
+        const { workspaceId, pageId } = input as { workspaceId: string; pageId: string };
+        const token = await this.resolveConnectorToken(workspaceId, 'notion');
+        if (!token) return { error: 'Notion connector not authorized' };
+        const { NotionConnector } = await import('@helm-pilot/connectors');
+        return new NotionConnector(token).getPage(pageId);
+      },
+    });
+
     // ─── Google Drive: Read File ───
     this.register({
       name: 'gdrive_read',

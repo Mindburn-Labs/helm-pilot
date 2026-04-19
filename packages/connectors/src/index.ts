@@ -8,6 +8,14 @@ export { createStorageClient, LocalStorageClient, S3StorageClient } from './stor
 export { GitHubConnector } from './github.js';
 export { GmailConnector } from './gmail.js';
 export { DriveConnector } from './gdrive.js';
+export { SlackConnector, SlackError } from './slack.js';
+export type { SlackChannel, SlackPostResult, SlackSearchMatch } from './slack.js';
+export { NotionConnector, NotionError } from './notion.js';
+export type {
+  NotionSearchResult,
+  NotionPageCreateResult,
+  NotionPageDetail,
+} from './notion.js';
 export { OAuthFlowManager, OAuthError } from './oauth.js';
 export { encryptToken, decryptToken } from './token-store.js';
 export {
@@ -381,6 +389,24 @@ export class ConnectorRegistry {
       authType: 'token',
       requiredScopes: ['issues:write', 'projects:read'],
       requiresApproval: false,
+    });
+
+    this.registerConnector({
+      id: 'slack',
+      name: 'Slack',
+      description: 'Post messages, list channels, search workspace history',
+      authType: 'oauth2',
+      requiredScopes: ['chat:write', 'channels:read', 'groups:read', 'search:read'],
+      requiresApproval: true,
+    });
+
+    this.registerConnector({
+      id: 'notion',
+      name: 'Notion',
+      description: 'Search pages, create new pages, fetch page content',
+      authType: 'oauth2',
+      requiredScopes: ['read_content', 'update_content', 'insert_content'],
+      requiresApproval: true,
     });
 
     this.registerConnector({
