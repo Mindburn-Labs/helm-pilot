@@ -23,7 +23,8 @@
     "./skills": "./dist/skills/index.js",
     "./observability": "./dist/observability/index.js",
     "./eval": "./dist/eval/index.js",
-    "./sanitizers": "./dist/sanitizers/index.js"
+    "./sanitizers": "./dist/sanitizers/index.js",
+    "./compliance": "./dist/compliance/index.js"
   },
   "scripts": {
     "build": "tsc",

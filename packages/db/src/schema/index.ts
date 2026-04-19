@@ -13,3 +13,4 @@ export * from './deploy.js';
 export * from './audit.js';
 export * from './governance.js';
 export * from './tenancy.js';
+export * from './compliance.js';
