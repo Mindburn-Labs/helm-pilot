@@ -5,6 +5,7 @@ import {
   SubagentParallelRequestSchema,
 } from '@helm-pilot/shared/subagents';
 import { withToolSpan } from '@helm-pilot/shared/otel';
+import { type McpClient } from '@helm-pilot/shared/mcp';
 import { type ToolDef } from './agent-loop.js';
 import { type Conductor, type ParentContext } from './conductor.js';
 
@@ -74,6 +75,46 @@ export class ToolRegistry {
    */
   setParentContext(ctx: ParentContext | null): void {
     this.parentContext = ctx;
+  }
+
+  /**
+   * Phase 14 Track A — register every upstream MCP tool exposed by
+   * `client` as a local Tool entry, namespaced `mcp.<serverName>.<toolName>`
+   * so they don't collide with native Pilot tools and stay filterable by
+   * `tool_scope.allowed_tools`. Each call delegates to `client.callTool`
+   * and surfaces the upstream `content`/`isError` shape verbatim — HELM
+   * governance still wraps the parent `execute()` call.
+   *
+   * Caller (SubagentLoop) is responsible for `client.close()` lifecycle.
+   */
+  async registerMcpTools(serverName: string, client: McpClient): Promise<string[]> {
+    const upstream = await client.listTools();
+    const registered: string[] = [];
+    for (const tool of upstream) {
+      const name = `mcp.${serverName}.${tool.name}`;
+      registered.push(name);
+      this.register({
+        name,
+        description: `[mcp:${serverName}] ${tool.description ?? tool.name}`,
+        execute: async (input) => {
+          const args =
+            typeof input === 'object' && input !== null
+              ? (input as Record<string, unknown>)
+              : {};
+          try {
+            const res = await client.callTool({ name: tool.name, arguments: args });
+            return res.isError
+              ? { error: `mcp ${serverName}.${tool.name} returned an error`, content: res.content }
+              : { content: res.content };
+          } catch (err) {
+            return {
+              error: err instanceof Error ? err.message : 'MCP tool call failed',
+            };
+          }
+        },
+      });
+    }
+    return registered;
   }
 
   private conductor: Conductor | null = null;

@@ -17,6 +17,7 @@ import { TenantSecretStore } from '@helm-pilot/db/tenant-secret-store';
 import { HelmClient, HelmLlmProvider } from '@helm-pilot/helm-client';
 import type { RefreshNotifier } from '@helm-pilot/connectors';
 import { SubagentRegistry } from '@helm-pilot/shared/subagents';
+import { McpServerRegistry } from '@helm-pilot/shared/mcp';
 import { createGateway } from './index.js';
 import { configureRateLimit } from './middleware/rate-limit.js';
 import { EventBus } from './events/bus.js';
@@ -170,6 +171,15 @@ async function main() {
     'Subagent registry loaded',
   );
 
+  // Phase 14 (Track A) — load MCP server registry. Absent config file
+  // → empty registry, subagents with `mcp_servers:` frontmatter boot
+  // without upstream tools (silent-skip inside SubagentLoop).
+  const mcpRegistry = McpServerRegistry.loadFromDisk();
+  log.info(
+    { count: mcpRegistry.listNames().length, servers: mcpRegistry.listNames() },
+    'MCP server registry loaded',
+  );
+
   // Phase 13 (Track B) — late-bound re-auth notifier. The Telegram bot is
   // initialized AFTER the Orchestrator, but the refresh worker registered
   // inside the Orchestrator needs a notifier now. Use an adapter that
@@ -197,6 +207,7 @@ async function main() {
     helmClient,
     llmResolver,
     subagentRegistry,
+    mcpRegistry,
     oauth,
     refreshNotifier,
   });

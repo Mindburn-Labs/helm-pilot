@@ -6,6 +6,7 @@ import {
 } from '@helm-pilot/shared/subagents';
 import { type PolicyConfig } from '@helm-pilot/shared/schemas';
 import { type SkillRegistry } from '@helm-pilot/shared/skills';
+import { type McpServerRegistry } from '@helm-pilot/shared/mcp';
 import {
   AgentLoop,
   type AgentRunResult,
@@ -48,6 +49,13 @@ export class SubagentLoop {
      * and prepends matched skill bodies to the child's system prompt.
      */
     private readonly skillRegistry?: SkillRegistry,
+    /**
+     * Phase 14 Track A — optional MCP server registry. When supplied,
+     * every entry in `def.mcpServers` resolves to a live client and
+     * every upstream tool gets injected into the scoped tool registry
+     * as `mcp.<serverName>.<toolName>` before the child executes.
+     */
+    private readonly mcpRegistry?: McpServerRegistry,
   ) {}
 
   /**
@@ -81,6 +89,22 @@ export class SubagentLoop {
     // 2. Scoped trust boundary + tool registry.
     const childTrust = new TrustBoundary(childPolicy);
     const scopedTools = this.parentTools.subset(def.toolScope.allowedTools);
+
+    // 2a. Phase 14 Track A — inject upstream MCP tools declared in
+    // `def.mcpServers`. Silent-skip unknown servers so operators can
+    // flip tracks on/off without breaking existing subagent packs.
+    if (this.mcpRegistry && def.mcpServers.length > 0) {
+      for (const serverName of def.mcpServers) {
+        if (!this.mcpRegistry.has(serverName)) continue;
+        try {
+          const client = await this.mcpRegistry.get(serverName);
+          await scopedTools.registerMcpTools(serverName, client);
+        } catch {
+          // Transport/tool-list failures are non-fatal — child boots
+          // without that server; HELM governance still wraps everything.
+        }
+      }
+    }
 
     // 3. Fresh AgentLoop — isolated state.
     const child = new AgentLoop(this.db, childTrust);

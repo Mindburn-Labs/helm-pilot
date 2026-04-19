@@ -7,6 +7,7 @@ import {
   type SubagentDefinition,
   type SubagentRunResult,
 } from '@helm-pilot/shared/subagents';
+import { type McpServerRegistry } from '@helm-pilot/shared/mcp';
 import { type SubagentFrame } from './agent-loop.js';
 import { type ToolRegistry } from './tools.js';
 import { SubagentLoop } from './subagent-loop.js';
@@ -44,6 +45,13 @@ export class Conductor {
     private readonly parentTools: ToolRegistry,
     private readonly parentPolicy: PolicyConfig,
     private readonly llm: LlmProvider,
+    /**
+     * Phase 14 Track A — optional MCP server registry. When supplied,
+     * each subagent spawn propagates it into SubagentLoop so upstream
+     * MCP tools declared in `def.mcpServers` are resolved + injected
+     * into the child's scoped tool registry.
+     */
+    private readonly mcpRegistry?: McpServerRegistry,
   ) {}
 
   /**
@@ -70,7 +78,14 @@ export class Conductor {
       task: req.task,
     });
 
-    const loop = new SubagentLoop(this.db, this.parentTools, this.parentPolicy, this.llm);
+    const loop = new SubagentLoop(
+      this.db,
+      this.parentTools,
+      this.parentPolicy,
+      this.llm,
+      undefined,
+      this.mcpRegistry,
+    );
     return loop.run({
       def,
       input: req.task,
@@ -121,6 +136,8 @@ export class Conductor {
         this.parentTools,
         this.parentPolicy,
         this.llm,
+        undefined,
+        this.mcpRegistry,
       );
       return loop.run({
         def: r.def!,

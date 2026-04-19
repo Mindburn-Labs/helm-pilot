@@ -7,6 +7,7 @@ import { type MemoryService } from '@helm-pilot/memory';
 import { type HelmClient } from '@helm-pilot/helm-client';
 import { type OAuthFlowManager, type RefreshNotifier } from '@helm-pilot/connectors';
 import { type SubagentRegistry } from '@helm-pilot/shared/subagents';
+import { type McpServerRegistry } from '@helm-pilot/shared/mcp';
 import { TrustBoundary } from './trust.js';
 import { AgentLoop } from './agent-loop.js';
 import { ToolRegistry } from './tools.js';
@@ -52,6 +53,13 @@ export interface OrchestratorConfig {
    * wired to Telegram bot's `NotificationService.requestReauth`.
    */
   refreshNotifier?: RefreshNotifier;
+  /**
+   * Phase 14 (Track A) — upstream MCP server registry. When present the
+   * Conductor threads it into every subagent spawn so tools declared in
+   * `mcp_servers:` frontmatter are resolved + injected into the scoped
+   * tool registry. Absent → MCP tooling is disabled (built-ins only).
+   */
+  mcpRegistry?: McpServerRegistry;
 }
 
 /**
@@ -104,6 +112,7 @@ export class Orchestrator {
         this.tools,
         config.policy,
         config.llm,
+        config.mcpRegistry,
       );
       this.tools.setConductor(this.conductor);
     }
