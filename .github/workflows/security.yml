@@ -1,0 +1,51 @@
+name: security
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    # Daily 03:17 UTC — catches regressions from merged PRs that skipped labels.
+    - cron: '17 3 * * *'
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  owasp-llm-top10:
+    name: OWASP LLM Top 10 regression suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Build workspace packages
+        run: npx turbo run build --filter='@helm-pilot/shared' --filter='@helm-pilot/mcp-server'
+      - name: Run sanitizer unit tests
+        run: npm test -w @helm-pilot/shared -- src/__tests__/sanitizers.test.ts
+      - name: Run OWASP LLM Top 10 regression suite
+        run: npm test -w @helm-pilot/shared -- src/__tests__/owasp-llm-top10.test.ts
+      - name: Run MCP transport tests (injection vectors through MCP)
+        run: npm test -w @helm-pilot/shared -- src/__tests__/mcp-client.test.ts src/__tests__/mcp-registry.test.ts
+      - name: Run MCP provider auth tests
+        run: npm test -w @helm-pilot/mcp-server -- src/__tests__/app.test.ts
+
+  secrets-scan:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
