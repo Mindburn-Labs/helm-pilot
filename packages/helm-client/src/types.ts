@@ -137,3 +137,105 @@ export interface HelmClientConfig {
   /** Optional receipt callback (e.g. persist to evidence_packs table). */
   onReceipt?: (receipt: HelmReceipt) => void | Promise<void>;
 }
+
+// ─── Phase 14 Track F — helm-oss endpoint response shapes ───
+// These types mirror the helm-oss HTTP endpoint payloads Pilot consumes.
+
+export interface Soc2BundleResult {
+  /** JCS-canonical bundle, base64-encoded tar.gz for transport. */
+  bundleBase64: string;
+  manifestHash: string;
+  generatedAt: string;
+}
+
+export interface MerkleRootResult {
+  root: string;
+  generatedAt: string;
+}
+
+export interface BudgetStatusResult {
+  enforcer: string;
+  status: 'active' | 'degraded' | 'unconfigured';
+  dailyRemainingUsd?: number;
+  dailyLimitUsd?: number;
+  monthlyRemainingUsd?: number;
+  monthlyLimitUsd?: number;
+  alerts?: Array<{ level: 'info' | 'warn' | 'critical'; message: string }>;
+}
+
+export interface ObligationRequest {
+  workspaceId: string;
+  decisionId: string;
+  obligation: string;
+  retentionDays?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ObligationResult {
+  obligationId: string;
+  registeredAt: string;
+  expiresAt?: string;
+}
+
+export interface BoundaryCheckResult {
+  ok: boolean;
+  violations: Array<{ kind: string; detail: string; severity: 'warn' | 'critical' }>;
+  checkedAt: string;
+}
+
+export interface MemoryEntry {
+  id: string;
+  scope: 'workspace' | 'shared';
+  title: string;
+  createdAt: string;
+  checksum: string;
+}
+
+export interface MemoryListResult {
+  entries: MemoryEntry[];
+  nextCursor?: string;
+}
+
+export interface MemoryPromoteResult {
+  sharedMemoryId: string;
+  promotedAt: string;
+}
+
+export interface ContextBundle {
+  id: string;
+  name: string;
+  size: number;
+  checksum: string;
+  createdAt: string;
+}
+
+export interface ContextBundleListResult {
+  bundles: ContextBundle[];
+}
+
+export interface EconomicCharge {
+  id: string;
+  workspaceId: string;
+  centerLabel?: string;
+  amountUsd: number;
+  currency: string;
+  occurredAt: string;
+  reason?: string;
+}
+
+export interface EconomicChargesResult {
+  charges: EconomicCharge[];
+  totalUsd: number;
+  window: { from: string; to: string };
+}
+
+export interface EconomicAllocation {
+  workspaceId: string;
+  allocatedUsd: number;
+  consumedUsd: number;
+  window: { from: string; to: string };
+}
+
+export interface EconomicAllocationsResult {
+  allocations: EconomicAllocation[];
+}

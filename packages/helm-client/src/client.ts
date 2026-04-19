@@ -13,6 +13,17 @@ import type {
   HealthSnapshot,
   HelmClientConfig,
   HelmReceipt,
+  Soc2BundleResult,
+  MerkleRootResult,
+  BudgetStatusResult,
+  ObligationRequest,
+  ObligationResult,
+  BoundaryCheckResult,
+  MemoryListResult,
+  MemoryPromoteResult,
+  ContextBundleListResult,
+  EconomicChargesResult,
+  EconomicAllocationsResult,
 } from './types.js';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -211,6 +222,104 @@ export class HelmClient {
     const evidencePackId =
       response.headers.get('x-helm-evidence-pack-id') ?? undefined;
     return { receipt, evidencePackId };
+  }
+
+  // ─── Phase 14 Track F — helm-oss endpoint integration ───
+  //
+  // Thin wrappers around helm-oss HTTP endpoints. All use governedFetch
+  // for retries + failClosed semantics + 403 handling. No receipt
+  // emission on these (they're read-only inspection endpoints), except
+  // createObligation which does write helm-oss-side state.
+
+  /** Export a SOC2 compliance bundle for a workspace. */
+  async exportSoc2(workspaceId: string): Promise<Soc2BundleResult> {
+    const url = `${this.cfg.baseUrl}/api/v1/evidence/soc2?workspaceId=${encodeURIComponent(workspaceId)}`;
+    const response = await this.governedFetch(url, { method: 'GET', headers: this.adminHeaders() });
+    return (await response.json()) as Soc2BundleResult;
+  }
+
+  /** Retrieve the current Merkle tree root of the proof-graph. */
+  async getMerkleRoot(): Promise<MerkleRootResult> {
+    const url = `${this.cfg.baseUrl}/api/v1/merkle/root`;
+    const response = await this.governedFetch(url, { method: 'GET', headers: this.adminHeaders() });
+    return (await response.json()) as MerkleRootResult;
+  }
+
+  /** Current spend, daily/monthly limits, alerts. */
+  async getBudgetStatus(): Promise<BudgetStatusResult> {
+    const url = `${this.cfg.baseUrl}/api/v1/budget/status`;
+    const response = await this.governedFetch(url, { method: 'GET', headers: this.adminHeaders() });
+    return (await response.json()) as BudgetStatusResult;
+  }
+
+  /** Register a post-decision obligation (e.g. retain PHI access log for 2190 days). */
+  async createObligation(req: ObligationRequest): Promise<ObligationResult> {
+    const url = `${this.cfg.baseUrl}/api/v1/obligation/create`;
+    const response = await this.governedFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.adminHeaders() },
+      body: JSON.stringify(req),
+    });
+    return (await response.json()) as ObligationResult;
+  }
+
+  /** Sandbox / boundary violation status check. */
+  async boundaryCheck(): Promise<BoundaryCheckResult> {
+    const url = `${this.cfg.baseUrl}/api/v1/boundary/check`;
+    const response = await this.governedFetch(url, { method: 'GET', headers: this.adminHeaders() });
+    return (await response.json()) as BoundaryCheckResult;
+  }
+
+  /** List shared memory entries accessible to a workspace. */
+  async listMemory(workspaceId: string, cursor?: string): Promise<MemoryListResult> {
+    const qs = new URLSearchParams({ workspaceId });
+    if (cursor) qs.set('cursor', cursor);
+    const url = `${this.cfg.baseUrl}/api/v1/memory/list?${qs.toString()}`;
+    const response = await this.governedFetch(url, { method: 'GET', headers: this.adminHeaders() });
+    return (await response.json()) as MemoryListResult;
+  }
+
+  /** Promote a workspace-scoped page into shared HELM memory. */
+  async promoteMemory(workspaceId: string, pageId: string): Promise<MemoryPromoteResult> {
+    const url = `${this.cfg.baseUrl}/api/v1/memory/promote`;
+    const response = await this.governedFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...this.adminHeaders() },
+      body: JSON.stringify({ workspaceId, pageId }),
+    });
+    return (await response.json()) as MemoryPromoteResult;
+  }
+
+  /** Reusable context snapshots available to the workspace. */
+  async getContextBundles(workspaceId: string): Promise<ContextBundleListResult> {
+    const url = `${this.cfg.baseUrl}/api/v1/context/bundles?workspaceId=${encodeURIComponent(workspaceId)}`;
+    const response = await this.governedFetch(url, { method: 'GET', headers: this.adminHeaders() });
+    return (await response.json()) as ContextBundleListResult;
+  }
+
+  /** Per-workspace USD charges in a time window. */
+  async getEconomicCharges(
+    workspaceId: string,
+    from: string,
+    to: string,
+  ): Promise<EconomicChargesResult> {
+    const qs = new URLSearchParams({ workspaceId, from, to });
+    const url = `${this.cfg.baseUrl}/api/v1/economic/charges?${qs.toString()}`;
+    const response = await this.governedFetch(url, { method: 'GET', headers: this.adminHeaders() });
+    return (await response.json()) as EconomicChargesResult;
+  }
+
+  /** Per-workspace budget allocations + consumption. */
+  async getEconomicAllocations(workspaceId: string): Promise<EconomicAllocationsResult> {
+    const url = `${this.cfg.baseUrl}/api/v1/economic/allocations?workspaceId=${encodeURIComponent(workspaceId)}`;
+    const response = await this.governedFetch(url, { method: 'GET', headers: this.adminHeaders() });
+    return (await response.json()) as EconomicAllocationsResult;
+  }
+
+  private adminHeaders(): Record<string, string> {
+    return this.cfg.adminApiKey
+      ? { Authorization: `Bearer ${this.cfg.adminApiKey}` }
+      : {};
   }
 
   // ─── internals ───
