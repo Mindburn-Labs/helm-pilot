@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { eq, desc, inArray } from 'drizzle-orm';
 import { tasks } from '@helm-pilot/db/schema';
+import { conductStream, type ConductEvent } from '@helm-pilot/orchestrator';
 import { type GatewayDeps } from '../index.js';
 
 export function eventRoutes(deps: GatewayDeps) {
@@ -93,6 +94,62 @@ export function eventRoutes(deps: GatewayDeps) {
               id: task.id,
             });
           }
+        }
+      }
+    });
+  });
+
+  // ─── GET /api/events/conduct/:taskId (Phase 14 Track L) ───
+  //
+  // Live conductor iteration stream. Each SSE event carries a
+  // ConductEvent JSON payload. Events fire for: iteration.started,
+  // action.selected, action.completed, action.denied,
+  // action.approval_required, subagent.spawned, subagent.completed,
+  // task.verdict. The stream closes when the client disconnects.
+  app.get('/conduct/:taskId', async (c) => {
+    const taskId = c.req.param('taskId');
+    if (!taskId) return c.json({ error: 'taskId required' }, 400);
+
+    return streamSSE(c, async (stream) => {
+      const queue: ConductEvent[] = [];
+      let resolve: (() => void) | null = null;
+      let aborted = false;
+
+      const unsubscribe = conductStream.subscribe(taskId, (event) => {
+        queue.push(event);
+        resolve?.();
+      });
+
+      stream.onAbort(() => {
+        aborted = true;
+        unsubscribe();
+        resolve?.();
+      });
+
+      await stream.writeSSE({
+        event: 'subscribed',
+        data: JSON.stringify({ taskId }),
+      });
+
+      while (!aborted) {
+        if (queue.length === 0) {
+          await new Promise<void>((r) => {
+            resolve = r;
+            // 30s heartbeat keeps TCP + proxies alive
+            setTimeout(() => r(), 30_000);
+          });
+          resolve = null;
+          if (aborted) break;
+          if (queue.length === 0) {
+            await stream.writeSSE({ event: 'ping', data: '' });
+          }
+        }
+        while (queue.length > 0) {
+          const ev = queue.shift()!;
+          await stream.writeSSE({
+            event: ev.type,
+            data: JSON.stringify(ev),
+          });
         }
       }
     });

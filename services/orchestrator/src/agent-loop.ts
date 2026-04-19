@@ -10,6 +10,7 @@ import {
 } from '@helm-pilot/shared/otel';
 import { type TrustBoundary } from './trust.js';
 import { type ToolRegistry } from './tools.js';
+import { emitConductEvent } from './conduct-stream.js';
 
 /**
  * Agent Loop — iteration-budgeted execution engine.
@@ -85,11 +86,26 @@ export class AgentLoop {
     const actions: ActionRecord[] = [];
 
     for (let iteration = 1; iteration <= maxIterations; iteration++) {
+      emitConductEvent({ type: 'iteration.started', taskId: params.taskId, iteration });
+
       // 1. Plan next action via LLM (ephemeral context — never persisted)
       const action = await this.planNextAction(params, actions);
       if (!action) {
+        emitConductEvent({
+          type: 'task.verdict',
+          taskId: params.taskId,
+          iteration: iteration - 1,
+          payload: { status: 'completed', reason: 'llm_no_action' },
+        });
         return this.result('completed', iteration - 1, maxIterations, actions);
       }
+
+      emitConductEvent({
+        type: 'action.selected',
+        taskId: params.taskId,
+        iteration,
+        tool: action.tool,
+      });
 
       // 2. Trust boundary check (fail-closed — pretooluse.py pattern)
       const verdict = this.trust.evaluate({
@@ -104,6 +120,20 @@ export class AgentLoop {
         actions.push({ ...action, output: null, verdict: 'deny', iteration });
         // Persist denied action for audit trail
         await this.persistAction(params.taskId, { ...action, output: null, verdict: 'deny', iteration });
+        emitConductEvent({
+          type: 'action.denied',
+          taskId: params.taskId,
+          iteration,
+          tool: action.tool,
+          verdict: 'deny',
+          payload: { reason: verdict.reason },
+        });
+        emitConductEvent({
+          type: 'task.verdict',
+          taskId: params.taskId,
+          iteration,
+          payload: { status: 'blocked', reason: verdict.reason },
+        });
         return this.result('blocked', iteration, maxIterations, actions, verdict.reason);
       }
 
@@ -113,6 +143,20 @@ export class AgentLoop {
         await this.persistAction(params.taskId, { ...action, output: null, verdict: 'require_approval', iteration });
         // Create approval record
         await this.createApprovalRecord(params, action, verdict.reason ?? 'Approval required');
+        emitConductEvent({
+          type: 'action.approval_required',
+          taskId: params.taskId,
+          iteration,
+          tool: action.tool,
+          verdict: 'require_approval',
+          payload: { reason: verdict.reason },
+        });
+        emitConductEvent({
+          type: 'task.verdict',
+          taskId: params.taskId,
+          iteration,
+          payload: { status: 'awaiting_approval', reason: verdict.reason },
+        });
         return this.result('awaiting_approval', iteration, maxIterations, actions, verdict.reason);
       }
 
@@ -123,11 +167,32 @@ export class AgentLoop {
       // Persist action (A5 — task progress tracking)
       await this.persistAction(params.taskId, { ...action, output, verdict: 'allow', iteration });
 
+      emitConductEvent({
+        type: 'action.completed',
+        taskId: params.taskId,
+        iteration,
+        tool: action.tool,
+        verdict: 'allow',
+      });
+
       // 4. Check if LLM signalled done via a special tool
       if (action.tool === 'finish') {
+        emitConductEvent({
+          type: 'task.verdict',
+          taskId: params.taskId,
+          iteration,
+          payload: { status: 'completed' },
+        });
         return this.result('completed', iteration, maxIterations, actions);
       }
     }
+
+    emitConductEvent({
+      type: 'task.verdict',
+      taskId: params.taskId,
+      iteration: maxIterations,
+      payload: { status: 'budget_exhausted' },
+    });
 
     return this.result('budget_exhausted', maxIterations, maxIterations, actions);
   }

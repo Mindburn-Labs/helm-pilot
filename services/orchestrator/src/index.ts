@@ -357,6 +357,13 @@ export { AgentLoop } from './agent-loop.js';
 export { ToolRegistry } from './tools.js';
 export { Conductor, type ParentContext } from './conductor.js';
 export { SubagentLoop } from './subagent-loop.js';
+export {
+  conductStream,
+  emitConductEvent,
+  ConductEventStream,
+  type ConductEvent,
+  type ConductEventType,
+} from './conduct-stream.js';
 
 function toFiniteNumber(value: unknown) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;

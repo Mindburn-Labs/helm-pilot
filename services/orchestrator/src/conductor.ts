@@ -11,6 +11,7 @@ import { type McpServerRegistry } from '@helm-pilot/shared/mcp';
 import { type SubagentFrame } from './agent-loop.js';
 import { type ToolRegistry } from './tools.js';
 import { SubagentLoop } from './subagent-loop.js';
+import { emitConductEvent } from './conduct-stream.js';
 
 /**
  * Conductor — orchestrates governed subagent delegations.
@@ -86,13 +87,29 @@ export class Conductor {
       undefined,
       this.mcpRegistry,
     );
-    return loop.run({
+    emitConductEvent({
+      type: 'subagent.spawned',
+      taskId: parentCtx.taskId,
+      payload: { name: def.name, task: req.task, budgetUsd: allocated },
+    });
+    const result = await loop.run({
       def,
       input: req.task,
       frame,
       workspaceId: parentCtx.workspaceId,
       taskId: parentCtx.taskId,
     });
+    emitConductEvent({
+      type: 'subagent.completed',
+      taskId: parentCtx.taskId,
+      payload: {
+        name: result.name,
+        verdict: result.verdict,
+        costUsd: result.costUsd,
+        iterationsUsed: result.iterationsUsed,
+      },
+    });
+    return result;
   }
 
   /**
@@ -139,13 +156,29 @@ export class Conductor {
         undefined,
         this.mcpRegistry,
       );
-      return loop.run({
+      emitConductEvent({
+        type: 'subagent.spawned',
+        taskId: parentCtx.taskId,
+        payload: { name: r.def!.name, task: r.req.task, budgetUsd: allocated },
+      });
+      const childResult = await loop.run({
         def: r.def!,
         input: r.req.task,
         frame,
         workspaceId: parentCtx.workspaceId,
         taskId: parentCtx.taskId,
       });
+      emitConductEvent({
+        type: 'subagent.completed',
+        taskId: parentCtx.taskId,
+        payload: {
+          name: childResult.name,
+          verdict: childResult.verdict,
+          costUsd: childResult.costUsd,
+          iterationsUsed: childResult.iterationsUsed,
+        },
+      });
+      return childResult;
     });
 
     return Promise.all(runs);
