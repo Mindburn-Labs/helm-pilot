@@ -22,7 +22,8 @@
     "./otel": "./dist/otel/index.js",
     "./skills": "./dist/skills/index.js",
     "./observability": "./dist/observability/index.js",
-    "./eval": "./dist/eval/index.js"
+    "./eval": "./dist/eval/index.js",
+    "./sanitizers": "./dist/sanitizers/index.js"
   },
   "scripts": {
     "build": "tsc",

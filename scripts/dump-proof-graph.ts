@@ -26,9 +26,7 @@ interface Node {
 }
 
 function usage(): never {
-  console.error(
-    'Usage: dump-proof-graph <workspaceId> [--task <taskId>] [--format dot|json]',
-  );
+  console.error('Usage: dump-proof-graph <workspaceId> [--task <taskId>] [--format dot|json]');
   process.exit(1);
 }
 
@@ -82,9 +80,9 @@ async function main() {
           ORDER BY received_at ASC
         `);
 
-    const rows = (Array.isArray(result)
-      ? result
-      : ((result as { rows?: unknown[] }).rows ?? [])) as Node[];
+    const rows = (
+      Array.isArray(result) ? result : ((result as { rows?: unknown[] }).rows ?? [])
+    ) as Node[];
 
     if (format === 'json') {
       process.stdout.write(JSON.stringify(rows, null, 2) + '\n');
