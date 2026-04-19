@@ -33,6 +33,7 @@ import { connectorRoutes } from './routes/connector.js';
 import { statusRoutes } from './routes/status.js';
 import { userRoutes } from './routes/users.js';
 import { governanceRoutes } from './routes/governance.js';
+import { complianceRoutes } from './routes/compliance.js';
 import { decideRoutes } from './routes/decide.js';
 import { secretsRoutes } from './routes/secrets.js';
 import { adminRoutes } from './routes/admin.js';
@@ -221,6 +222,7 @@ export function createGateway(deps: GatewayDeps) {
   app.route('/api/status', statusRoutes(deps));
   app.route('/api/users', userRoutes(deps));
   app.route('/api/governance', governanceRoutes(deps));
+  app.route('/api/compliance', complianceRoutes(deps));
   app.route('/api/decide', decideRoutes(deps));
   app.route('/api/orchestrator', conductRoutes(deps));
   app.route('/api/workspace/secrets', secretsRoutes(deps));

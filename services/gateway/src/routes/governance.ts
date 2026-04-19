@@ -177,6 +177,67 @@ export function governanceRoutes(deps: GatewayDeps) {
     return c.json({ taskId, nodes, edges });
   });
 
+  // ─── Phase 14 Track F — helm-oss endpoint surface ───
+  // Proxy thin reads of HelmClient endpoints into the gateway so the
+  // web dashboard can render budget / cost / merkle / boundary widgets
+  // without speaking the HELM admin protocol directly.
+
+  app.get('/budget', async (c) => {
+    if (!helm) return c.json({ error: 'helm client not configured' }, 503);
+    try {
+      return c.json(await helm.getBudgetStatus());
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        502,
+      );
+    }
+  });
+
+  app.get('/merkle', async (c) => {
+    if (!helm) return c.json({ error: 'helm client not configured' }, 503);
+    try {
+      return c.json(await helm.getMerkleRoot());
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        502,
+      );
+    }
+  });
+
+  app.get('/charges', async (c) => {
+    const workspaceId = c.get('workspaceId');
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    if (!helm) return c.json({ error: 'helm client not configured' }, 503);
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const from = c.req.query('from') ?? sevenDaysAgo.toISOString();
+    const to = c.req.query('to') ?? now.toISOString();
+    try {
+      return c.json(await helm.getEconomicCharges(workspaceId, from, to));
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        502,
+      );
+    }
+  });
+
+  app.get('/allocations', async (c) => {
+    const workspaceId = c.get('workspaceId');
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    if (!helm) return c.json({ error: 'helm client not configured' }, 503);
+    try {
+      return c.json(await helm.getEconomicAllocations(workspaceId));
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        502,
+      );
+    }
+  });
+
   return app;
 }
 

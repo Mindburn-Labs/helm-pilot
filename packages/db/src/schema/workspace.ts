@@ -10,6 +10,8 @@ export const workspaces = pgTable('workspaces', {
   ownerId: uuid('owner_id')
     .notNull()
     .references(() => users.id),
+  /** Phase 14 Track B — opted-in compliance framework codes. Backed by migration 0013. */
+  complianceFrameworks: jsonb('compliance_frameworks').$type<string[]>().notNull().default([]),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
