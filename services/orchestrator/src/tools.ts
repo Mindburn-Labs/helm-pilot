@@ -1048,6 +1048,141 @@ export class ToolRegistry {
       },
     });
 
+    // ─── Stripe: List Customers ───
+    this.register({
+      name: 'stripe_list_customers',
+      description: 'List most recent Stripe customers. Input: {"workspaceId":"...","limit":10}',
+      modes: ['build', 'launch'],
+      execute: async (input) => {
+        const { workspaceId, limit } = input as { workspaceId: string; limit?: number };
+        const token = await this.resolveConnectorToken(workspaceId, 'stripe');
+        if (!token) return { error: 'Stripe connector not authorized' };
+        const { StripeConnector } = await import('@helm-pilot/connectors');
+        return new StripeConnector(token).listCustomers(limit ? { limit } : undefined);
+      },
+    });
+
+    // ─── Stripe: Recent Charges ───
+    this.register({
+      name: 'stripe_recent_charges',
+      description: 'List recent Stripe charges. Input: {"workspaceId":"...","limit":10}',
+      modes: ['build', 'launch'],
+      execute: async (input) => {
+        const { workspaceId, limit } = input as { workspaceId: string; limit?: number };
+        const token = await this.resolveConnectorToken(workspaceId, 'stripe');
+        if (!token) return { error: 'Stripe connector not authorized' };
+        const { StripeConnector } = await import('@helm-pilot/connectors');
+        return new StripeConnector(token).recentCharges(limit ? { limit } : undefined);
+      },
+    });
+
+    // ─── Stripe: Balance ───
+    this.register({
+      name: 'stripe_balance',
+      description: 'Current Stripe balance (available + pending in cents). Input: {"workspaceId":"..."}',
+      modes: ['build', 'launch'],
+      execute: async (input) => {
+        const { workspaceId } = input as { workspaceId: string };
+        const token = await this.resolveConnectorToken(workspaceId, 'stripe');
+        if (!token) return { error: 'Stripe connector not authorized' };
+        const { StripeConnector } = await import('@helm-pilot/connectors');
+        return new StripeConnector(token).balance();
+      },
+    });
+
+    // ─── Calendar: List Events ───
+    this.register({
+      name: 'calendar_list_events',
+      description: 'List upcoming Google Calendar events. Input: {"workspaceId":"...","timeMinIso":"opt","timeMaxIso":"opt","limit":50}',
+      modes: ['build', 'launch', 'apply'],
+      execute: async (input) => {
+        const { workspaceId, ...opts } = input as {
+          workspaceId: string;
+          calendarId?: string;
+          timeMinIso?: string;
+          timeMaxIso?: string;
+          limit?: number;
+        };
+        const token = await this.resolveConnectorToken(workspaceId, 'calendar');
+        if (!token) return { error: 'Calendar connector not authorized' };
+        const { CalendarConnector } = await import('@helm-pilot/connectors');
+        return new CalendarConnector(token).listEvents(opts);
+      },
+    });
+
+    // ─── Calendar: Create Event ───
+    this.register({
+      name: 'calendar_create_event',
+      description:
+        'Create a Google Calendar event. Input: {"workspaceId":"...","summary":"...","startIso":"2026-04-20T10:00:00Z","endIso":"2026-04-20T11:00:00Z","attendees":["a@b"]}',
+      modes: ['build', 'launch', 'apply'],
+      execute: async (input) => {
+        const { workspaceId, ...payload } = input as {
+          workspaceId: string;
+          summary: string;
+          description?: string;
+          startIso: string;
+          endIso: string;
+          timeZone?: string;
+          attendees?: string[];
+          calendarId?: string;
+        };
+        const token = await this.resolveConnectorToken(workspaceId, 'calendar');
+        if (!token) return { error: 'Calendar connector not authorized' };
+        const { CalendarConnector } = await import('@helm-pilot/connectors');
+        return new CalendarConnector(token).createEvent(payload);
+      },
+    });
+
+    // ─── HubSpot: List Contacts ───
+    this.register({
+      name: 'hubspot_list_contacts',
+      description: 'List recent HubSpot contacts. Input: {"workspaceId":"...","limit":25}',
+      modes: ['build', 'launch'],
+      execute: async (input) => {
+        const { workspaceId, limit } = input as { workspaceId: string; limit?: number };
+        const token = await this.resolveConnectorToken(workspaceId, 'hubspot');
+        if (!token) return { error: 'HubSpot connector not authorized' };
+        const { HubSpotConnector } = await import('@helm-pilot/connectors');
+        return new HubSpotConnector(token).listContacts(limit ? { limit } : undefined);
+      },
+    });
+
+    // ─── HubSpot: Create Contact ───
+    this.register({
+      name: 'hubspot_create_contact',
+      description:
+        'Create a HubSpot contact. Input: {"workspaceId":"...","email":"...","firstName":"opt","lastName":"opt","company":"opt"}',
+      modes: ['build', 'launch'],
+      execute: async (input) => {
+        const { workspaceId, ...payload } = input as {
+          workspaceId: string;
+          email: string;
+          firstName?: string;
+          lastName?: string;
+          company?: string;
+        };
+        const token = await this.resolveConnectorToken(workspaceId, 'hubspot');
+        if (!token) return { error: 'HubSpot connector not authorized' };
+        const { HubSpotConnector } = await import('@helm-pilot/connectors');
+        return new HubSpotConnector(token).createContact(payload);
+      },
+    });
+
+    // ─── HubSpot: List Deals ───
+    this.register({
+      name: 'hubspot_list_deals',
+      description: 'List recent HubSpot deals. Input: {"workspaceId":"...","limit":25}',
+      modes: ['build', 'launch'],
+      execute: async (input) => {
+        const { workspaceId, limit } = input as { workspaceId: string; limit?: number };
+        const token = await this.resolveConnectorToken(workspaceId, 'hubspot');
+        if (!token) return { error: 'HubSpot connector not authorized' };
+        const { HubSpotConnector } = await import('@helm-pilot/connectors');
+        return new HubSpotConnector(token).listDeals(limit ? { limit } : undefined);
+      },
+    });
+
     // ─── Google Drive: Read File ───
     this.register({
       name: 'gdrive_read',

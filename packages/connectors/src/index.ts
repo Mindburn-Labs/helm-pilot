@@ -18,6 +18,17 @@ export type {
   NotionPageCreateResult,
   NotionPageDetail,
 } from './notion.js';
+export { StripeConnector, StripeError } from './stripe.js';
+export type {
+  StripeCustomer,
+  StripeCharge,
+  StripeBalance,
+  StripeBalanceLine,
+} from './stripe.js';
+export { CalendarConnector, CalendarError } from './calendar.js';
+export type { CalendarEvent, CalendarCreateInput } from './calendar.js';
+export { HubSpotConnector, HubSpotError } from './hubspot.js';
+export type { HubSpotContact, HubSpotDeal } from './hubspot.js';
 export { OAuthFlowManager, OAuthError } from './oauth.js';
 export { encryptToken, decryptToken } from './token-store.js';
 export {
@@ -408,6 +419,33 @@ export class ConnectorRegistry {
       description: 'Search pages, create new pages, fetch page content',
       authType: 'oauth2',
       requiredScopes: ['read_content', 'update_content', 'insert_content'],
+      requiresApproval: true,
+    });
+
+    this.registerConnector({
+      id: 'stripe',
+      name: 'Stripe',
+      description: 'Read-only revenue dashboard — list customers, charges, balance',
+      authType: 'token',
+      requiredScopes: ['read_customers', 'read_charges', 'read_balance'],
+      requiresApproval: true,
+    });
+
+    this.registerConnector({
+      id: 'calendar',
+      name: 'Google Calendar',
+      description: 'List + create calendar events',
+      authType: 'oauth2',
+      requiredScopes: ['calendar.events'],
+      requiresApproval: true,
+    });
+
+    this.registerConnector({
+      id: 'hubspot',
+      name: 'HubSpot',
+      description: 'CRM contacts and deals — list and create',
+      authType: 'token',
+      requiredScopes: ['crm.objects.contacts', 'crm.objects.deals'],
       requiresApproval: true,
     });
 
