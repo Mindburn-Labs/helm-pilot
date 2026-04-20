@@ -101,8 +101,8 @@ describe('ToolRegistry', () => {
       // Apply mode tools
       expect(names).toContain('create_application_draft');
 
-      // Phase 15 Track I added 3 Slack + 3 Notion tools (33 total).
-      expect(tools.length).toBe(33);
+      // Phase 15 Track I: 3 Slack + 3 Notion + 4 Linear tools added (37 total).
+      expect(tools.length).toBe(37);
     });
   });
 

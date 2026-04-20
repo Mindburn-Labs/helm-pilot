@@ -857,6 +857,92 @@ export class ToolRegistry {
       },
     });
 
+    // ─── Linear: Create Issue ───
+    this.register({
+      name: 'linear_create_issue',
+      description:
+        'Create a Linear issue. Input: {"workspaceId":"...","teamId":"...","title":"...","description":"...","priority":0-4,"assigneeId":"optional"}',
+      modes: ['build', 'launch'],
+      execute: async (input) => {
+        const { workspaceId, teamId, title, description, priority, assigneeId, labelIds } =
+          input as {
+            workspaceId: string;
+            teamId: string;
+            title: string;
+            description?: string;
+            priority?: 0 | 1 | 2 | 3 | 4;
+            assigneeId?: string;
+            labelIds?: string[];
+          };
+        const token = await this.resolveConnectorToken(workspaceId, 'linear');
+        if (!token) return { error: 'Linear connector not authorized' };
+        const { LinearConnector } = await import('@helm-pilot/connectors');
+        return new LinearConnector(token).createIssue({
+          teamId,
+          title,
+          description,
+          priority,
+          assigneeId,
+          labelIds,
+        });
+      },
+    });
+
+    // ─── Linear: List Issues ───
+    this.register({
+      name: 'linear_list_issues',
+      description: 'List Linear issues. Input: {"workspaceId":"...","teamId":"optional","limit":50,"stateNames":["Started","Completed"]}',
+      modes: ['build', 'launch'],
+      execute: async (input) => {
+        const { workspaceId, teamId, limit, stateNames } = input as {
+          workspaceId: string;
+          teamId?: string;
+          limit?: number;
+          stateNames?: string[];
+        };
+        const token = await this.resolveConnectorToken(workspaceId, 'linear');
+        if (!token) return { error: 'Linear connector not authorized' };
+        const { LinearConnector } = await import('@helm-pilot/connectors');
+        return new LinearConnector(token).listIssues({ teamId, limit, stateNames });
+      },
+    });
+
+    // ─── Linear: Update Issue ───
+    this.register({
+      name: 'linear_update_issue',
+      description: 'Update a Linear issue. Input: {"workspaceId":"...","issueId":"...","title":"optional","stateId":"optional","priority":0-4}',
+      modes: ['build', 'launch'],
+      execute: async (input) => {
+        const { workspaceId, issueId, ...updates } = input as {
+          workspaceId: string;
+          issueId: string;
+          title?: string;
+          description?: string;
+          stateId?: string;
+          priority?: 0 | 1 | 2 | 3 | 4;
+          assigneeId?: string;
+        };
+        const token = await this.resolveConnectorToken(workspaceId, 'linear');
+        if (!token) return { error: 'Linear connector not authorized' };
+        const { LinearConnector } = await import('@helm-pilot/connectors');
+        return new LinearConnector(token).updateIssue(issueId, updates);
+      },
+    });
+
+    // ─── Linear: List Teams ───
+    this.register({
+      name: 'linear_list_teams',
+      description: 'List Linear teams in the workspace. Input: {"workspaceId":"..."}',
+      modes: ['build', 'launch'],
+      execute: async (input) => {
+        const { workspaceId } = input as { workspaceId: string };
+        const token = await this.resolveConnectorToken(workspaceId, 'linear');
+        if (!token) return { error: 'Linear connector not authorized' };
+        const { LinearConnector } = await import('@helm-pilot/connectors');
+        return new LinearConnector(token).listTeams();
+      },
+    });
+
     // ─── Slack: Post Message ───
     this.register({
       name: 'slack_post',

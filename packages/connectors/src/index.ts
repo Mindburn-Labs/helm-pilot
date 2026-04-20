@@ -8,6 +8,8 @@ export { createStorageClient, LocalStorageClient, S3StorageClient } from './stor
 export { GitHubConnector } from './github.js';
 export { GmailConnector } from './gmail.js';
 export { DriveConnector } from './gdrive.js';
+export { LinearConnector } from './linear.js';
+export type { LinearIssue, LinearTeam, LinearProject } from './linear.js';
 export { SlackConnector, SlackError } from './slack.js';
 export type { SlackChannel, SlackPostResult, SlackSearchMatch } from './slack.js';
 export { NotionConnector, NotionError } from './notion.js';
