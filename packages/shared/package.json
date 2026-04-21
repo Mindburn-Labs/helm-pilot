@@ -25,7 +25,8 @@
     "./eval": "./dist/eval/index.js",
     "./sanitizers": "./dist/sanitizers/index.js",
     "./compliance": "./dist/compliance/index.js",
-    "./mcp": "./dist/mcp/index.js"
+    "./mcp": "./dist/mcp/index.js",
+    "./multimodal": "./dist/multimodal/index.js"
   },
   "scripts": {
     "build": "tsc",

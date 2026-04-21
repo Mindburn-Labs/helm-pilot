@@ -101,8 +101,8 @@ describe('ToolRegistry', () => {
       // Apply mode tools
       expect(names).toContain('create_application_draft');
 
-      // Phase 15 Track I: 3 Slack + 3 Notion + 4 Linear + 3 Stripe + 2 Calendar + 3 HubSpot = 45 total.
-      expect(tools.length).toBe(45);
+      // Phase 15 Track I + K: 45 connector tools + 2 multimodal (parse_pdf, analyze_image) = 47.
+      expect(tools.length).toBe(47);
     });
   });
 

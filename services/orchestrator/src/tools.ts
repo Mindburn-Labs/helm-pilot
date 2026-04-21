@@ -1048,6 +1048,65 @@ export class ToolRegistry {
       },
     });
 
+    // ─── Parse PDF (Phase 15 Track K) ───
+    this.register({
+      name: 'parse_pdf',
+      description:
+        'Extract text from a PDF. Input: {"base64":"<pdf bytes base64-encoded>","previewChars":2000}. Returns: {text, pageCount, info, preview}. Requires pdf-parse to be installed.',
+      execute: async (input) => {
+        const { base64, previewChars } = input as {
+          base64?: string;
+          previewChars?: number;
+        };
+        if (typeof base64 !== 'string' || base64.length === 0) {
+          return { error: 'base64 pdf bytes required' };
+        }
+        try {
+          const { parsePdfBase64 } = await import('@helm-pilot/shared/multimodal');
+          return await parsePdfBase64(base64, previewChars ? { previewChars } : undefined);
+        } catch (err) {
+          return {
+            error: err instanceof Error ? err.message : 'pdf parse failed',
+          };
+        }
+      },
+    });
+
+    // ─── Analyze image (Phase 15 Track K) ───
+    this.register({
+      name: 'analyze_image',
+      description:
+        'Ask a question about an image via Anthropic vision. Input: {"imageBase64":"<base64>","mediaType":"image/png|image/jpeg|image/gif|image/webp","question":"..."}. Requires ANTHROPIC_API_KEY.',
+      execute: async (input) => {
+        const { imageBase64, mediaType, question, maxTokens } = input as {
+          imageBase64?: string;
+          mediaType?: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+          question?: string;
+          maxTokens?: number;
+        };
+        if (
+          typeof imageBase64 !== 'string' ||
+          typeof mediaType !== 'string' ||
+          typeof question !== 'string'
+        ) {
+          return { error: 'imageBase64, mediaType, question all required' };
+        }
+        try {
+          const { analyzeImage } = await import('@helm-pilot/shared/multimodal');
+          return await analyzeImage({
+            imageBase64,
+            mediaType,
+            question,
+            ...(maxTokens != null ? { maxTokens } : {}),
+          });
+        } catch (err) {
+          return {
+            error: err instanceof Error ? err.message : 'vision analysis failed',
+          };
+        }
+      },
+    });
+
     // ─── Stripe: List Customers ───
     this.register({
       name: 'stripe_list_customers',
