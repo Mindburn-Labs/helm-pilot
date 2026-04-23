@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] — Phase 15 — 2026-04-20
+
+### Added
+
+- **Track I — Connector breadth (6 new / upgraded).** Slack (`slack_post`, `slack_list_channels`, `slack_search`), Notion (`notion_search`, `notion_create_page`, `notion_get_page`), Linear (class wired into ToolRegistry: `linear_create_issue`, `linear_list_issues`, `linear_list_teams`, `linear_update_issue`), Stripe read-only (`stripe_list_customers`, `stripe_recent_charges`, `stripe_balance`), Google Calendar (`calendar_list_events`, `calendar_create_event`), HubSpot (`hubspot_list_contacts`, `hubspot_create_contact`, `hubspot_list_deals`). 5 new default connectors (total: 13).
+- **Track K — Vision + PDF ingestion.** `@helm-pilot/shared/multimodal` with `parsePdf` / `parsePdfBase64` (dynamic import of optional `pdf-parse`) and `analyzeImage` (direct Anthropic Messages API with `image` content block, no SDK dep). New `parse_pdf` + `analyze_image` tools. 10 new tests, `MultimodalError` with `not_installed | invalid_input | parse_failed | vision_failed` codes.
+- **Track J — Agent2Agent (A2A) protocol.** Linux-Foundation cross-agent lingua franca. `@helm-pilot/shared/a2a` ships `A2AClient` (over JSON-RPC 2.0, bearer auth, 30s timeout) and `buildPilotAgentCard()` (5 declared skills). Gateway exposes `GET /.well-known/agent-card.json` + `POST /a2a` with an in-memory Task store and `PILOT_A2A_TOKEN` bearer gating. Pilot is now addressable from Microsoft Agent Framework, Gemini CLI, and any A2A 0.3 client.
+- **Track M — L1/L2 conformance validators.** `@helm-pilot/shared/conformance` provides `validateL1` (required fields, verdict enum, decisionHash hex format, receivedAt validity, optional signature requirement) and `validateL2` (L1 prerequisite + unique decisionId + orphan parent detection + 3-color DFS cycle detection + monotone timestamp). 14 unit tests. Publishes the hook for subagent certification against the helm-oss harness.
+
+### Changed
+
+- HELM Pilot version 1.1.0 → **1.2.0**.
+- Built-in orchestrator tools: 27 → **47** (+20 across Tracks I + K).
+- `@helm-pilot/shared` subpath exports: 27 → **30** (`./multimodal`, `./a2a`, `./conformance`).
+- Default registered connectors: 8 → **13**.
+
+### Deferred to Phase 16
+
+- A2A server route: replace v1 in-memory echo with SubagentRegistry dispatch (planned 1.2.1 patch).
+- Streaming + push notifications on A2A (protocol supports; Pilot currently advertises `streaming:false`).
+- Per-connector unit tests for Stripe / Calendar / HubSpot (currently covered by shared fetch mocks in Slack/Notion patterns).
+- Long-running autonomous execution (Track N), cost attribution UI (Track O), skills marketplace (Track P), pluggable inference providers (Track Q).
+
 ## [1.1.0] — Phase 14 (SOTA-100% release) — 2026-04-19
 
 ### Added
