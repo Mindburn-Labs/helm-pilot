@@ -11,6 +11,10 @@ import {
 import { type TrustBoundary } from './trust.js';
 import { type ToolRegistry } from './tools.js';
 import { emitConductEvent } from './conduct-stream.js';
+import { validateL1 } from '@helm-pilot/shared/conformance';
+import { createLogger } from '@helm-pilot/shared/logger';
+
+const l1InferenceLog = createLogger('agent-loop-l1');
 
 /**
  * Agent Loop — iteration-budgeted execution engine.
@@ -479,6 +483,33 @@ export class AgentLoop {
           // Phase 12 — anchor child's receipt to parent's SUBAGENT_SPAWN pack.
           parentEvidencePackId: frame?.parentEvidencePackId ?? null,
         });
+        // v1.2.1 — L1 structural integrity check. Non-fatal; warnings logged.
+        try {
+          const result = validateL1({
+            id: '', // the insert doesn't return id here; id-less pack still validates other fields
+            decisionId: gov.decisionId,
+            verdict: gov.verdict,
+            policyVersion: gov.policyVersion,
+            action: 'LLM_INFERENCE',
+            resource: this.runUsage.model || 'agent-loop',
+            principal: gov.principal,
+            receivedAt: new Date(),
+            decisionHash: gov.decisionHash ?? null,
+            signedBlob: gov.signedBlob ?? null,
+            parentEvidencePackId: frame?.parentEvidencePackId ?? null,
+          });
+          const errors = result.findings.filter((f) => f.level === 'error');
+          // 'l1.missing_field' on `id` is expected here (see note above); filter.
+          const realErrors = errors.filter((f) => f.field !== 'id');
+          if (realErrors.length > 0) {
+            l1InferenceLog.error(
+              { decisionId: gov.decisionId, findings: realErrors },
+              'LLM_INFERENCE pack failed L1 validation',
+            );
+          }
+        } catch (err) {
+          l1InferenceLog.warn({ err }, 'validateL1 threw on LLM_INFERENCE pack');
+        }
       } catch {
         // Non-critical — governance mirroring is best-effort
       }

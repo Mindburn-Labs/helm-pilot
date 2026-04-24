@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] — Phase 15 remediation — 2026-04-24
+
+Closes the functional + security gaps identified after v1.2.0. No breaking
+changes; purely additive hardening + real dispatch where v1.2.0 shipped stubs.
+
+### Fixed
+
+- **A2A server now dispatches into the governed orchestrator.** `POST /a2a`
+  `tasks/send` previously echoed a canned placeholder. It now persists a
+  `tasks` row, calls `Orchestrator.runConduct()`, and maps
+  `AgentRunResult.status` → A2A `TaskState` (`completed` / `input-required` /
+  `failed`). Requires `PILOT_A2A_WORKSPACE_ID` env to be set; refuses
+  dispatch otherwise. Claude Code, Microsoft Agent Framework, and Gemini CLI
+  peers that discover Pilot via `/.well-known/agent-card.json` now receive
+  real conduct results.
+- **L1 conformance validation runs on every evidence-pack write.** Wired into
+  `Conductor.writeSpawnEvidencePack()` (SUBAGENT_SPAWN packs) and
+  `AgentLoop.persistAction()` (LLM_INFERENCE mirror). Error-level findings
+  are logged via pino; warnings expected until upstream HELM signatures flip
+  on.
+
+### Added
+
+- **`scripts/certify-subagent.ts`** + `npm run certify:subagent -- <name>`
+  CLI. Read-only audit that queries `evidence_packs` by subagent principal
+  suffix, runs `validateL1Batch` + `validateL2`, prints pass/fail summary,
+  exits 0 on clean / 1 on any error finding. Suitable for CI + ad-hoc.
+- **`services/orchestrator/src/sanitize-output.ts`** — `sanitizeToolOutput`
+  runs every untrusted tool's result through `sanitizeScrapingOutput` (zero-
+  width / bidi / NFKC). 20-tool trusted-whitelist bypasses (Pilot-native +
+  DB-backed). Applied inside `ToolRegistry.execute()` before return.
+  Tainted results carry a `_sanitizerWarnings` field so HELM sees tainted-
+  input provenance in the DAG viewer.
+- **Gateway A2A integration tests** — 9 tests covering agent-card discovery,
+  bearer-auth failure modes, `tasks/send` happy path, `tasks/get` not-found,
+  malformed JSON, unknown method, missing workspace env.
+- **Stripe + Calendar + HubSpot unit tests** — 12 tests (was 0 in v1.2.0).
+- **6 sanitize-output tests** covering trusted whitelist bypass, bidi taint,
+  nested walk, short-identifier preservation, non-string pass-through,
+  empty result.
+- **`.env.example`** — new A2A + pdf-parse sections with operator-ready
+  placeholders (`PILOT_A2A_TOKEN`, `PILOT_A2A_WORKSPACE_ID`,
+  `PILOT_A2A_PUBLIC_URL`, `PILOT_A2A_ORGANIZATION`, pdf-parse install note).
+
+### Changed
+
+- HELM Pilot version 1.2.0 → **1.2.1**.
+
+### Deferred to v1.2.2
+
+- README + `infra/docker/docker-compose.yml` A2A env block.
+- Subagent-iteration events surfacing to parent SSE stream.
+
 ## [1.2.0] — Phase 15 — 2026-04-20
 
 ### Added

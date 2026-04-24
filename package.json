@@ -1,7 +1,7 @@
 {
   "name": "helm-pilot",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Open-source, self-hostable autonomous founder operating system",
   "license": "MIT",
   "engines": {
@@ -28,6 +28,7 @@
     "db:push": "npm run migrate -w packages/db",
     "db:seed": "tsx scripts/seed.ts",
     "lint:tenancy": "tsx scripts/lint-tenancy.ts",
+    "certify:subagent": "tsx scripts/certify-subagent.ts",
     "rotate:master-key": "tsx scripts/rotate-master-key.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

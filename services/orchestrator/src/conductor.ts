@@ -8,10 +8,14 @@ import {
   type SubagentRunResult,
 } from '@helm-pilot/shared/subagents';
 import { type McpServerRegistry } from '@helm-pilot/shared/mcp';
+import { validateL1 } from '@helm-pilot/shared/conformance';
+import { createLogger } from '@helm-pilot/shared/logger';
 import { type SubagentFrame } from './agent-loop.js';
 import { type ToolRegistry } from './tools.js';
 import { SubagentLoop } from './subagent-loop.js';
 import { emitConductEvent } from './conduct-stream.js';
+
+const l1Log = createLogger('conductor-l1');
 
 /**
  * Conductor — orchestrates governed subagent delegations.
@@ -294,11 +298,12 @@ export class Conductor {
   }): Promise<string> {
     try {
       const { evidencePacks } = await import('@helm-pilot/db/schema');
+      const decisionId = `local_spawn_${randomUUID()}`;
       const [row] = await this.db
         .insert(evidencePacks)
         .values({
           workspaceId: params.workspaceId,
-          decisionId: `local_spawn_${randomUUID()}`,
+          decisionId,
           verdict: 'ALLOW',
           policyVersion: params.policyVersion,
           action: 'SUBAGENT_SPAWN',
@@ -308,7 +313,33 @@ export class Conductor {
           parentEvidencePackId: params.parentEvidencePackId,
         })
         .returning({ id: evidencePacks.id });
-      return row?.id ?? '';
+      const id = row?.id ?? '';
+      // v1.2.1 — L1 structural integrity check. Non-fatal; warnings
+      // logged. Signed-blob check is off until upstream helm-oss#43 lands.
+      try {
+        const result = validateL1({
+          id,
+          decisionId,
+          verdict: 'ALLOW',
+          policyVersion: params.policyVersion,
+          action: 'SUBAGENT_SPAWN',
+          resource: params.def.name,
+          principal: params.principal,
+          receivedAt: new Date(),
+          signedBlob: null,
+          parentEvidencePackId: params.parentEvidencePackId,
+        });
+        const errors = result.findings.filter((f) => f.level === 'error');
+        if (errors.length > 0) {
+          l1Log.error(
+            { packId: id, findings: errors },
+            'SUBAGENT_SPAWN pack failed L1 validation',
+          );
+        }
+      } catch (err) {
+        l1Log.warn({ err }, 'validateL1 threw on SUBAGENT_SPAWN pack');
+      }
+      return id;
     } catch {
       return '';
     }

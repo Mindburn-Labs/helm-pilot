@@ -8,6 +8,7 @@ import { withToolSpan } from '@helm-pilot/shared/otel';
 import { type McpClient } from '@helm-pilot/shared/mcp';
 import { type ToolDef } from './agent-loop.js';
 import { type Conductor, type ParentContext } from './conductor.js';
+import { sanitizeToolOutput } from './sanitize-output.js';
 
 /**
  * Tool Registry — dispatch layer for agent actions.
@@ -182,11 +183,20 @@ export class ToolRegistry {
         ? String((input as { taskId: unknown }).taskId ?? '')
         : '';
     return withToolSpan({ toolName: name, conversationId }, async () => {
+      let raw: unknown;
       try {
-        return await tool.execute(input);
+        raw = await tool.execute(input);
       } catch (err) {
         return { error: err instanceof Error ? err.message : 'Tool execution failed' };
       }
+      // v1.2.1 — sanitize untrusted tool output (connectors, scrapling, vision)
+      // against Trojan Source / zero-width / homoglyph injection. Trusted
+      // Pilot-native tools pass through untouched.
+      const { sanitized, warnings, tainted } = sanitizeToolOutput(raw, name);
+      if (tainted && typeof sanitized === 'object' && sanitized !== null && !Array.isArray(sanitized)) {
+        return { ...(sanitized as Record<string, unknown>), _sanitizerWarnings: warnings };
+      }
+      return sanitized;
     });
   }
 

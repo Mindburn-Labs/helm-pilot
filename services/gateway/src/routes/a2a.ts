@@ -24,7 +24,7 @@ import { type GatewayDeps } from '../index.js';
 
 const tasks = new Map<string, Task>();
 
-export function a2aRoutes(_deps: GatewayDeps) {
+export function a2aRoutes(deps: GatewayDeps) {
   const app = new Hono();
 
   app.get('/.well-known/agent-card.json', (c) => {
@@ -85,13 +85,86 @@ export function a2aRoutes(_deps: GatewayDeps) {
           if (!req.message || !Array.isArray(req.message.parts)) {
             return rpcError(c, id, -32602, 'message.parts required');
           }
+          const workspaceId = process.env['PILOT_A2A_WORKSPACE_ID'];
+          if (!workspaceId) {
+            return rpcError(
+              c,
+              id,
+              -32000,
+              'PILOT_A2A_WORKSPACE_ID not configured; cannot dispatch',
+            );
+          }
           const taskId = req.id ?? `task-${randomUUID()}`;
+          const text = extractText(req.message);
+          if (!text) {
+            return rpcError(c, id, -32602, 'message requires a text part');
+          }
+
+          // 1. Persist a tasks row so runConduct's tenancy gate accepts taskId.
+          const { tasks: tasksTable } = await import('@helm-pilot/db/schema');
+          const [taskRow] = await deps.db
+            .insert(tasksTable)
+            .values({
+              workspaceId,
+              title: text.slice(0, 60),
+              description: text,
+              mode: 'a2a',
+              status: 'pending',
+              priority: 0,
+              metadata: { a2a: { taskId } },
+            })
+            .returning({ id: tasksTable.id });
+          const pilotTaskId = taskRow?.id ?? '';
+
+          // 2. Dispatch through the governed orchestrator.
+          let result: { status: string; actions?: Array<{ tool: string; input?: unknown }> };
+          try {
+            result = (await deps.orchestrator.runConduct({
+              taskId: pilotTaskId,
+              workspaceId,
+              context: text,
+            })) as typeof result;
+          } catch (err) {
+            const failed: Task = {
+              id: taskId,
+              status: {
+                state: 'failed',
+                timestamp: new Date().toISOString(),
+                message: agentText(
+                  `Pilot failed to dispatch: ${err instanceof Error ? err.message : String(err)}`,
+                ),
+              },
+              history: [req.message],
+            };
+            tasks.set(taskId, failed);
+            return c.json({ jsonrpc: '2.0', id, result: { task: failed } });
+          }
+
+          // 3. Map AgentRunResult → A2A TaskState + build reply.
+          const state: Task['status']['state'] =
+            result.status === 'completed'
+              ? 'completed'
+              : result.status === 'awaiting_approval'
+              ? 'input-required'
+              : 'failed';
+          const finish = (result.actions ?? [])
+            .slice()
+            .reverse()
+            .find((a) => a.tool === 'finish');
+          const summary =
+            finish && typeof finish.input === 'object' && finish.input !== null
+              ? String(
+                  (finish.input as { summary?: unknown }).summary ??
+                    `Conduct finished with status=${result.status}.`,
+                )
+              : `Conduct finished with status=${result.status}.`;
+
           const task: Task = {
             id: taskId,
             status: {
-              state: 'submitted',
+              state,
               timestamp: new Date().toISOString(),
-              message: echoAgent(req.message),
+              message: agentText(summary),
             },
             history: [req.message],
           };
@@ -148,19 +221,13 @@ function rpcError(
   return httpStatus ? c.json(body, httpStatus) : c.json(body);
 }
 
-// Placeholder echo — next commit wires into SubagentRegistry.
-function echoAgent(user: A2AMessage): A2AMessage {
+function extractText(user: A2AMessage): string {
   const firstText = user.parts.find((p) => p.type === 'text');
-  const echo = firstText?.type === 'text' ? firstText.text : '';
-  return {
-    role: 'agent',
-    parts: [
-      {
-        type: 'text',
-        text: `Received: "${echo}". Pilot will route this through its subagent registry in a follow-up.`,
-      },
-    ],
-  };
+  return firstText?.type === 'text' ? firstText.text : '';
+}
+
+function agentText(text: string): A2AMessage {
+  return { role: 'agent', parts: [{ type: 'text', text }] };
 }
 
 /** Test hook — drop in-memory task store. */
