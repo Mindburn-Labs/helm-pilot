@@ -1,5 +1,5 @@
 # ─── Stage 1: Build ───
-FROM node:22-slim AS builder
+FROM node:22.22.2-slim AS builder
 WORKDIR /app
 
 # Copy workspace config
@@ -15,7 +15,7 @@ RUN npm ci --ignore-scripts
 RUN npx turbo build --filter=@helm-pilot/web
 
 # ─── Stage 2: Production ───
-FROM node:22-slim AS runner
+FROM node:22.22.2-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production

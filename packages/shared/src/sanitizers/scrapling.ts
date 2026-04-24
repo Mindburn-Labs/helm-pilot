@@ -21,6 +21,15 @@ export interface SanitizeResult {
   tainted: boolean;
 }
 
+function stripMatches(input: string, pattern: RegExp): { cleaned: string; count: number } {
+  let count = 0;
+  const cleaned = input.replace(pattern, () => {
+    count += 1;
+    return '';
+  });
+  return { cleaned, count };
+}
+
 /**
  * Sanitize a scrapling fetch output (or any untrusted external text).
  * Pure function — safe to call inside tool handlers, validators, or
@@ -31,16 +40,18 @@ export function sanitizeScrapingOutput(input: string): SanitizeResult {
   const warnings: string[] = [];
   let s = input;
 
-  const zeroWidthCount = (s.match(ZERO_WIDTH_RE) ?? []).length;
+  const zeroWidth = stripMatches(s, ZERO_WIDTH_RE);
+  const zeroWidthCount = zeroWidth.count;
   if (zeroWidthCount > 0) {
     warnings.push(`Stripped ${zeroWidthCount} zero-width character(s)`);
-    s = s.replace(ZERO_WIDTH_RE, '');
+    s = zeroWidth.cleaned;
   }
 
-  const bidiCount = (s.match(BIDI_OVERRIDE_RE) ?? []).length;
+  const bidi = stripMatches(s, BIDI_OVERRIDE_RE);
+  const bidiCount = bidi.count;
   if (bidiCount > 0) {
     warnings.push(`Stripped ${bidiCount} bidirectional override character(s)`);
-    s = s.replace(BIDI_OVERRIDE_RE, '');
+    s = bidi.cleaned;
   }
 
   const normalized = s.normalize('NFKC');

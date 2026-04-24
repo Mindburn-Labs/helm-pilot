@@ -60,7 +60,7 @@ export class ScaffoldGenerator {
       { path: 'src/services/index.ts', description: 'Business logic service layer', contentHint: `Service class for "${spec.structured.problem}"` },
       { path: 'src/db/client.ts', description: 'Database client setup', contentHint: `${spec.structured.techStack.includes('PostgreSQL') ? 'PostgreSQL' : 'SQLite'} connection` },
       { path: 'src/db/schema.ts', description: 'Database schema definitions', contentHint: 'Drizzle ORM table definitions' },
-      { path: 'Dockerfile', description: 'Multi-stage Docker build', contentHint: 'FROM node:22-alpine, build stage + production stage' },
+      { path: 'Dockerfile', description: 'Multi-stage Docker build', contentHint: 'FROM node:22.22.2-alpine, build stage + production stage' },
       { path: '.env.example', description: 'Environment variable template', contentHint: 'DATABASE_URL=postgresql://localhost:5432/app' },
       { path: 'vitest.config.ts', description: 'Test configuration', contentHint: 'Vitest with v8 coverage provider' },
     ];

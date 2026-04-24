@@ -1,5 +1,5 @@
 # ─── Stage 1: Build ───
-FROM node:22-slim AS builder
+FROM node:22.22.2-slim AS builder
 WORKDIR /app
 
 # Copy workspace config
@@ -18,7 +18,7 @@ RUN npm ci --ignore-scripts
 RUN npx turbo build --filter=@helm-pilot/gateway --filter=@helm-pilot/telegram-bot --filter=@helm-pilot/telegram-miniapp
 
 # ─── Stage 2: Production ───
-FROM node:22-slim AS runner
+FROM node:22.22.2-slim AS runner
 WORKDIR /app
 
 LABEL org.opencontainers.image.title="HELM Pilot"
