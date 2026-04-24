@@ -66,6 +66,11 @@ export const taskRuns = pgTable('task_runs', {
   budgetSliceAllocated: numeric('budget_slice_allocated', { precision: 10, scale: 4 }),
   startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp('completed_at', { withTimezone: true }),
+  // Phase 16 Track N — long-running / 8-hour autonomous execution.
+  // Backed by migration 0014.
+  checkpointState: jsonb('checkpoint_state'),
+  lastCheckpointAt: timestamp('last_checkpoint_at', { withTimezone: true }),
+  watchdogAlertedAt: timestamp('watchdog_alerted_at', { withTimezone: true }),
 });
 
 export const taskArtifacts = pgTable('task_artifacts', {

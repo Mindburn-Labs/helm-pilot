@@ -1,14 +1,12 @@
 name: security
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [main]
   push:
     branches: [main]
-  schedule:
-    # Daily 03:17 UTC — catches regressions from merged PRs that skipped labels.
-    - cron: '17 3 * * *'
-
+  # schedule disabled temporarily while Actions minutes are near quota.
 concurrency:
   group: security-${{ github.ref }}
   cancel-in-progress: true

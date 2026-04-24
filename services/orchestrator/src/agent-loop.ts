@@ -13,6 +13,7 @@ import { type ToolRegistry } from './tools.js';
 import { emitConductEvent } from './conduct-stream.js';
 import { validateL1 } from '@helm-pilot/shared/conformance';
 import { createLogger } from '@helm-pilot/shared/logger';
+import { CHECKPOINT_EVERY_N_ITERATIONS, writeCheckpoint } from './checkpoint.js';
 
 const l1InferenceLog = createLogger('agent-loop-l1');
 
@@ -179,6 +180,20 @@ export class AgentLoop {
         verdict: 'allow',
       });
 
+      // Phase 16 Track N — snapshot every N iterations so a crashed
+      // orchestrator can rehydrate at boot from the latest checkpoint.
+      if (
+        iteration % CHECKPOINT_EVERY_N_ITERATIONS === 0 &&
+        this.lastTaskRunId
+      ) {
+        await writeCheckpoint(this.db, this.lastTaskRunId, {
+          iteration,
+          actions,
+          runUsage: this.runUsage,
+          runCost: this.runCost,
+        });
+      }
+
       // 4. Check if LLM signalled done via a special tool
       if (action.tool === 'finish') {
         emitConductEvent({
@@ -288,6 +303,9 @@ export class AgentLoop {
    * evidence_packs without threading the id through every call site.
    */
   private currentWorkspaceId: string | null = null;
+  // Phase 16 Track N — most recent taskRunId captured by persistAction
+  // so executeLoop can write a checkpoint against it every N iterations.
+  private lastTaskRunId: string | null = null;
 
   /**
    * Phase 12 — subagent lineage frame. When non-null, every persisted row
@@ -458,6 +476,7 @@ export class AgentLoop {
         })
         .returning({ id: taskRuns.id });
       taskRunId = row?.id;
+      if (taskRunId) this.lastTaskRunId = taskRunId;
     } catch {
       // Non-critical — don't crash the loop if persistence fails
     }

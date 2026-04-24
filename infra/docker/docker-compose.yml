@@ -88,6 +88,15 @@ services:
       HELM_GOVERNANCE_URL: http://helm:8080
       HELM_HEALTH_URL: http://helm:8081
       HELM_FAIL_CLOSED: '1'
+      # Phase 15 Track J — A2A protocol (uncomment to enable):
+      # PILOT_A2A_TOKEN: '${PILOT_A2A_TOKEN:-}'
+      # PILOT_A2A_WORKSPACE_ID: '${PILOT_A2A_WORKSPACE_ID:-}'
+      # PILOT_A2A_PUBLIC_URL: '${PILOT_A2A_PUBLIC_URL:-}'
+      # PILOT_A2A_ORGANIZATION: '${PILOT_A2A_ORGANIZATION:-}'
+      # PILOT_A2A_ORGANIZATION_URL: '${PILOT_A2A_ORGANIZATION_URL:-}'
+      # Phase 16 Track Q — Ollama self-hosted LLM (uncomment to enable):
+      # OLLAMA_BASE_URL: '${OLLAMA_BASE_URL:-http://host.docker.internal:11434}'
+      # OLLAMA_MODEL: '${OLLAMA_MODEL:-llama3.1:8b}'
     volumes:
       - app_storage:/app/data/storage
       - app_backups:/app/backups

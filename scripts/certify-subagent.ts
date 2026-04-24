@@ -13,11 +13,7 @@
 import { createDb } from '@helm-pilot/db/client';
 import { evidencePacks } from '@helm-pilot/db/schema';
 import { like } from 'drizzle-orm';
-import {
-  validateL1Batch,
-  validateL2,
-  type EvidencePackLite,
-} from '@helm-pilot/shared/conformance';
+import { validateL1Batch, validateL2, type EvidencePackLite } from '@helm-pilot/shared/conformance';
 
 async function main() {
   const name = process.argv[2];
@@ -62,9 +58,7 @@ async function main() {
     }));
 
     const l1 = validateL1Batch(packs);
-    console.log(
-      `L1: ${l1.passedCount}/${l1.total} pass (${l1.failedCount} failed)`,
-    );
+    console.log(`L1: ${l1.passedCount}/${l1.total} pass (${l1.failedCount} failed)`);
     if (!l1.passed) {
       for (const [packId, result] of Object.entries(l1.perPack)) {
         if (!result.passed) {

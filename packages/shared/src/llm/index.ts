@@ -72,6 +72,10 @@ export interface LlmConfig {
   openrouterApiKey?: string;
   anthropicApiKey?: string;
   openaiApiKey?: string;
+  /** Phase 16 Track Q — Ollama base URL (e.g. http://localhost:11434). */
+  ollamaBaseUrl?: string;
+  /** Phase 16 Track Q — Ollama model id (e.g. llama3.1:8b). Required when ollamaBaseUrl is set. */
+  ollamaModel?: string;
   model?: string;
 }
 
@@ -95,7 +99,21 @@ export function createLlmProvider(config: LlmConfig): LlmProvider {
   if (config.openaiApiKey) {
     return new OpenAIProvider(config.openaiApiKey, config.model ?? 'gpt-4o-mini');
   }
-  throw new Error('No LLM API key configured. Set OPENROUTER_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY.');
+  if (config.ollamaBaseUrl) {
+    if (!config.ollamaModel) {
+      throw new Error('OLLAMA_MODEL is required when OLLAMA_BASE_URL is set.');
+    }
+    // Dynamic import to keep the module tree-shakable.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { OllamaProvider } = require('./ollama.js') as typeof import('./ollama.js');
+    return new OllamaProvider({
+      baseUrl: config.ollamaBaseUrl,
+      model: config.ollamaModel,
+    });
+  }
+  throw new Error(
+    'No LLM API key configured. Set OPENROUTER_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, or OLLAMA_BASE_URL + OLLAMA_MODEL.',
+  );
 }
 
 class OpenRouterProvider implements LlmProvider {

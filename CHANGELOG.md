@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] — Phase 16 (maturity) — 2026-04-24
+
+Ships all four Phase 16 tracks: long-running autonomous execution,
+cost attribution, skills marketplace client, pluggable inference. Plus
+v1.2.2 polish deferrals (docker-compose A2A block, .env.example Ollama
+section) folded in.
+
+### Added
+
+- **Track N — Long-running autonomous execution (8-hour target).**
+  Migration `0014_long_running_checkpoints.sql` adds `task_runs.checkpoint_state jsonb` + `task_runs.last_checkpoint_at timestamptz` + `task_runs.watchdog_alerted_at timestamptz` + partial index `task_runs_running_checkpoint_idx`. New `services/orchestrator/src/checkpoint.ts` exports `writeCheckpoint` / `loadCheckpoint` / `findStalledRuns` / `markWatchdogAlerted` — all fail-soft. AgentLoop snapshots actions + runUsage + runCost every 10 iterations (100-action trailing window keeps row size bounded). Crashed orchestrator can rehydrate at boot.
+- **Track O — Cost attribution dashboard.** `infra/monitoring/grafana/dashboards/cost-attribution.json` — total 7-day USD spend, cache savings, linear monthly burn forecast, cache hit rate, time-series per workspace + per subagent, per-provider bar gauge, top-10 subagents table.
+- **Track P — Skills marketplace client.** `scripts/install-skill.ts` + `npm run skills:install -- <name>`. Fetches `<HELM_SKILLS_REGISTRY_URL>/<name>.tar.gz` + `.sha256`, verifies digest, extracts to `~/.helm-pilot/skills/<name>/`, writes `.install.json`. Uses system `tar` (no new npm dep).
+- **Track Q — Ollama inference provider.** `@helm-pilot/shared/llm/OllamaProvider`. POSTs `/api/chat`; maps `eval_count`/`prompt_eval_count` → `LlmUsage`. Implements full `LlmProvider` interface including `completeStructured`. `createLlmProvider()` branches on `OLLAMA_BASE_URL` + `OLLAMA_MODEL` when no cloud key is set. Matches Microsoft Agent Framework v1.0's self-hosted-inference parity.
+
+### Changed
+
+- HELM Pilot version 1.2.1 → **1.3.0**.
+- `LlmConfig` interface gains `ollamaBaseUrl?` + `ollamaModel?` (backward compatible).
+- `.env.example` adds Ollama + skills-registry sections.
+- `infra/docker/docker-compose.yml` `helm-pilot` service gains commented-out A2A + Ollama env blocks so operators can enable them inline.
+- Root `package.json` scripts: `certify:subagent`, `skills:install`.
+
+### Deferred
+
+- A2A streaming + push notifications — Track J v2.
+- DB-backed A2A task persistence — v1.3.1.
+- `subagents_certifications` persistent table — awaits real certification cadence.
+- README front-door rewrite — v1.3.1 polish.
+
 ## [1.2.1] — Phase 15 remediation — 2026-04-24
 
 Closes the functional + security gaps identified after v1.2.0. No breaking
