@@ -22,17 +22,8 @@ jobs:
 
       - run: npm ci
 
-      - name: Typecheck
-        run: npx turbo typecheck
-
-      - name: Build
-        run: npx turbo build
-
-      - name: Test
-        run: npx turbo test
-
-      - name: Tenancy lint
-        run: npm run lint:tenancy
+      - name: Release gates
+        run: npm run test:release
 
   docker:
     needs: build-and-test
@@ -72,40 +63,8 @@ jobs:
     needs: docker
     runs-on: ubuntu-latest
     environment: staging
-    env:
-      REGISTRY: ghcr.io
-      IMAGE_NAME: mindburn-labs/helm-pilot
     steps:
       - uses: actions/checkout@v4
-
-      - uses: superfly/flyctl-actions/setup-flyctl@master
-
-      - name: Extract tag
-        id: tag
-        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-
-      - name: Deploy to staging
-        run: >
-          flyctl deploy
-          --config infra/fly/pilot.fly.toml
-          --image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.version }}
-          --app helm-pilot-staging
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-
-      - name: Health check
-        run: |
-          for i in $(seq 1 20); do
-            if curl -sf https://helm-pilot-staging.fly.dev/health | grep -q '"status"'; then
-              echo "Staging is healthy"
-              break
-            fi
-            sleep 5
-            if [ $i -eq 20 ]; then
-              echo "Staging health check failed"
-              exit 1
-            fi
-          done
 
       - uses: actions/setup-node@v4
         with:
@@ -114,58 +73,67 @@ jobs:
 
       - run: npm ci
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-        working-directory: e2e
+      - name: Install SSH key
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.DO_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
 
-      - name: Smoke test staging (Playwright)
+      - name: Write DigitalOcean env files
+        run: |
+          printf '%s\n' "${{ secrets.DO_ENV_SHARED }}" > .env.production.shared
+          printf '%s\n' "${{ secrets.DO_ENV_HELM }}" > .env.production.helm
+          printf '%s\n' "${{ secrets.DO_ENV_PILOT }}" > .env.production.pilot
+
+      - name: Deploy to DigitalOcean staging
         env:
-          BASE_URL: https://helm-pilot-staging.fly.dev
-          SMOKE: 'true'
-        working-directory: e2e
-        run: npx playwright test tests/health.spec.ts tests/security.spec.ts --reporter=line
+          DO_DROPLET_IP: ${{ vars.DO_DROPLET_IP }}
+          DO_REMOTE_USER: ${{ vars.DO_REMOTE_USER || 'root' }}
+          DO_REMOTE_DIR: ${{ vars.DO_REMOTE_DIR || '/opt/helm-pilot/current' }}
+        run: bash infra/digitalocean/deploy.sh deploy
 
-      - name: Upload smoke-test artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: staging-smoke-playwright
-          path: e2e/playwright-report/
-          retention-days: 14
+      - name: Production-like smoke
+        env:
+          HELM_FAIL_CLOSED: '1'
+        run: bash infra/digitalocean/deploy.sh smoke
 
   deploy-production:
     needs: deploy-staging
     runs-on: ubuntu-latest
     environment: production
-    env:
-      REGISTRY: ghcr.io
-      IMAGE_NAME: mindburn-labs/helm-pilot
     steps:
       - uses: actions/checkout@v4
 
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
 
-      - name: Extract tag
-        id: tag
-        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+      - run: npm ci
 
-      - name: Deploy to production
-        run: >
-          flyctl deploy
-          --config infra/fly/pilot.fly.toml
-          --image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.version }}
-          --app helm-pilot
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-
-      - name: Health check
+      - name: Install SSH key
         run: |
-          for i in $(seq 1 20); do
-            if curl -sf https://helm-pilot.fly.dev/health | grep -q '"status"'; then
-              echo "Production is healthy"
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "Production health check failed"
-          exit 1
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.DO_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Write DigitalOcean env files
+        run: |
+          printf '%s\n' "${{ secrets.DO_ENV_SHARED }}" > .env.production.shared
+          printf '%s\n' "${{ secrets.DO_ENV_HELM }}" > .env.production.helm
+          printf '%s\n' "${{ secrets.DO_ENV_PILOT }}" > .env.production.pilot
+
+      - name: Deploy to DigitalOcean production
+        env:
+          DO_DROPLET_IP: ${{ vars.DO_DROPLET_IP }}
+          DO_REMOTE_USER: ${{ vars.DO_REMOTE_USER || 'root' }}
+          DO_REMOTE_DIR: ${{ vars.DO_REMOTE_DIR || '/opt/helm-pilot/current' }}
+        run: bash infra/digitalocean/deploy.sh deploy
+
+      - name: Production smoke
+        env:
+          HELM_FAIL_CLOSED: '1'
+          SMOKE_TOKEN: ${{ secrets.PRODUCTION_SMOKE_TOKEN }}
+          SMOKE_WORKSPACE_ID: ${{ vars.PRODUCTION_SMOKE_WORKSPACE_ID }}
+          SMOKE_TASK_ID: ${{ vars.PRODUCTION_SMOKE_TASK_ID }}
+        run: bash infra/digitalocean/deploy.sh smoke

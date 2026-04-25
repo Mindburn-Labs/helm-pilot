@@ -99,9 +99,7 @@ export class ToolRegistry {
         description: `[mcp:${serverName}] ${tool.description ?? tool.name}`,
         execute: async (input) => {
           const args =
-            typeof input === 'object' && input !== null
-              ? (input as Record<string, unknown>)
-              : {};
+            typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {};
           try {
             const res = await client.callTool({ name: tool.name, arguments: args });
             return res.isError
@@ -193,7 +191,12 @@ export class ToolRegistry {
       // against Trojan Source / zero-width / homoglyph injection. Trusted
       // Pilot-native tools pass through untouched.
       const { sanitized, warnings, tainted } = sanitizeToolOutput(raw, name);
-      if (tainted && typeof sanitized === 'object' && sanitized !== null && !Array.isArray(sanitized)) {
+      if (
+        tainted &&
+        typeof sanitized === 'object' &&
+        sanitized !== null &&
+        !Array.isArray(sanitized)
+      ) {
         return { ...(sanitized as Record<string, unknown>), _sanitizerWarnings: warnings };
       }
       return sanitized;
@@ -208,10 +211,15 @@ export class ToolRegistry {
     // ─── Knowledge Search ───
     this.register({
       name: 'search_knowledge',
-      description: 'Search the knowledge base for information. Input: {"query": "search terms", "limit": 5}',
+      description:
+        'Search the knowledge base for information. Input: {"query": "search terms", "limit": 5}',
       execute: async (input) => {
         if (!this.memory) return { error: 'Memory service not available' };
-        const { query, limit, workspaceId } = input as { query: string; limit?: number; workspaceId?: string };
+        const { query, limit, workspaceId } = input as {
+          query: string;
+          limit?: number;
+          workspaceId?: string;
+        };
         return this.memory.search(query, { limit: limit ?? 5, workspaceId });
       },
     });
@@ -223,15 +231,16 @@ export class ToolRegistry {
         'Fetch and optionally extract a web page using the internal Scrapling bridge. Input: {"url":"https://...","selector":"main","strategy":"auto|fetcher|dynamic|stealthy","waitSelector":"main","adaptiveDomain":"ycombinator.com","limit":5,"convertMarkdown":false}',
       modes: ['discover', 'build', 'launch', 'apply'],
       execute: async (input) => {
-        const { url, selector, strategy, waitSelector, adaptiveDomain, limit, convertMarkdown } = input as {
-          url?: string;
-          selector?: string;
-          strategy?: 'auto' | 'fetcher' | 'dynamic' | 'stealthy';
-          waitSelector?: string;
-          adaptiveDomain?: string;
-          limit?: number;
-          convertMarkdown?: boolean;
-        };
+        const { url, selector, strategy, waitSelector, adaptiveDomain, limit, convertMarkdown } =
+          input as {
+            url?: string;
+            selector?: string;
+            strategy?: 'auto' | 'fetcher' | 'dynamic' | 'stealthy';
+            waitSelector?: string;
+            adaptiveDomain?: string;
+            limit?: number;
+            convertMarkdown?: boolean;
+          };
         if (!url) return { error: 'url is required' };
 
         const { resolve } = await import('node:path');
@@ -265,7 +274,8 @@ export class ToolRegistry {
     // ─── Create Note ───
     this.register({
       name: 'create_note',
-      description: 'Save a note or finding to the knowledge base. Input: {"title": "...", "content": "...", "tags": ["..."]}',
+      description:
+        'Save a note or finding to the knowledge base. Input: {"title": "...", "content": "...", "tags": ["..."]}',
       execute: async (input) => {
         if (!this.memory) return { error: 'Memory service not available' };
         const { title, content, tags, workspaceId } = input as {
@@ -289,7 +299,8 @@ export class ToolRegistry {
     // ─── Generate Text ───
     this.register({
       name: 'draft_text',
-      description: 'Draft text content (copy, descriptions, specs). Input: {"purpose": "what this text is for", "draft": "the drafted text"}',
+      description:
+        'Draft text content (copy, descriptions, specs). Input: {"purpose": "what this text is for", "draft": "the drafted text"}',
       execute: async (input) => {
         const { purpose, draft } = input as { purpose: string; draft: string };
         return { purpose, draft, length: draft.length };
@@ -299,7 +310,8 @@ export class ToolRegistry {
     // ─── Analyze ───
     this.register({
       name: 'analyze',
-      description: 'Record an analysis or insight. Input: {"topic": "...", "findings": "...", "confidence": "high|medium|low"}',
+      description:
+        'Record an analysis or insight. Input: {"topic": "...", "findings": "...", "confidence": "high|medium|low"}',
       execute: async (input) => {
         return input; // passthrough — analysis is recorded in action history
       },
@@ -308,7 +320,8 @@ export class ToolRegistry {
     // ─── Get Workspace Context ───
     this.register({
       name: 'get_workspace_context',
-      description: 'Get workspace overview (name, current mode, member count, active tasks). Input: {"workspaceId": "..."}',
+      description:
+        'Get workspace overview (name, current mode, member count, active tasks). Input: {"workspaceId": "..."}',
       execute: async (input) => {
         const { workspaceId } = input as { workspaceId: string };
         const { workspaces, workspaceMembers, tasks } = await import('@helm-pilot/db/schema');
@@ -340,7 +353,8 @@ export class ToolRegistry {
     // ─── Send Notification ───
     this.register({
       name: 'send_notification',
-      description: 'Record a notification in the timeline. Input: {"workspaceId": "...", "message": "...", "eventType": "note|milestone"}',
+      description:
+        'Record a notification in the timeline. Input: {"workspaceId": "...", "message": "...", "eventType": "note|milestone"}',
       execute: async (input) => {
         const { workspaceId, message, eventType } = input as {
           workspaceId: string;
@@ -354,7 +368,9 @@ export class ToolRegistry {
         let [page] = await this.db
           .select()
           .from(pages)
-          .where(and(eq(pages.workspaceId, workspaceId), eq(pages.title, `workspace:${workspaceId}`)))
+          .where(
+            and(eq(pages.workspaceId, workspaceId), eq(pages.title, `workspace:${workspaceId}`)),
+          )
           .limit(1);
         if (!page) {
           [page] = await this.db
@@ -406,7 +422,8 @@ export class ToolRegistry {
     // ─── Create Opportunity ───
     this.register({
       name: 'create_opportunity',
-      description: 'Create a new startup opportunity. Input: {"workspaceId": "...", "title": "...", "description": "...", "source": "agent|manual|scrape"}',
+      description:
+        'Create a new startup opportunity. Input: {"workspaceId": "...", "title": "...", "description": "...", "source": "agent|manual|scrape"}',
       modes: ['discover'],
       execute: async (input) => {
         const { workspaceId, title, description, source } = input as {
@@ -432,7 +449,8 @@ export class ToolRegistry {
     // ─── Score Opportunity ───
     this.register({
       name: 'score_opportunity',
-      description: 'Score an opportunity (enqueues background job). Input: {"opportunityId": "..."}',
+      description:
+        'Score an opportunity (enqueues background job). Input: {"opportunityId": "..."}',
       modes: ['discover'],
       execute: async (input) => {
         const { opportunityId } = input as { opportunityId: string };
@@ -452,7 +470,8 @@ export class ToolRegistry {
     // ─── Search YC Intelligence ───
     this.register({
       name: 'search_yc',
-      description: 'Search YC companies and advice for inspiration. Input: {"query": "...", "limit": 5}',
+      description:
+        'Search YC companies and advice for inspiration. Input: {"query": "...", "limit": 5}',
       modes: ['discover', 'apply'],
       execute: async (input) => {
         const { query, limit } = input as { query: string; limit?: number };
@@ -473,9 +492,7 @@ export class ToolRegistry {
         const advice = await this.db
           .select()
           .from(ycAdvice)
-          .where(
-            or(ilike(ycAdvice.title, pattern), ilike(ycAdvice.content, pattern)),
-          )
+          .where(or(ilike(ycAdvice.title, pattern), ilike(ycAdvice.content, pattern)))
           .limit(3);
         return { companies, advice };
       },
@@ -488,7 +505,8 @@ export class ToolRegistry {
     // ─── Get Founder Profile ───
     this.register({
       name: 'get_founder_profile',
-      description: 'Get the founder profile and strengths for a workspace. Input: {"workspaceId": "..."}',
+      description:
+        'Get the founder profile and strengths for a workspace. Input: {"workspaceId": "..."}',
       modes: ['decide'],
       execute: async (input) => {
         const { workspaceId } = input as { workspaceId: string };
@@ -515,7 +533,8 @@ export class ToolRegistry {
     // ─── Create Task ───
     this.register({
       name: 'create_task',
-      description: 'Create a new task. Input: {"workspaceId": "...", "title": "...", "description": "...", "mode": "build|launch|...", "priority": 0}',
+      description:
+        'Create a new task. Input: {"workspaceId": "...", "title": "...", "description": "...", "mode": "build|launch|...", "priority": 0}',
       modes: ['build'],
       execute: async (input) => {
         const { workspaceId, title, description, mode, priority } = input as {
@@ -537,14 +556,17 @@ export class ToolRegistry {
             priority: priority ?? 0,
           })
           .returning();
-        return task ? { id: task.id, title: task.title, status: task.status } : { error: 'Failed to create task' };
+        return task
+          ? { id: task.id, title: task.title, status: task.status }
+          : { error: 'Failed to create task' };
       },
     });
 
     // ─── Update Task Status ───
     this.register({
       name: 'update_task_status',
-      description: 'Update a task status. Input: {"taskId": "...", "status": "pending|in_progress|completed|blocked"}',
+      description:
+        'Update a task status. Input: {"taskId": "...", "status": "pending|in_progress|completed|blocked"}',
       modes: ['build'],
       execute: async (input) => {
         const { taskId, status } = input as { taskId: string; status: string };
@@ -566,7 +588,8 @@ export class ToolRegistry {
     // ─── List Tasks ───
     this.register({
       name: 'list_tasks',
-      description: 'List tasks for a workspace. Input: {"workspaceId": "...", "status": "pending|in_progress|completed"}',
+      description:
+        'List tasks for a workspace. Input: {"workspaceId": "...", "status": "pending|in_progress|completed"}',
       modes: ['build', 'launch'],
       execute: async (input) => {
         const { workspaceId, status } = input as { workspaceId: string; status?: string };
@@ -587,10 +610,16 @@ export class ToolRegistry {
     // ─── Create Plan ───
     this.register({
       name: 'create_plan',
-      description: 'Create a plan with milestones. Input: {"workspaceId": "...", "title": "...", "description": "...", "milestones": [{"title": "...", "description": "..."}]}',
+      description:
+        'Create a plan with milestones. Input: {"workspaceId": "...", "title": "...", "description": "...", "milestones": [{"title": "...", "description": "..."}]}',
       modes: ['build'],
       execute: async (input) => {
-        const { workspaceId, title, description, milestones: milestoneInputs } = input as {
+        const {
+          workspaceId,
+          title,
+          description,
+          milestones: milestoneInputs,
+        } = input as {
           workspaceId: string;
           title: string;
           description?: string;
@@ -625,7 +654,8 @@ export class ToolRegistry {
     // ─── Create Artifact ───
     this.register({
       name: 'create_artifact',
-      description: 'Create an artifact (document, code, design). Input: {"workspaceId": "...", "type": "landing_page|pdf|code|design|copy|pitch_deck", "name": "...", "description": "...", "content": "..."}',
+      description:
+        'Create an artifact (document, code, design). Input: {"workspaceId": "...", "type": "landing_page|pdf|code|design|copy|pitch_deck", "name": "...", "description": "...", "content": "..."}',
       modes: ['build', 'launch'],
       execute: async (input) => {
         const { workspaceId, type, name, description, content } = input as {
@@ -671,7 +701,8 @@ export class ToolRegistry {
     // ─── Create Application Draft ───
     this.register({
       name: 'create_application_draft',
-      description: 'Create or update an application draft section. Input: {"workspaceId": "...", "targetProgram": "yc|techstars|custom", "section": "company_description|problem|solution|traction|team|market|pitch", "content": "..."}',
+      description:
+        'Create or update an application draft section. Input: {"workspaceId": "...", "targetProgram": "yc|techstars|custom", "section": "company_description|problem|solution|traction|team|market|pitch", "content": "..."}',
       modes: ['apply'],
       execute: async (input) => {
         const { workspaceId, targetProgram, section, content } = input as {
@@ -686,7 +717,12 @@ export class ToolRegistry {
         let [app] = await this.db
           .select()
           .from(applications)
-          .where(and(eq(applications.workspaceId, workspaceId), eq(applications.targetProgram, targetProgram)))
+          .where(
+            and(
+              eq(applications.workspaceId, workspaceId),
+              eq(applications.targetProgram, targetProgram),
+            ),
+          )
           .limit(1);
         if (!app) {
           [app] = await this.db
@@ -715,17 +751,27 @@ export class ToolRegistry {
     // ─── GitHub: Create Repository ───
     this.register({
       name: 'github_create_repo',
-      description: 'Create a GitHub repository. Requires GitHub connector. Input: {"workspaceId": "...", "name": "repo-name", "private": true, "description": "..."}',
+      description:
+        'Create a GitHub repository. Requires GitHub connector. Input: {"workspaceId": "...", "name": "repo-name", "private": true, "description": "..."}',
       modes: ['build', 'launch'],
       execute: async (input) => {
-        const { workspaceId, name, private: isPrivate, description } = input as {
+        const {
+          workspaceId,
+          name,
+          private: isPrivate,
+          description,
+        } = input as {
           workspaceId: string;
           name: string;
           private?: boolean;
           description?: string;
         };
         const token = await this.resolveConnectorToken(workspaceId, 'github');
-        if (!token) return { error: 'GitHub connector not authorized. Connect via /api/connectors/github/oauth/initiate' };
+        if (!token)
+          return {
+            error:
+              'GitHub connector not authorized. Connect via /api/connectors/github/oauth/initiate',
+          };
         const { GitHubConnector } = await import('@helm-pilot/connectors');
         const gh = new GitHubConnector(token);
         return gh.createRepo(name, { private: isPrivate, description });
@@ -735,7 +781,8 @@ export class ToolRegistry {
     // ─── GitHub: Create Issue ───
     this.register({
       name: 'github_create_issue',
-      description: 'Create a GitHub issue. Input: {"workspaceId": "...", "repo": "owner/repo", "title": "...", "body": "...", "labels": ["bug"]}',
+      description:
+        'Create a GitHub issue. Input: {"workspaceId": "...", "repo": "owner/repo", "title": "...", "body": "...", "labels": ["bug"]}',
       modes: ['build'],
       execute: async (input) => {
         const { workspaceId, repo, title, body, labels } = input as {
@@ -756,7 +803,8 @@ export class ToolRegistry {
     // ─── GitHub: List Issues ───
     this.register({
       name: 'github_list_issues',
-      description: 'List GitHub issues. Input: {"workspaceId": "...", "repo": "owner/repo", "state": "open|closed|all"}',
+      description:
+        'List GitHub issues. Input: {"workspaceId": "...", "repo": "owner/repo", "state": "open|closed|all"}',
       modes: ['build'],
       execute: async (input) => {
         const { workspaceId, repo, state } = input as {
@@ -775,7 +823,8 @@ export class ToolRegistry {
     // ─── Gmail: Send Email ───
     this.register({
       name: 'gmail_send',
-      description: 'Send an email via Gmail. Input: {"workspaceId": "...", "to": "email@example.com", "subject": "...", "body": "...", "isHtml": false}',
+      description:
+        'Send an email via Gmail. Input: {"workspaceId": "...", "to": "email@example.com", "subject": "...", "body": "...", "isHtml": false}',
       modes: ['build', 'launch', 'apply'],
       execute: async (input) => {
         const { workspaceId, to, subject, body, isHtml } = input as {
@@ -786,7 +835,11 @@ export class ToolRegistry {
           isHtml?: boolean;
         };
         const token = await this.resolveConnectorToken(workspaceId, 'gmail');
-        if (!token) return { error: 'Gmail connector not authorized. Connect via /api/connectors/gmail/oauth/initiate' };
+        if (!token)
+          return {
+            error:
+              'Gmail connector not authorized. Connect via /api/connectors/gmail/oauth/initiate',
+          };
         const { GmailConnector } = await import('@helm-pilot/connectors');
         const gmail = new GmailConnector(token);
         return gmail.sendEmail({ to, subject, body, isHtml });
@@ -796,7 +849,8 @@ export class ToolRegistry {
     // ─── Gmail: Search Messages ───
     this.register({
       name: 'gmail_search',
-      description: 'Search Gmail messages. Input: {"workspaceId": "...", "query": "is:unread from:investor", "limit": 10}',
+      description:
+        'Search Gmail messages. Input: {"workspaceId": "...", "query": "is:unread from:investor", "limit": 10}',
       modes: ['build', 'launch', 'apply'],
       execute: async (input) => {
         const { workspaceId, query, limit } = input as {
@@ -815,7 +869,8 @@ export class ToolRegistry {
     // ─── Gmail: Read Message ───
     this.register({
       name: 'gmail_read',
-      description: 'Read a specific Gmail message. Input: {"workspaceId": "...", "messageId": "..."}',
+      description:
+        'Read a specific Gmail message. Input: {"workspaceId": "...", "messageId": "..."}',
       modes: ['build', 'launch', 'apply'],
       execute: async (input) => {
         const { workspaceId, messageId } = input as { workspaceId: string; messageId: string };
@@ -830,7 +885,8 @@ export class ToolRegistry {
     // ─── Google Drive: List Files ───
     this.register({
       name: 'gdrive_list',
-      description: 'List files in Google Drive. Input: {"workspaceId": "...", "query": "name contains \'report\'", "limit": 20}',
+      description:
+        'List files in Google Drive. Input: {"workspaceId": "...", "query": "name contains \'report\'", "limit": 20}',
       modes: ['build', 'launch'],
       execute: async (input) => {
         const { workspaceId, query, limit } = input as {
@@ -849,7 +905,8 @@ export class ToolRegistry {
     // ─── Google Drive: Create File ───
     this.register({
       name: 'gdrive_create',
-      description: 'Create a file in Google Drive. Input: {"workspaceId": "...", "name": "filename.md", "content": "...", "mimeType": "text/markdown"}',
+      description:
+        'Create a file in Google Drive. Input: {"workspaceId": "...", "name": "filename.md", "content": "...", "mimeType": "text/markdown"}',
       modes: ['build', 'launch'],
       execute: async (input) => {
         const { workspaceId, name, content, mimeType, folderId } = input as {
@@ -901,7 +958,8 @@ export class ToolRegistry {
     // ─── Linear: List Issues ───
     this.register({
       name: 'linear_list_issues',
-      description: 'List Linear issues. Input: {"workspaceId":"...","teamId":"optional","limit":50,"stateNames":["Started","Completed"]}',
+      description:
+        'List Linear issues. Input: {"workspaceId":"...","teamId":"optional","limit":50,"stateNames":["Started","Completed"]}',
       modes: ['build', 'launch'],
       execute: async (input) => {
         const { workspaceId, teamId, limit, stateNames } = input as {
@@ -920,7 +978,8 @@ export class ToolRegistry {
     // ─── Linear: Update Issue ───
     this.register({
       name: 'linear_update_issue',
-      description: 'Update a Linear issue. Input: {"workspaceId":"...","issueId":"...","title":"optional","stateId":"optional","priority":0-4}',
+      description:
+        'Update a Linear issue. Input: {"workspaceId":"...","issueId":"...","title":"optional","stateId":"optional","priority":0-4}',
       modes: ['build', 'launch'],
       execute: async (input) => {
         const { workspaceId, issueId, ...updates } = input as {
@@ -967,7 +1026,11 @@ export class ToolRegistry {
           threadTs?: string;
         };
         const token = await this.resolveConnectorToken(workspaceId, 'slack');
-        if (!token) return { error: 'Slack connector not authorized. Connect via /api/connectors/slack/oauth/initiate' };
+        if (!token)
+          return {
+            error:
+              'Slack connector not authorized. Connect via /api/connectors/slack/oauth/initiate',
+          };
         const { SlackConnector } = await import('@helm-pilot/connectors');
         const slack = new SlackConnector(token);
         return slack.postMessage(channel, text, threadTs ? { threadTs } : undefined);
@@ -977,7 +1040,8 @@ export class ToolRegistry {
     // ─── Slack: List Channels ───
     this.register({
       name: 'slack_list_channels',
-      description: 'List Slack channels visible to the bot. Input: {"workspaceId":"...","limit":200}',
+      description:
+        'List Slack channels visible to the bot. Input: {"workspaceId":"...","limit":200}',
       modes: ['build', 'launch'],
       execute: async (input) => {
         const { workspaceId, limit } = input as { workspaceId: string; limit?: number };
@@ -991,7 +1055,8 @@ export class ToolRegistry {
     // ─── Slack: Search ───
     this.register({
       name: 'slack_search',
-      description: 'Full-text search Slack messages. Input: {"workspaceId":"...","query":"...","limit":20}',
+      description:
+        'Full-text search Slack messages. Input: {"workspaceId":"...","query":"...","limit":20}',
       modes: ['build', 'launch', 'discover'],
       execute: async (input) => {
         const { workspaceId, query, limit } = input as {
@@ -1018,7 +1083,11 @@ export class ToolRegistry {
           limit?: number;
         };
         const token = await this.resolveConnectorToken(workspaceId, 'notion');
-        if (!token) return { error: 'Notion connector not authorized. Connect via /api/connectors/notion/oauth/initiate' };
+        if (!token)
+          return {
+            error:
+              'Notion connector not authorized. Connect via /api/connectors/notion/oauth/initiate',
+          };
         const { NotionConnector } = await import('@helm-pilot/connectors');
         return new NotionConnector(token).search(query, limit ? { limit } : undefined);
       },
@@ -1086,7 +1155,7 @@ export class ToolRegistry {
     this.register({
       name: 'analyze_image',
       description:
-        'Ask a question about an image via Anthropic vision. Input: {"imageBase64":"<base64>","mediaType":"image/png|image/jpeg|image/gif|image/webp","question":"..."}. Requires ANTHROPIC_API_KEY.',
+        'Ask a question about an image. In production this tool is disabled unless image analysis is routed through HELM governance. Input: {"imageBase64":"<base64>","mediaType":"image/png|image/jpeg|image/gif|image/webp","question":"..."}.',
       execute: async (input) => {
         const { imageBase64, mediaType, question, maxTokens } = input as {
           imageBase64?: string;
@@ -1148,7 +1217,8 @@ export class ToolRegistry {
     // ─── Stripe: Balance ───
     this.register({
       name: 'stripe_balance',
-      description: 'Current Stripe balance (available + pending in cents). Input: {"workspaceId":"..."}',
+      description:
+        'Current Stripe balance (available + pending in cents). Input: {"workspaceId":"..."}',
       modes: ['build', 'launch'],
       execute: async (input) => {
         const { workspaceId } = input as { workspaceId: string };
@@ -1162,7 +1232,8 @@ export class ToolRegistry {
     // ─── Calendar: List Events ───
     this.register({
       name: 'calendar_list_events',
-      description: 'List upcoming Google Calendar events. Input: {"workspaceId":"...","timeMinIso":"opt","timeMaxIso":"opt","limit":50}',
+      description:
+        'List upcoming Google Calendar events. Input: {"workspaceId":"...","timeMinIso":"opt","timeMaxIso":"opt","limit":50}',
       modes: ['build', 'launch', 'apply'],
       execute: async (input) => {
         const { workspaceId, ...opts } = input as {
@@ -1274,9 +1345,13 @@ export class ToolRegistry {
    * Resolve an OAuth token for a connector from the workspace's active grant.
    * Returns null if no grant or token exists.
    */
-  private async resolveConnectorToken(workspaceId: string, connectorName: string): Promise<string | null> {
+  private async resolveConnectorToken(
+    workspaceId: string,
+    connectorName: string,
+  ): Promise<string | null> {
     try {
-      const { connectors, connectorGrants, connectorTokens } = await import('@helm-pilot/db/schema');
+      const { connectors, connectorGrants, connectorTokens } =
+        await import('@helm-pilot/db/schema');
       const { eq, and } = await import('drizzle-orm');
       const { decryptToken } = await import('@helm-pilot/connectors');
 
@@ -1292,11 +1367,13 @@ export class ToolRegistry {
       const [grant] = await this.db
         .select()
         .from(connectorGrants)
-        .where(and(
-          eq(connectorGrants.workspaceId, workspaceId),
-          eq(connectorGrants.connectorId, connector.id),
-          eq(connectorGrants.isActive, true),
-        ))
+        .where(
+          and(
+            eq(connectorGrants.workspaceId, workspaceId),
+            eq(connectorGrants.connectorId, connector.id),
+            eq(connectorGrants.isActive, true),
+          ),
+        )
         .limit(1);
       if (!grant) return null;
 

@@ -8,6 +8,7 @@ import {
   type SubagentRunResult,
 } from '@helm-pilot/shared/subagents';
 import { type McpServerRegistry } from '@helm-pilot/shared/mcp';
+import { type HelmClient } from '@helm-pilot/helm-client';
 import { validateL1 } from '@helm-pilot/shared/conformance';
 import { createLogger } from '@helm-pilot/shared/logger';
 import { type SubagentFrame } from './agent-loop.js';
@@ -38,10 +39,8 @@ const l1Log = createLogger('conductor-l1');
  *      spawns of the same subagent resolve to distinct HELM principals.
  *   5. Delegates execution to SubagentLoop.
  *
- * Path A note: until helm-oss v0.3.1 ships `POST /api/v1/guardian/evaluate`
- * we cannot obtain a HELM-signed SUBAGENT_SPAWN receipt. The local mirror
- * row is stored with `signed_blob=null` and `verified_at=null`; Phase 12.5
- * will swap to signed receipts once the upstream endpoint lands.
+ * Subagent execution is governed by the child AgentLoop's HELM evaluate calls.
+ * The parent SUBAGENT_SPAWN mirror row remains the DAG root for child receipts.
  */
 export class Conductor {
   constructor(
@@ -50,6 +49,7 @@ export class Conductor {
     private readonly parentTools: ToolRegistry,
     private readonly parentPolicy: PolicyConfig,
     private readonly llm: LlmProvider,
+    private readonly helmClient?: HelmClient,
     /**
      * Phase 14 Track A — optional MCP server registry. When supplied,
      * each subagent spawn propagates it into SubagentLoop so upstream
@@ -88,6 +88,7 @@ export class Conductor {
       this.parentTools,
       this.parentPolicy,
       this.llm,
+      this.helmClient,
       undefined,
       this.mcpRegistry,
     );
@@ -120,10 +121,7 @@ export class Conductor {
    * Dispatch multiple subagents concurrently.
    * Budget is allocated weighted across all spawns (5% floor per child).
    */
-  async parallel(
-    parentCtx: ParentContext,
-    reqs: SpawnRequest[],
-  ): Promise<SubagentRunResult[]> {
+  async parallel(parentCtx: ParentContext, reqs: SpawnRequest[]): Promise<SubagentRunResult[]> {
     const resolved = reqs.map((req) => ({
       req,
       def: this.resolveDefinition(req.name),
@@ -157,6 +155,7 @@ export class Conductor {
         this.parentTools,
         this.parentPolicy,
         this.llm,
+        this.helmClient,
         undefined,
         this.mcpRegistry,
       );
@@ -331,10 +330,7 @@ export class Conductor {
         });
         const errors = result.findings.filter((f) => f.level === 'error');
         if (errors.length > 0) {
-          l1Log.error(
-            { packId: id, findings: errors },
-            'SUBAGENT_SPAWN pack failed L1 validation',
-          );
+          l1Log.error({ packId: id, findings: errors }, 'SUBAGENT_SPAWN pack failed L1 validation');
         }
       } catch (err) {
         l1Log.warn({ err }, 'validateL1 threw on SUBAGENT_SPAWN pack');

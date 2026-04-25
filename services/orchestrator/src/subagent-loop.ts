@@ -1,17 +1,11 @@
 import { type Db } from '@helm-pilot/db/client';
 import { type LlmProvider } from '@helm-pilot/shared/llm';
-import {
-  type SubagentDefinition,
-  type SubagentRunResult,
-} from '@helm-pilot/shared/subagents';
+import { type SubagentDefinition, type SubagentRunResult } from '@helm-pilot/shared/subagents';
 import { type PolicyConfig } from '@helm-pilot/shared/schemas';
 import { type SkillRegistry } from '@helm-pilot/shared/skills';
 import { type McpServerRegistry } from '@helm-pilot/shared/mcp';
-import {
-  AgentLoop,
-  type AgentRunResult,
-  type SubagentFrame,
-} from './agent-loop.js';
+import { type HelmClient } from '@helm-pilot/helm-client';
+import { AgentLoop, type AgentRunResult, type SubagentFrame } from './agent-loop.js';
 import { TrustBoundary } from './trust.js';
 import { type ToolRegistry } from './tools.js';
 
@@ -43,6 +37,7 @@ export class SubagentLoop {
     private readonly parentTools: ToolRegistry,
     private readonly parentPolicy: PolicyConfig,
     private readonly llm: LlmProvider,
+    private readonly helmClient?: HelmClient,
     /**
      * Phase 14 Track E — optional skill registry. When supplied, every
      * subagent run matches the task description against available skills
@@ -107,7 +102,7 @@ export class SubagentLoop {
     }
 
     // 3. Fresh AgentLoop — isolated state.
-    const child = new AgentLoop(this.db, childTrust);
+    const child = new AgentLoop(this.db, childTrust, this.helmClient);
     child.setLlm(this.llm);
     child.setTools(scopedTools);
     child.setSubagentFrame(frame);
@@ -149,9 +144,7 @@ export class SubagentLoop {
     }
 
     // 6. Consolidate into the parent-visible result.
-    const finishAction = [...result.actions]
-      .reverse()
-      .find((a) => a.tool === 'finish');
+    const finishAction = [...result.actions].reverse().find((a) => a.tool === 'finish');
     const summary =
       finishAction && typeof finishAction.input === 'object' && finishAction.input !== null
         ? String(
@@ -159,15 +152,15 @@ export class SubagentLoop {
               `Subagent "${def.name}" completed.`,
           )
         : result.status === 'completed'
-        ? `Subagent "${def.name}" completed without an explicit finish payload.`
-        : `Subagent "${def.name}" ended with status=${result.status}.`;
+          ? `Subagent "${def.name}" completed without an explicit finish payload.`
+          : `Subagent "${def.name}" ended with status=${result.status}.`;
 
     const verdict: SubagentRunResult['verdict'] =
       result.status === 'completed'
         ? 'completed'
         : result.status === 'awaiting_approval'
-        ? 'escalated'
-        : 'failed';
+          ? 'escalated'
+          : 'failed';
 
     return {
       name: def.name,
@@ -189,15 +182,14 @@ export class SubagentLoop {
 
     // READ_ONLY subagents: extend the blocklist to cover anything that
     // normally requires approval so the child can't even try to escalate.
-    const additionalBlocks = def.execution === 'READ_ONLY'
-      ? base.requireApprovalFor.filter((tool) => !allowed.has(tool))
-      : [];
+    const additionalBlocks =
+      def.execution === 'READ_ONLY'
+        ? base.requireApprovalFor.filter((tool) => !allowed.has(tool))
+        : [];
 
     return {
       ...base,
-      toolBlocklist: Array.from(
-        new Set([...base.toolBlocklist, ...additionalBlocks]),
-      ),
+      toolBlocklist: Array.from(new Set([...base.toolBlocklist, ...additionalBlocks])),
       budget: {
         ...base.budget,
         perTaskMax: frame.budgetSliceAllocated ?? base.budget.perTaskMax,
@@ -217,10 +209,7 @@ export class SubagentLoop {
     if (matches.length === 0) return def.systemPrompt;
     const blocks = matches
       .slice(0, 3) // cap at 3 skills so the prompt doesn't explode
-      .map(
-        (m) =>
-          `## Skill: ${m.skill.name} (${m.reason}, score=${m.score})\n\n${m.skill.body}`,
-      );
+      .map((m) => `## Skill: ${m.skill.name} (${m.reason}, score=${m.score})\n\n${m.skill.body}`);
     return `${def.systemPrompt}\n\n---\n\n${blocks.join('\n\n---\n\n')}`;
   }
 

@@ -94,7 +94,7 @@ export class Orchestrator {
     this.basePolicy = config.policy;
     this.trust = new TrustBoundary(config.policy);
     this.tools = new ToolRegistry(config.db, config.memory);
-    this.agentLoop = new AgentLoop(config.db, this.trust);
+    this.agentLoop = new AgentLoop(config.db, this.trust, config.helmClient);
 
     // Wire LLM + tools into agent loop if available. This is the baseline
     // provider used when no per-tenant resolver returns a hit; resolvers
@@ -112,6 +112,7 @@ export class Orchestrator {
         this.tools,
         config.policy,
         config.llm,
+        config.helmClient,
         config.mcpRegistry,
       );
       this.tools.setConductor(this.conductor);
@@ -148,7 +149,11 @@ export class Orchestrator {
     context: string;
     iterationBudget?: number;
   }) {
-    const runtime = await this.resolveRuntime(params.workspaceId, params.operatorId, params.iterationBudget);
+    const runtime = await this.resolveRuntime(
+      params.workspaceId,
+      params.operatorId,
+      params.iterationBudget,
+    );
     this.trust.setPolicy(runtime.policy);
     await this.swapLlm(params.workspaceId);
 
@@ -220,7 +225,11 @@ export class Orchestrator {
     iterationBudget?: number;
     priorActions: import('./agent-loop.js').ActionRecord[];
   }) {
-    const runtime = await this.resolveRuntime(params.workspaceId, params.operatorId, params.iterationBudget);
+    const runtime = await this.resolveRuntime(
+      params.workspaceId,
+      params.operatorId,
+      params.iterationBudget,
+    );
     this.trust.setPolicy(runtime.policy);
     await this.swapLlm(params.workspaceId);
 
@@ -250,8 +259,13 @@ export class Orchestrator {
     }
   }
 
-  private async resolveRuntime(workspaceId: string, operatorId?: string, requestedIterationBudget?: number) {
-    const { workspaces, workspaceSettings, operators, operatorRoles, operatorConfigs } = await import('@helm-pilot/db/schema');
+  private async resolveRuntime(
+    workspaceId: string,
+    operatorId?: string,
+    requestedIterationBudget?: number,
+  ) {
+    const { workspaces, workspaceSettings, operators, operatorRoles, operatorConfigs } =
+      await import('@helm-pilot/db/schema');
     const { eq } = await import('drizzle-orm');
 
     // Look up workspace mode
@@ -277,7 +291,10 @@ export class Orchestrator {
 
       runtimePolicy = {
         ...runtimePolicy,
-        killSwitch: typeof policyConfig['killSwitch'] === 'boolean' ? policyConfig['killSwitch'] : runtimePolicy.killSwitch,
+        killSwitch:
+          typeof policyConfig['killSwitch'] === 'boolean'
+            ? policyConfig['killSwitch']
+            : runtimePolicy.killSwitch,
         toolBlocklist: Array.isArray(policyConfig['toolBlocklist'])
           ? policyConfig['toolBlocklist'].map(String)
           : Array.isArray(policyConfig['blockedTools'])
@@ -292,14 +309,23 @@ export class Orchestrator {
         requireApprovalFor: Array.isArray(policyConfig['requireApprovalFor'])
           ? policyConfig['requireApprovalFor'].map(String)
           : runtimePolicy.requireApprovalFor,
-        failClosed: typeof policyConfig['failClosed'] === 'boolean' ? policyConfig['failClosed'] : runtimePolicy.failClosed,
+        failClosed:
+          typeof policyConfig['failClosed'] === 'boolean'
+            ? policyConfig['failClosed']
+            : runtimePolicy.failClosed,
         budget: {
           ...runtimePolicy.budget,
-          dailyTotalMax: toFiniteNumber(budgetConfig['dailyTotalMax']) ?? runtimePolicy.budget.dailyTotalMax,
+          dailyTotalMax:
+            toFiniteNumber(budgetConfig['dailyTotalMax']) ?? runtimePolicy.budget.dailyTotalMax,
           perTaskMax: toFiniteNumber(budgetConfig['perTaskMax']) ?? runtimePolicy.budget.perTaskMax,
-          perOperatorMax: toFiniteNumber(budgetConfig['perOperatorMax']) ?? runtimePolicy.budget.perOperatorMax,
-          emergencyKill: toFiniteNumber(budgetConfig['emergencyKill']) ?? runtimePolicy.budget.emergencyKill,
-          currency: typeof budgetConfig['currency'] === 'string' ? budgetConfig['currency'] : runtimePolicy.budget.currency,
+          perOperatorMax:
+            toFiniteNumber(budgetConfig['perOperatorMax']) ?? runtimePolicy.budget.perOperatorMax,
+          emergencyKill:
+            toFiniteNumber(budgetConfig['emergencyKill']) ?? runtimePolicy.budget.emergencyKill,
+          currency:
+            typeof budgetConfig['currency'] === 'string'
+              ? budgetConfig['currency']
+              : runtimePolicy.budget.currency,
         },
       };
 
@@ -331,7 +357,9 @@ export class Orchestrator {
           .from(operatorConfigs)
           .where(eq(operatorConfigs.operatorId, op.id))
           .limit(1);
-        const rawMaxIterations = (config?.iterationBudget as Record<string, unknown> | null | undefined)?.['maxIterations'];
+        const rawMaxIterations = (
+          config?.iterationBudget as Record<string, unknown> | null | undefined
+        )?.['maxIterations'];
         operatorIterationBudget = toFiniteNumber(rawMaxIterations) ?? undefined;
       }
     }

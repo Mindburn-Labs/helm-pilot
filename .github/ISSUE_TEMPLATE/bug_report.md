@@ -1,7 +1,7 @@
 ---
 name: Bug report
 about: Something is broken
-title: "bug: "
+title: 'bug: '
 labels: bug
 ---
 
@@ -12,13 +12,15 @@ A short description.
 What did you expect?
 
 **Steps to reproduce.**
+
 1.
 2.
 3.
 
 **Environment.**
+
 - HELM Pilot version / commit:
-- Deploy target (local / Docker Compose / Fly.io / self-host):
+- Deploy target (local / Docker Compose / DigitalOcean / self-host):
 - Node.js version:
 - Postgres version:
 - HELM sidecar version (if enabled):

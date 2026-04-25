@@ -34,14 +34,8 @@ jobs:
 
       - run: npm ci
 
-      - name: Typecheck
-        run: npx turbo typecheck
-
-      - name: Build
-        run: npx turbo build
-
-      - name: Test
-        run: npx turbo test
+      - name: Release-quality gates
+        run: npm run test:release
 
       - name: Test Coverage
         run: npx turbo test:coverage
@@ -57,12 +51,6 @@ jobs:
             packages/*/coverage/
             apps/*/coverage/
           retention-days: 14
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Tenancy lint (no unscoped DB queries on workspace-scoped tables)
-        run: npm run lint:tenancy
 
   secrets-scan:
     name: Gitleaks — secret scanning

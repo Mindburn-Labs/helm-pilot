@@ -54,7 +54,7 @@ Set `HELM_IMAGE` in `.env` to pin a published image and skip the local build.
 
 - `chatCompletion(principal, body)` — routes an OpenAI-shape request through HELM's governed proxy. Returns `{body, receipt}` on ALLOW; throws `HelmDeniedError` on DENY, `HelmEscalationError` on ESCALATE, `HelmUnreachableError` on any other failure mode.
 - `health()` — non-governed probe of `/healthz`. Safe for dashboard polling.
-- `evaluate(...)` — stubbed with `HelmNotImplementedError` until helm-oss exposes a generic `POST /api/v1/guardian/evaluate` endpoint.
+- `evaluate(...)` — routes generic tool, deploy, scraping, and external-action checks through HELM's canonical `POST /api/v1/evaluate` endpoint. `/api/v1/guardian/evaluate` remains a compatibility alias on helm-oss.
 
 **Fail-closed discipline:**
 
@@ -65,7 +65,7 @@ Set `HELM_IMAGE` in `.env` to pin a published image and skip the local build.
 
 ### Gateway and orchestrator wiring
 
-When `HELM_GOVERNANCE_URL` is set, `services/gateway/src/server.ts` builds a `HelmLlmProvider` instead of a direct provider. The orchestrator receives both that provider and the `HelmClient`, so LLM inference goes through HELM and receipts are persisted onto `task_runs` plus `evidence_packs`. If `HELM_FAIL_CLOSED=1`, `/health` reports degraded when HELM is unreachable.
+When `HELM_GOVERNANCE_URL` is set, `services/gateway/src/server.ts` builds a `HelmLlmProvider` instead of a direct provider. The orchestrator receives both that provider and the `HelmClient`, so LLM inference and non-finish tool execution go through HELM and receipts are persisted onto `task_runs` plus `evidence_packs`. If `HELM_FAIL_CLOSED=1`, `/health` reports degraded when HELM is unreachable and production tool execution fails closed.
 
 ### Policy pack
 
@@ -93,38 +93,25 @@ Three new columns on `task_runs` (`helm_decision_id`, `helm_policy_version`, `he
 - `GET /api/governance/receipts` — paginated workspace receipts (cursor pagination)
 - `GET /api/governance/receipts/:decisionId` — single receipt with the signed blob for offline verification
 
-## What's Not Wired Yet
-
-1. **HelmTrustBoundary for generic tool calls.** helm-oss v0.3.0 does not yet expose a generic `POST /api/v1/guardian/evaluate` for non-LLM tool invocations (see "Known gap" below). Until then, Pilot's local `TrustBoundary` stays authoritative for tool calls; HELM receipts flow for LLM_INFERENCE actions.
-
-## Known Gap: Generic Guardian evaluate() endpoint
-
-helm-oss v0.3.0 governs LLM calls via its OpenAI-proxy pattern at `/v1/chat/completions`. There is **no generic HTTP endpoint** that takes a `{principal, action, resource, context}` tuple and returns a `{verdict, permit_id, evidence_pack_id}` response. The closest are:
-
-- `/api/v1/authz/check` — returns a status string, not a decision.
-- `/api/v1/boundary/check` — network-egress-specific.
-- `/api/v1/obligation/create` — creates an obligation artifact, not an evaluation.
-
-For Pilot to enforce tool-level governance end-to-end (e.g. `github.commit`, `digitalocean.deploy`, `launch.post_hackernews`), helm-oss needs a new endpoint:
+## Generic Tool Governance Endpoint
 
 ```
-POST /api/v1/guardian/evaluate
+POST /api/v1/evaluate
 Content-Type: application/json
 {
-  "principal": "workspace:uuid/operator:engineering",
-  "action": "TOOL_USE",
-  "resource": "github.commit",
-  "context": { "repo": "owner/name", "branch": "main", "diff_hash": "sha256:..." }
+  "tool": "TOOL_USE",
+  "args": { "repo": "owner/name", "branch": "main", "diff_hash": "sha256:..." },
+  "agent_id": "workspace:uuid/operator:engineering",
+  "effect_level": "E3",
+  "session_id": "task-run-id",
+  "context": { "resource": "github.commit" }
 }
-→ 200 { "decision_id": "...", "verdict": "ALLOW|DENY|ESCALATE", "policy_version": "...", "decision_hash": "..." }
+→ 200 { "allow": true, "verdict": "ALLOW", "receipt_id": "...", "decision_id": "...", "policy_ref": "...", "decision_hash": "..." }
 ```
 
-This is tracked as an upstream helm-oss work item. Until it lands:
+Pilot treats `allow=false`, `DENY`, `ESCALATE`, network failure, malformed response, or missing receipt fields as fail-closed outcomes.
 
-- **LLM governance is live** via `chatCompletion()`.
-- **Tool governance is local** via `services/orchestrator/src/trust.ts`.
-
-The `HelmClient.evaluate()` method is reserved for this endpoint and throws `HelmNotImplementedError` today — callers can safely probe for it.
+The local `services/orchestrator/src/trust.ts` boundary remains a fast pre-check that can deny or request approval, but production allows require a HELM receipt.
 
 ## Environment reference
 

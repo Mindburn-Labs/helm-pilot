@@ -11,9 +11,13 @@ interface Artifact {
 }
 interface Target {
   id: string;
+  name: string;
   provider: string;
-  region: string;
-  appName: string;
+  config?: {
+    region?: string;
+    appName?: string;
+    image?: string;
+  };
 }
 interface Deployment {
   id: string;
@@ -33,6 +37,7 @@ export default function LaunchPage() {
   const [selectedArtifact, setSelectedArtifact] = useState<string>('');
   const [selectedTarget, setSelectedTarget] = useState<string>('');
   const [version, setVersion] = useState('');
+  const [image, setImage] = useState('');
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,8 +61,13 @@ export default function LaunchPage() {
   }
 
   async function deploy() {
+    const target = targets.find((t) => t.id === selectedTarget);
     if (!selectedArtifact || !selectedTarget || !version.trim()) {
       setError('Pick an artifact, target, and version tag');
+      return;
+    }
+    if (!image.trim() && !target?.config?.image) {
+      setError('Set a container image or choose a target with one configured');
       return;
     }
     setError(null);
@@ -69,10 +79,12 @@ export default function LaunchPage() {
           artifactId: selectedArtifact,
           targetId: selectedTarget,
           version: version.trim(),
+          image: image.trim() || undefined,
         }),
       });
       await load();
       setVersion('');
+      setImage('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Deploy failed');
     } finally {
@@ -90,8 +102,8 @@ export default function LaunchPage() {
       <header style={{ marginBottom: 24 }}>
         <h1 style={{ margin: 0, fontSize: 28 }}>Launch</h1>
         <p style={{ opacity: 0.7, fontSize: 14 }}>
-          Push an artifact to a deploy target. Every deploy crosses the HELM trust
-          boundary and emits a signed receipt.
+          Push an artifact to a deploy target. Every deploy crosses the HELM trust boundary and
+          emits a signed receipt.
         </p>
       </header>
 
@@ -105,7 +117,13 @@ export default function LaunchPage() {
         }}
       >
         <h2 style={{ fontSize: 16, marginTop: 0 }}>New deployment</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+            gap: 12,
+          }}
+        >
           <label style={{ fontSize: 13 }}>
             Artifact
             <select
@@ -149,7 +167,8 @@ export default function LaunchPage() {
               <option value="">—</option>
               {targets.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.provider} · {t.appName} ({t.region})
+                  {t.name} · {t.provider}
+                  {t.config?.region ? ` (${t.config.region})` : ''}
                 </option>
               ))}
             </select>
@@ -160,6 +179,24 @@ export default function LaunchPage() {
               value={version}
               onChange={(e) => setVersion(e.target.value)}
               placeholder="v0.1.0"
+              style={{
+                display: 'block',
+                width: '100%',
+                marginTop: 4,
+                padding: 8,
+                background: '#000',
+                color: '#ededed',
+                border: '1px solid #333',
+                borderRadius: 4,
+              }}
+            />
+          </label>
+          <label style={{ fontSize: 13 }}>
+            Image
+            <input
+              value={image}
+              onChange={(e) => setImage(e.target.value)}
+              placeholder="registry.example.com/app:v0.1.0"
               style={{
                 display: 'block',
                 width: '100%',
@@ -224,7 +261,12 @@ export default function LaunchPage() {
                     {d.url ? (
                       <>
                         {' · '}
-                        <a href={d.url} target="_blank" rel="noreferrer" style={{ color: '#4a90e2' }}>
+                        <a
+                          href={d.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ color: '#4a90e2' }}
+                        >
                           {d.url}
                         </a>
                       </>

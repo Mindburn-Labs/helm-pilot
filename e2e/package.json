@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "echo 'E2E tests require a running gateway — use npm run test:e2e' && exit 0",
+    "test": "playwright test",
     "test:e2e": "playwright test",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",

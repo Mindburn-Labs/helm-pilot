@@ -141,4 +141,54 @@ describe('AgentLoop — HELM governance persistence', () => {
     const taskRun = inserts.find((i) => i.table === 'taskRuns');
     expect(taskRun!.values.helmDecisionId).toBeNull();
   });
+
+  it('evaluates non-finish tool execution through HELM and persists TOOL_USE evidence', async () => {
+    const { db, inserts } = makeMockDb();
+    const helmClient = {
+      evaluate: vi.fn(async () => ({
+        receipt: {
+          decisionId: 'dec-tool-1',
+          receiptId: 'rcpt-tool-1',
+          verdict: 'ALLOW',
+          policyVersion: 'founder-ops-v1',
+          decisionHash: 'sha256:tool',
+          receivedAt: new Date(),
+          action: 'TOOL_USE',
+          resource: 'search',
+          principal: 'workspace:ws-1/operator:agent',
+        },
+      })),
+    };
+    const loop = new AgentLoop(db as never, mockTrust, helmClient as never);
+    loop.setLlm({
+      complete: vi.fn(),
+      completeWithUsage: vi.fn().mockResolvedValueOnce({
+        content: '{"tool":"search","input":{"query":"pricing"}}',
+        usage: { tokensIn: 10, tokensOut: 5, model: 'anthropic/claude-sonnet-4' },
+        governance: {
+          decisionId: 'dec-llm-1',
+          verdict: 'ALLOW',
+          policyVersion: 'founder-ops-v1',
+          principal: 'workspace:ws-1/operator:engineering',
+        },
+      }),
+    } as never);
+    loop.setTools(mockTools);
+
+    await loop.execute({ ...baseParams(), iterationBudget: 1 });
+
+    expect(helmClient.evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'TOOL_USE',
+        resource: 'search',
+        sessionId: 'task-1',
+      }),
+    );
+    const evidence = inserts.find((i) => i.table === 'evidencePacks');
+    expect(evidence?.values).toMatchObject({
+      decisionId: 'dec-tool-1',
+      action: 'TOOL_USE',
+      resource: 'search',
+    });
+  });
 });

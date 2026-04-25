@@ -130,11 +130,11 @@ For storing artifacts, launch assets, and raw ingestion captures. Falls back to 
 | ------------------ | -------- | ---------------- | ----------------------------------------------------- |
 | `STORAGE_PROVIDER` | No       | `local`          | `local` or `s3`                                       |
 | `STORAGE_PATH`     | No       | `./data/storage` | Local storage directory (when using `local` provider) |
-| `S3_ENDPOINT`      | No       | —                | S3-compatible endpoint URL                            |
-| `S3_BUCKET`        | No       | —                | S3 bucket name                                        |
-| `S3_ACCESS_KEY`    | No       | —                | S3 access key                                         |
-| `S3_SECRET_KEY`    | No       | —                | S3 secret key                                         |
-| `S3_REGION`        | No       | `us-east-1`      | S3 region                                             |
+| `S3_ENDPOINT`      | Prod     | —                | S3-compatible endpoint URL, e.g. DO Spaces            |
+| `S3_BUCKET`        | Prod     | —                | S3 bucket name                                        |
+| `S3_ACCESS_KEY`    | Prod     | —                | S3 access key                                         |
+| `S3_SECRET_KEY`    | Prod     | —                | S3 secret key                                         |
+| `S3_REGION`        | Prod     | `fra1`           | S3 signing region                                     |
 
 When using local storage, HELM Pilot also persists:
 
@@ -170,8 +170,12 @@ Deployment-time `doctl` variables such as `DO_REGION`, `DO_SIZE`, `DO_SSH_KEYS`,
 
 ## Backup
 
-| Variable     | Required | Default     | Description                                    |
-| ------------ | -------- | ----------- | ---------------------------------------------- |
-| `BACKUP_DIR` | No       | `./backups` | Local backup directory for `scripts/backup.sh` |
+| Variable                       | Required | Default     | Description                                             |
+| ------------------------------ | -------- | ----------- | ------------------------------------------------------- |
+| Variable                       | Required | Default     | Description                                             |
+| ------------------------------ | -------- | ----------- | ------------------------------------------------------- |
+| `BACKUP_DIR`                   | No       | `./backups` | Local backup directory for `scripts/backup.sh`          |
+| `BACKUP_ENCRYPTION_PASSPHRASE` | Prod     | —           | GPG symmetric passphrase for encrypted remote backups   |
+| `BACKUP_CRON_SCHEDULE`         | No       | `0 3 * * *` | Ofelia cron expression for the DigitalOcean backup job  |
 
-Backups can be uploaded to S3 using the `S3_*` variables above.
+Production backups are uploaded as encrypted `.sql.gz.gpg` files using the `S3_*` variables above. Plaintext upload is blocked unless `BACKUP_ALLOW_PLAINTEXT_UPLOAD=1` is set for a non-production drill.

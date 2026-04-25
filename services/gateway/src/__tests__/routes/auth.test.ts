@@ -154,6 +154,7 @@ describe('authRoutes', () => {
     it('returns sent:true on success', async () => {
       const sendMagicLink = vi.fn(async () => {});
       const randomSpy = vi.spyOn(Math, 'random');
+      const insertedValues: Array<Record<string, unknown>> = [];
       const deps = createMockDeps({
         emailProvider: { kind: 'noop', sendMagicLink } as any,
       });
@@ -168,10 +169,13 @@ describe('authRoutes', () => {
         })),
       })) as any;
       deps.db.insert = vi.fn(() => ({
-        values: vi.fn(() => ({
-          returning: vi.fn(async () => [mockUser({ email: 'test@example.com' })]),
-          then: (r: any) => r([mockUser({ email: 'test@example.com' })]),
-        })),
+        values: vi.fn((values: Record<string, unknown>) => {
+          insertedValues.push(values);
+          return {
+            returning: vi.fn(async () => [mockUser({ email: 'test@example.com' })]),
+            then: (r: any) => r([mockUser({ email: 'test@example.com' })]),
+          };
+        }),
       })) as any;
 
       const app = new Hono();
@@ -190,6 +194,9 @@ describe('authRoutes', () => {
       expect(sendMagicLink).toHaveBeenCalledWith(
         expect.objectContaining({ to: 'test@example.com', code: json.code }),
       );
+      const pending = insertedValues.find((values) => values.channel === 'email_pending');
+      expect(pending?.token).toMatch(/^magic:v2:/);
+      expect(String(pending?.token)).not.toContain(json.code ?? '');
       expect(randomSpy).not.toHaveBeenCalled();
       randomSpy.mockRestore();
     });
@@ -247,6 +254,181 @@ describe('authRoutes', () => {
       );
       const json = await expectJson(res, 401);
       expect(json).toHaveProperty('error', 'Invalid or expired code');
+    });
+
+    it('redeems hashed magic codes once and deletes the pending session', async () => {
+      const sendMagicLink = vi.fn(async () => {});
+      const insertedValues: Array<Record<string, unknown>> = [];
+      const deps = createMockDeps({
+        emailProvider: { kind: 'noop', sendMagicLink } as any,
+      });
+
+      deps.db.select = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              then: (r: any) => r([]),
+            })),
+          })),
+        })),
+      })) as any;
+      deps.db.insert = vi.fn(() => ({
+        values: vi.fn((values: Record<string, unknown>) => {
+          insertedValues.push(values);
+          return {
+            returning: vi.fn(async () => [mockUser({ email: 'test@example.com' })]),
+            then: (r: any) => r([]),
+          };
+        }),
+      })) as any;
+
+      const app = new Hono();
+      app.route('/', authRoutes(deps));
+      const requestRes = await app.fetch(
+        new Request('http://localhost/email/request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'TEST@example.com' }),
+        }),
+      );
+      const requestJson = await expectJson<{ code: string }>(requestRes, 200);
+      const pending = insertedValues.find((values) => values.channel === 'email_pending');
+      expect(pending?.token).toMatch(/^magic:v2:/);
+
+      let selectCallCount = 0;
+      deps.db.select = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => {
+            selectCallCount++;
+            const result =
+              selectCallCount === 1
+                ? [mockUser({ email: 'test@example.com' })]
+                : selectCallCount === 2
+                  ? [
+                      mockSession({
+                        id: 'pending-1',
+                        token: pending?.token,
+                        channel: 'email_pending',
+                        expiresAt: new Date(Date.now() + 60_000),
+                      }),
+                    ]
+                  : selectCallCount === 3
+                    ? [mockMembership()]
+                    : [mockWorkspace()];
+            return {
+              limit: vi.fn(() => ({
+                then: (r: any) => r(result),
+              })),
+              then: (r: any) => r(result),
+            };
+          }),
+        })),
+      })) as any;
+      deps.db.delete = vi.fn(() => ({
+        where: vi.fn(() => ({
+          then: (r: any) => r([]),
+        })),
+      })) as any;
+      deps.db.insert = vi.fn(() => ({
+        values: vi.fn(() => ({
+          then: (r: any) => r([]),
+        })),
+      })) as any;
+
+      const verifyRes = await app.fetch(
+        new Request('http://localhost/email/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'test@example.com', code: requestJson.code }),
+        }),
+      );
+
+      const verifyJson = await expectJson<{ token: string }>(verifyRes, 200);
+      expect(verifyJson.token).toMatch(/^[a-f0-9]{64}$/);
+      expect(deps.db.delete).toHaveBeenCalled();
+    });
+
+    it('deletes pending hashed code after the final failed attempt', async () => {
+      const sendMagicLink = vi.fn(async () => {});
+      const insertedValues: Array<Record<string, unknown>> = [];
+      const deps = createMockDeps({
+        emailProvider: { kind: 'noop', sendMagicLink } as any,
+      });
+
+      deps.db.select = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              then: (r: any) => r([]),
+            })),
+          })),
+        })),
+      })) as any;
+      deps.db.insert = vi.fn(() => ({
+        values: vi.fn((values: Record<string, unknown>) => {
+          insertedValues.push(values);
+          return {
+            returning: vi.fn(async () => [mockUser({ email: 'test@example.com' })]),
+            then: (r: any) => r([]),
+          };
+        }),
+      })) as any;
+
+      const app = new Hono();
+      app.route('/', authRoutes(deps));
+      const requestRes = await app.fetch(
+        new Request('http://localhost/email/request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'test@example.com' }),
+        }),
+      );
+      await expectJson(requestRes, 200);
+      const pending = insertedValues.find((values) => values.channel === 'email_pending');
+      const finalAttemptToken = String(pending?.token).replace(/:0:/, ':4:');
+
+      let selectCallCount = 0;
+      deps.db.select = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => {
+            selectCallCount++;
+            const result =
+              selectCallCount === 1
+                ? [mockUser({ email: 'test@example.com' })]
+                : [
+                    mockSession({
+                      id: 'pending-1',
+                      token: finalAttemptToken,
+                      channel: 'email_pending',
+                      expiresAt: new Date(Date.now() + 60_000),
+                    }),
+                  ];
+            return {
+              limit: vi.fn(() => ({
+                then: (r: any) => r(result),
+              })),
+              then: (r: any) => r(result),
+            };
+          }),
+        })),
+      })) as any;
+      deps.db.delete = vi.fn(() => ({
+        where: vi.fn(() => ({
+          then: (r: any) => r([]),
+        })),
+      })) as any;
+
+      const verifyRes = await app.fetch(
+        new Request('http://localhost/email/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'test@example.com', code: '000000' }),
+        }),
+      );
+
+      const verifyJson = await expectJson(verifyRes, 401);
+      expect(verifyJson).toHaveProperty('error', 'Invalid or expired code');
+      expect(deps.db.delete).toHaveBeenCalled();
     });
   });
 
