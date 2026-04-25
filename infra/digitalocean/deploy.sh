@@ -12,6 +12,9 @@ DO_SIZE="${DO_SIZE:-s-2vcpu-4gb}"
 DO_IMAGE="${DO_IMAGE:-ubuntu-24-04-x64}"
 DO_SSH_KEYS="${DO_SSH_KEYS:-}"
 DO_TAGS="${DO_TAGS:-helm-pilot,production}"
+DO_FIREWALL_NAME="${DO_FIREWALL_NAME:-helm-pilot-prod-fw}"
+DO_FIREWALL_TAGS="${DO_FIREWALL_TAGS:-helm-pilot}"
+DO_SSH_CIDR="${DO_SSH_CIDR:-95.43.154.83/32}"
 REMOTE_USER="${DO_REMOTE_USER:-root}"
 REMOTE_BASE_DIR="${DO_REMOTE_BASE_DIR:-/opt/helm-pilot}"
 REMOTE_DIR="${DO_REMOTE_DIR:-$REMOTE_BASE_DIR/current}"
@@ -47,6 +50,9 @@ Required env files:
 
 Legacy ENV_FILE is intentionally unsupported because one shared env leaks
 sidecar provider keys into Pilot.
+
+Create also reconciles DO_FIREWALL_NAME for DO_FIREWALL_TAGS. Defaults allow
+80/443 from the public internet and 22 only from DO_SSH_CIDR.
 
 HELM preload:
   preload-helm builds HELM_IMAGE from .env.production.shared, copies it to the
@@ -240,6 +246,41 @@ droplet_ip() {
   doctl compute droplet get "$DROPLET_NAME" --format PublicIPv4 --no-header 2>/dev/null | tr -d '[:space:]'
 }
 
+firewall_id() {
+  require_cmd doctl
+  doctl compute firewall list --format ID,Name --no-header |
+    awk -v name="$DO_FIREWALL_NAME" '$2 == name { print $1; exit }'
+}
+
+ensure_firewall() {
+  local id inbound_rules outbound_rules
+  require_cmd doctl
+  [[ -n "$DO_SSH_CIDR" ]] || die "DO_SSH_CIDR is required for firewall SSH access"
+  [[ -n "$DO_FIREWALL_TAGS" ]] || die "DO_FIREWALL_TAGS is required for firewall attachment"
+
+  inbound_rules="protocol:tcp,ports:22,address:$DO_SSH_CIDR protocol:tcp,ports:80,address:0.0.0.0/0 protocol:tcp,ports:443,address:0.0.0.0/0"
+  outbound_rules="protocol:tcp,ports:all,address:0.0.0.0/0 protocol:udp,ports:all,address:0.0.0.0/0 protocol:icmp,ports:all,address:0.0.0.0/0"
+
+  id="$(firewall_id)"
+  if [[ -n "$id" ]]; then
+    echo "Reconciling DigitalOcean firewall $DO_FIREWALL_NAME ($id) ..."
+    doctl compute firewall update "$id" \
+      --name "$DO_FIREWALL_NAME" \
+      --tag-names "$DO_FIREWALL_TAGS" \
+      --inbound-rules "$inbound_rules" \
+      --outbound-rules "$outbound_rules" \
+      >/dev/null
+  else
+    echo "Creating DigitalOcean firewall $DO_FIREWALL_NAME ..."
+    doctl compute firewall create \
+      --name "$DO_FIREWALL_NAME" \
+      --tag-names "$DO_FIREWALL_TAGS" \
+      --inbound-rules "$inbound_rules" \
+      --outbound-rules "$outbound_rules" \
+      >/dev/null
+  fi
+}
+
 wait_for_cloud_init() {
   local ip="$1"
   echo "Waiting for cloud-init on $ip ..."
@@ -259,6 +300,7 @@ create_droplet() {
 
   if ip="$(droplet_ip)" && [[ -n "$ip" ]]; then
     echo "Droplet $DROPLET_NAME already exists at $ip"
+    ensure_firewall
     wait_for_cloud_init "$ip"
     deploy_to "$ip"
     return
@@ -282,6 +324,7 @@ create_droplet() {
   ip="$(printf '%s' "$ip" | tr -d '[:space:]')"
   [[ -n "$ip" ]] || die "DigitalOcean did not return a public IPv4"
   echo "Droplet created: $ip"
+  ensure_firewall
   wait_for_cloud_init "$ip"
   deploy_to "$ip"
 }
