@@ -22,6 +22,15 @@ export interface SanitizeResult {
   tainted: boolean;
 }
 
+function stripMatches(input: string, pattern: RegExp): { cleaned: string; count: number } {
+  let count = 0;
+  const cleaned = input.replace(pattern, () => {
+    count += 1;
+    return '';
+  });
+  return { cleaned, count };
+}
+
 /**
  * Sanitize a scrapling fetch output (or any untrusted external text).
  * Pure function — safe to call inside tool handlers, validators, or
@@ -38,14 +47,14 @@ export function sanitizeScrapingOutput(input: string): SanitizeResult {
     );
   }
 
-  const zeroWidth = stripAndCount(s, ZERO_WIDTH_RE);
+  const zeroWidth = stripMatches(s, ZERO_WIDTH_RE);
   const zeroWidthCount = zeroWidth.count;
   if (zeroWidthCount > 0) {
     warnings.push(`Stripped ${zeroWidthCount} zero-width character(s)`);
     s = zeroWidth.cleaned;
   }
 
-  const bidi = stripAndCount(s, BIDI_OVERRIDE_RE);
+  const bidi = stripMatches(s, BIDI_OVERRIDE_RE);
   const bidiCount = bidi.count;
   if (bidiCount > 0) {
     warnings.push(`Stripped ${bidiCount} bidirectional override character(s)`);
@@ -73,11 +82,3 @@ export function sanitize(input: string): string {
   return sanitizeScrapingOutput(input).cleaned;
 }
 
-function stripAndCount(input: string, pattern: RegExp): { cleaned: string; count: number } {
-  let count = 0;
-  const cleaned = input.replace(pattern, () => {
-    count++;
-    return '';
-  });
-  return { cleaned, count };
-}

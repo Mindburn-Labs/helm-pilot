@@ -15,9 +15,9 @@
     ".": "./dist/index.js"
   },
   "dependencies": {
-    "@helm-pilot/shared": "*",
     "@helm-pilot/db": "*",
-    "drizzle-orm": "^0.44.7",
+    "@helm-pilot/shared": "*",
+    "drizzle-orm": "^0.45.2",
     "pino": "^9.6.0"
   },
   "devDependencies": {
