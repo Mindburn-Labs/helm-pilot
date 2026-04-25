@@ -51,8 +51,9 @@ Required env files:
 Legacy ENV_FILE is intentionally unsupported because one shared env leaks
 sidecar provider keys into Pilot.
 
-Create also reconciles DO_FIREWALL_NAME for DO_FIREWALL_TAGS. Defaults allow
-80/443 from the public internet and 22 only from DO_SSH_CIDR.
+Create provisions the Droplet and reconciles DO_FIREWALL_NAME for DO_FIREWALL_TAGS.
+It does not deploy automatically, so preload-helm can load a local HELM image first.
+Firewall defaults allow 80/443 from the public internet and 22 only from DO_SSH_CIDR.
 
 HELM preload:
   preload-helm builds HELM_IMAGE from .env.production.shared, copies it to the
@@ -302,7 +303,7 @@ create_droplet() {
     echo "Droplet $DROPLET_NAME already exists at $ip"
     ensure_firewall
     wait_for_cloud_init "$ip"
-    deploy_to "$ip"
+    echo "Droplet is ready. Next: DO_DROPLET_IP=$ip ENV_DIR=$ENV_DIR bash infra/digitalocean/deploy.sh preload-helm"
     return
   fi
 
@@ -326,7 +327,7 @@ create_droplet() {
   echo "Droplet created: $ip"
   ensure_firewall
   wait_for_cloud_init "$ip"
-  deploy_to "$ip"
+  echo "Droplet is ready. Next: DO_DROPLET_IP=$ip ENV_DIR=$ENV_DIR bash infra/digitalocean/deploy.sh preload-helm"
 }
 
 deploy_to() {
