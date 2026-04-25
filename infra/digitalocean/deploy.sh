@@ -23,11 +23,17 @@ ENV_SHARED_FILE="${ENV_SHARED_FILE:-$ENV_DIR/.env.production.shared}"
 ENV_HELM_FILE="${ENV_HELM_FILE:-$ENV_DIR/.env.production.helm}"
 ENV_PILOT_FILE="${ENV_PILOT_FILE:-$ENV_DIR/.env.production.pilot}"
 COMPOSE=(docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml)
+HELM_OSS_DIR="${HELM_OSS_DIR:-$ROOT_DIR/../helm-oss}"
+HELM_DOCKERFILE="${HELM_DOCKERFILE:-Dockerfile.slim}"
+HELM_DOCKER_PLATFORM="${HELM_DOCKER_PLATFORM:-linux/amd64}"
+HELM_IMAGE_ARCHIVE="${HELM_IMAGE_ARCHIVE:-}"
+HELM_PRELOAD_MODE="${HELM_PRELOAD_MODE:-binary}"
 
 usage() {
   cat <<'USAGE'
 Usage:
   ENV_DIR=. DO_SSH_KEYS=<fingerprint-or-id> bash infra/digitalocean/deploy.sh create
+  ENV_DIR=. DO_DROPLET_IP=<ip> bash infra/digitalocean/deploy.sh preload-helm
   ENV_DIR=. DO_DROPLET_IP=<ip> bash infra/digitalocean/deploy.sh deploy
   DO_DROPLET_IP=<ip> bash infra/digitalocean/deploy.sh rollback [release-id-or-path]
   ENV_DIR=. bash infra/digitalocean/deploy.sh doctor
@@ -41,6 +47,13 @@ Required env files:
 
 Legacy ENV_FILE is intentionally unsupported because one shared env leaks
 sidecar provider keys into Pilot.
+
+HELM preload:
+  preload-helm builds HELM_IMAGE from .env.production.shared, copies it to the
+  Droplet, and runs docker load. By default HELM_PRELOAD_MODE=binary cross-compiles
+  the HELM binary locally and packages it into a runtime image. Set
+  HELM_PRELOAD_MODE=docker to build HELM_OSS_DIR with HELM_DOCKERFILE, or set
+  HELM_IMAGE_ARCHIVE to upload an existing docker save tar.
 USAGE
 }
 
@@ -150,6 +163,72 @@ compose_doctor() {
   cp "$ENV_PILOT_FILE" .env.production.pilot
   "${COMPOSE[@]}" config >/dev/null
   echo "DigitalOcean production doctor passed."
+}
+
+preload_helm_image() {
+  local ip image archive cleanup_archive=0 build_dir target_os target_arch
+  validate_env_files
+  require_cmd docker
+  require_cmd scp
+  require_cmd ssh
+
+  ip="$(droplet_ip)"
+  [[ -n "$ip" ]] || die "set DO_DROPLET_IP or create a droplet named $DROPLET_NAME"
+  image="$(env_value "$ENV_SHARED_FILE" HELM_IMAGE)"
+  [[ -n "$image" ]] || die "HELM_IMAGE must be set in $ENV_SHARED_FILE"
+
+  if [[ -n "$HELM_IMAGE_ARCHIVE" ]]; then
+    archive="$HELM_IMAGE_ARCHIVE"
+    [[ -f "$archive" ]] || die "HELM_IMAGE_ARCHIVE not found: $archive"
+  else
+    [[ -d "$HELM_OSS_DIR" ]] || die "HELM_OSS_DIR not found: $HELM_OSS_DIR"
+    [[ -f "$HELM_OSS_DIR/$HELM_DOCKERFILE" ]] || die "HELM_DOCKERFILE not found: $HELM_OSS_DIR/$HELM_DOCKERFILE"
+    archive="$(mktemp "${TMPDIR:-/tmp}/helm-sidecar-image.XXXXXX.tar")"
+    cleanup_archive=1
+    case "$HELM_PRELOAD_MODE" in
+      binary)
+        require_cmd go
+        build_dir="$(mktemp -d "${TMPDIR:-/tmp}/helm-sidecar-build.XXXXXX")"
+        target_os="${HELM_DOCKER_PLATFORM%%/*}"
+        target_arch="${HELM_DOCKER_PLATFORM##*/}"
+        echo "Cross-compiling HELM sidecar binary for $target_os/$target_arch ..."
+        (cd "$HELM_OSS_DIR/core" && CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" go build -ldflags="-s -w" -trimpath -o "$build_dir/helm" ./cmd/helm/)
+        cat >"$build_dir/Dockerfile" <<'DOCKERFILE'
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates tzdata && \
+    adduser -D -h /home/helm helm
+COPY helm /usr/local/bin/helm
+RUN mkdir -p /home/helm/data && chown helm:helm /home/helm/data
+USER helm
+WORKDIR /home/helm
+ENTRYPOINT ["helm"]
+CMD ["server"]
+DOCKERFILE
+        echo "Packaging HELM sidecar image $image for $HELM_DOCKER_PLATFORM ..."
+        docker build --platform "$HELM_DOCKER_PLATFORM" -t "$image" "$build_dir"
+        rm -rf "$build_dir"
+        ;;
+      docker)
+        echo "Building HELM sidecar image $image from $HELM_OSS_DIR/$HELM_DOCKERFILE ..."
+        docker build --platform "$HELM_DOCKER_PLATFORM" -f "$HELM_OSS_DIR/$HELM_DOCKERFILE" -t "$image" "$HELM_OSS_DIR"
+        ;;
+      *)
+        die "HELM_PRELOAD_MODE must be binary or docker"
+        ;;
+    esac
+    docker save "$image" -o "$archive"
+  fi
+
+  echo "Uploading HELM sidecar image $image to $REMOTE_USER@$ip ..."
+  scp "${SSH_OPTS[@]}" "$archive" "$REMOTE_USER@$ip:/tmp/helm-sidecar-image.tar"
+  ssh "${SSH_OPTS[@]}" "$REMOTE_USER@$ip" "
+    set -euo pipefail
+    docker load -i /tmp/helm-sidecar-image.tar
+    rm -f /tmp/helm-sidecar-image.tar
+    docker image inspect '$image' >/dev/null
+  "
+  [[ "$cleanup_archive" -eq 0 ]] || rm -f "$archive"
+  echo "HELM sidecar image preloaded: $image"
 }
 
 droplet_ip() {
@@ -304,6 +383,7 @@ smoke_remote() {
 
 case "$ACTION" in
   doctor) compose_doctor ;;
+  preload-helm) preload_helm_image ;;
   create) create_droplet ;;
   deploy)
     ip="$(droplet_ip)"
