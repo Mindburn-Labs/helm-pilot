@@ -39,11 +39,7 @@ export const FALLBACK_PRICING: ModelPrice = { inUsdPer1M: 3, outUsdPer1M: 15 };
 /**
  * Compute the USD cost of a single call given token usage.
  */
-export function computeCostUsd(
-  model: string,
-  tokensIn: number,
-  tokensOut: number,
-): number {
+export function computeCostUsd(model: string, tokensIn: number, tokensOut: number): number {
   const price = MODEL_PRICING[model] ?? MODEL_PRICING[model.toLowerCase()] ?? FALLBACK_PRICING;
   return (tokensIn / 1_000_000) * price.inUsdPer1M + (tokensOut / 1_000_000) * price.outUsdPer1M;
 }

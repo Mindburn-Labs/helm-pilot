@@ -15,6 +15,10 @@ permissions:
   pull-requests: write
   issues: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   review:
     if: github.event.pull_request.draft == false
@@ -40,7 +44,7 @@ jobs:
       - name: Run Claude Code review
         uses: anthropics/claude-code-action@v1
         with:
-          api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
             Invoke the HELM PR preflight workflow on this PR in the HELM Pilot repo.
 
@@ -55,4 +59,4 @@ jobs:
             4. Post the consolidated verdict as a PR comment. Block merge via a review-request-changes comment on any CRITICAL finding, failing test, kernel-guardian escalation, or invariant violation above.
 
             Mode: ${{ steps.mode.outputs.command }}
-          claude_args: "--model claude-opus-4-7 --effort high"
+          claude_args: '--model claude-opus-4-7 --effort high'

@@ -56,10 +56,7 @@ export async function writeCheckpoint(
  * Load the most recent checkpoint for a taskRunId, if any.
  * Returns null when the row has no checkpoint yet or doesn't exist.
  */
-export async function loadCheckpoint(
-  db: Db,
-  taskRunId: string,
-): Promise<CheckpointState | null> {
+export async function loadCheckpoint(db: Db, taskRunId: string): Promise<CheckpointState | null> {
   if (!taskRunId) return null;
   try {
     const [row] = await db
@@ -112,10 +109,7 @@ export async function findStalledRuns(
 }
 
 /** Mark a stalled run as alerted so the watchdog won't re-trigger. */
-export async function markWatchdogAlerted(
-  db: Db,
-  taskRunId: string,
-): Promise<void> {
+export async function markWatchdogAlerted(db: Db, taskRunId: string): Promise<void> {
   try {
     await db
       .update(taskRuns)

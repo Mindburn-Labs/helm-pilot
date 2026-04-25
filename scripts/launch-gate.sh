@@ -54,6 +54,7 @@ check "TypeScript (orchestrator)" npx tsc --noEmit -p services/orchestrator/tsco
 check "TypeScript (memory)" npx tsc --noEmit -p services/memory/tsconfig.json
 check "TypeScript (connectors)" npx tsc --noEmit -p packages/connectors/tsconfig.json
 check "TypeScript (web)" npx tsc --noEmit -p apps/web/tsconfig.json
+check "Lint + format gate" npm run lint
 echo ""
 
 # --- Tests ---

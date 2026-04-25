@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sanitizeScrapingOutput } from '../sanitizers/scrapling.js';
+import { MAX_SANITIZED_OUTPUT_CHARS, sanitizeScrapingOutput } from '../sanitizers/scrapling.js';
 
 // ─── OWASP LLM Top 10 regression suite (Phase 14 Track G) ───
 //
@@ -65,8 +65,7 @@ describe('LLM02 Insecure output handling', () => {
 // ─── LLM03 — Training data poisoning proxy: poisoned scraped context ───
 describe('LLM03 Poisoned scraped context', () => {
   it('mixed zero-width + bidi payload is fully neutralized', () => {
-    const payload =
-      'Pricing: $9.99/mo \u202Eevil-instruction \u200Bmore\u2066';
+    const payload = 'Pricing: $9.99/mo \u202Eevil-instruction \u200Bmore\u2066';
     const out = sanitizeScrapingOutput(payload);
     expect(out.tainted).toBe(true);
     expect(containsZeroWidth(out.cleaned)).toBe(false);
@@ -81,6 +80,14 @@ describe('LLM04 Oversized input (DoS) handling', () => {
     const out = sanitizeScrapingOutput(`hello${noise}world`);
     expect(out.cleaned).toBe('helloworld');
     expect(out.tainted).toBe(true);
+    expect(out.warnings.join('\n')).toContain('exceeds sanitizer output limit');
+  });
+
+  it('large clean payloads are explicitly bounded before reaching model context', () => {
+    const out = sanitizeScrapingOutput('a'.repeat(MAX_SANITIZED_OUTPUT_CHARS + 100));
+    expect(out.cleaned).toHaveLength(MAX_SANITIZED_OUTPUT_CHARS);
+    expect(out.tainted).toBe(true);
+    expect(out.warnings.join('\n')).toContain('Truncated cleaned output');
   });
 });
 
@@ -154,9 +161,7 @@ describe('Sanitizer invariants', () => {
   });
 
   it('ASCII-only safe content is not flagged tainted', () => {
-    const out = sanitizeScrapingOutput(
-      'Pricing: $9.99/month. Contact sales@example.com.',
-    );
+    const out = sanitizeScrapingOutput('Pricing: $9.99/month. Contact sales@example.com.');
     expect(out.tainted).toBe(false);
     expect(out.warnings).toEqual([]);
   });

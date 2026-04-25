@@ -8,7 +8,8 @@ HELM Pilot is designed to run on your own infrastructure. This guide covers setu
 - **Python** 3.10+ with `venv` and `pip` available for local pipeline execution
 - A domain name (optional, for production)
 - A Telegram bot token (for bot/mini-app features)
-- An LLM API key (OpenRouter or Anthropic)
+- For production: a HELM sidecar with an upstream LLM key configured on the sidecar
+- For local direct-provider development: OpenRouter, Anthropic, OpenAI, or Ollama
 
 ## Quick Start (Clean Install)
 
@@ -43,9 +44,7 @@ This creates `./.venv-pipelines`, installs the pinned pipeline dependencies from
 
 For a complete list of required and optional environment variables, see the [Environment Reference](env-reference.md).
 
-The setup script will generate the critical security tokens for you.
-
-*One of `OPENROUTER_API_KEY` or `ANTHROPIC_API_KEY` is required for the agent loop.
+The setup script will generate the critical security tokens for you. Production deployments should set `HELM_GOVERNANCE_URL` and `HELM_FAIL_CLOSED=1`; direct provider keys are only needed when running Pilot without HELM.
 
 ## Development Setup (without Docker)
 
@@ -120,15 +119,24 @@ app.your-domain.com {
 }
 ```
 
-## Fly.io Deployment
+## DigitalOcean Deployment
 
-HELM Pilot ships with a `fly.toml` for Fly.io:
+HELM Pilot ships on DigitalOcean as a Docker Compose stack on one Droplet. The HELM sidecar stays private on the Docker network, Pilot talks to `http://helm:8080`, and production remains fail-closed with `HELM_FAIL_CLOSED=1`.
 
 ```bash
-fly launch
-fly secrets set DATABASE_URL=... OPENROUTER_API_KEY=... TELEGRAM_BOT_TOKEN=...
-fly deploy
+cp infra/digitalocean/env.production.example .env.production
+# Fill DOMAIN, APP_URL, POSTGRES_PASSWORD, SESSION_SECRET, ENCRYPTION_KEY,
+# HELM_IMAGE, EVIDENCE_SIGNING_KEY, and a sidecar upstream provider key.
+
+export DO_SSH_KEYS=<digitalocean-ssh-key-id-or-fingerprint>
+export DO_REGION=nyc3
+export DO_SIZE=s-2vcpu-4gb
+export ENV_FILE=.env.production
+
+bash infra/digitalocean/deploy.sh create
 ```
+
+See [infra/digitalocean/README.md](../infra/digitalocean/README.md) for the full runbook.
 
 ## Database
 
@@ -182,6 +190,7 @@ tar -czf helm_pilot_storage_$(date +%Y%m%d_%H%M%S).tar.gz data/storage
 ```
 
 That archive contains:
+
 - raw crawl captures
 - Scrapling adaptive selector databases
 - crawl checkpoint directories
@@ -202,7 +211,7 @@ docker compose -f infra/docker/docker-compose.yml exec helm-pilot npx drizzle-ki
 
 **Health check fails:** Check `DATABASE_URL` is correct and PostgreSQL is reachable.
 
-**Agent loop doesn't execute:** Ensure `OPENROUTER_API_KEY` or `ANTHROPIC_API_KEY` is set.
+**Agent loop doesn't execute:** In production, check `/health` for `checks.helm: ok` and verify the HELM sidecar has its upstream provider key. In direct-provider development, set `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OLLAMA_BASE_URL` plus `OLLAMA_MODEL`.
 
 **YC private sync fails:** Re-run `scripts/verify-python-runtime.py`, confirm the `yc` connector shows `Validated`, and save a fresh YC session snapshot if needed.
 

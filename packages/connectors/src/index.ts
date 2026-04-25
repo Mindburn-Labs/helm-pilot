@@ -1,6 +1,11 @@
 import { eq, and } from 'drizzle-orm';
 import { type Db } from '@helm-pilot/db/client';
-import { connectors, connectorGrants, connectorSessions, connectorTokens } from '@helm-pilot/db/schema';
+import {
+  connectors,
+  connectorGrants,
+  connectorSessions,
+  connectorTokens,
+} from '@helm-pilot/db/schema';
 import { type Connector } from './types.js';
 import { encryptToken, decryptToken } from './token-store.js';
 
@@ -13,18 +18,9 @@ export type { LinearIssue, LinearTeam, LinearProject } from './linear.js';
 export { SlackConnector, SlackError } from './slack.js';
 export type { SlackChannel, SlackPostResult, SlackSearchMatch } from './slack.js';
 export { NotionConnector, NotionError } from './notion.js';
-export type {
-  NotionSearchResult,
-  NotionPageCreateResult,
-  NotionPageDetail,
-} from './notion.js';
+export type { NotionSearchResult, NotionPageCreateResult, NotionPageDetail } from './notion.js';
 export { StripeConnector, StripeError } from './stripe.js';
-export type {
-  StripeCustomer,
-  StripeCharge,
-  StripeBalance,
-  StripeBalanceLine,
-} from './stripe.js';
+export type { StripeCustomer, StripeCharge, StripeBalance, StripeBalanceLine } from './stripe.js';
 export { CalendarConnector, CalendarError } from './calendar.js';
 export type { CalendarEvent, CalendarCreateInput } from './calendar.js';
 export { HubSpotConnector, HubSpotError } from './hubspot.js';
@@ -39,21 +35,6 @@ export {
   TICK_BATCH_LIMIT,
 } from './refresh.js';
 export type { RefreshNotifier, RefreshDeps } from './refresh.js';
-export {
-  FlyMachinesClient,
-  FlyApiError,
-  FlyAppSchema,
-  FlyMachineSchema,
-  FlyMachineStateSchema,
-  FlyRegionSchema,
-} from './fly/index.js';
-export type {
-  FlyApp,
-  FlyMachine,
-  FlyMachineState,
-  CreateAppParams,
-  CreateMachineParams,
-} from './fly/index.js';
 export type { StorageClient, S3Config } from './storage.js';
 export { VoxCpmClient } from './voxcpm.js';
 export type { VoxCpmClientConfig, SynthesizeRequest } from './voxcpm.js';
@@ -128,7 +109,11 @@ export class ConnectorRegistry {
   }
 
   /** Grant a connector to a workspace */
-  async grantConnector(workspaceId: string, connectorName: string, scopes?: string[]): Promise<string> {
+  async grantConnector(
+    workspaceId: string,
+    connectorName: string,
+    scopes?: string[],
+  ): Promise<string> {
     // Find the connector DB record
     const [connector] = await this.db
       .select()
@@ -141,11 +126,13 @@ export class ConnectorRegistry {
     const [existing] = await this.db
       .select()
       .from(connectorGrants)
-      .where(and(
-        eq(connectorGrants.workspaceId, workspaceId),
-        eq(connectorGrants.connectorId, connector.id),
-        eq(connectorGrants.isActive, true),
-      ))
+      .where(
+        and(
+          eq(connectorGrants.workspaceId, workspaceId),
+          eq(connectorGrants.connectorId, connector.id),
+          eq(connectorGrants.isActive, true),
+        ),
+      )
       .limit(1);
     if (existing) return existing.id;
 
@@ -173,10 +160,12 @@ export class ConnectorRegistry {
     await this.db
       .update(connectorGrants)
       .set({ isActive: false, revokedAt: new Date() })
-      .where(and(
-        eq(connectorGrants.workspaceId, workspaceId),
-        eq(connectorGrants.connectorId, connector.id),
-      ));
+      .where(
+        and(
+          eq(connectorGrants.workspaceId, workspaceId),
+          eq(connectorGrants.connectorId, connector.id),
+        ),
+      );
   }
 
   /** Check if a workspace has an active grant for a connector */
@@ -191,11 +180,13 @@ export class ConnectorRegistry {
     const [grant] = await this.db
       .select()
       .from(connectorGrants)
-      .where(and(
-        eq(connectorGrants.workspaceId, workspaceId),
-        eq(connectorGrants.connectorId, connector.id),
-        eq(connectorGrants.isActive, true),
-      ))
+      .where(
+        and(
+          eq(connectorGrants.workspaceId, workspaceId),
+          eq(connectorGrants.connectorId, connector.id),
+          eq(connectorGrants.isActive, true),
+        ),
+      )
       .limit(1);
     return !!grant;
   }
@@ -220,18 +211,25 @@ export class ConnectorRegistry {
     const [grant] = await this.db
       .select()
       .from(connectorGrants)
-      .where(and(
-        eq(connectorGrants.workspaceId, workspaceId),
-        eq(connectorGrants.connectorId, connector.id),
-        eq(connectorGrants.isActive, true),
-      ))
+      .where(
+        and(
+          eq(connectorGrants.workspaceId, workspaceId),
+          eq(connectorGrants.connectorId, connector.id),
+          eq(connectorGrants.isActive, true),
+        ),
+      )
       .limit(1);
 
     return grant ?? null;
   }
 
   /** Store a token for a grant (encrypted at rest via AES-256-GCM) */
-  async storeToken(grantId: string, accessToken: string, refreshToken?: string, expiresAt?: Date): Promise<void> {
+  async storeToken(
+    grantId: string,
+    accessToken: string,
+    refreshToken?: string,
+    expiresAt?: Date,
+  ): Promise<void> {
     const encAccess = encryptToken(accessToken);
     const encRefresh = refreshToken ? encryptToken(refreshToken) : undefined;
 
@@ -360,7 +358,9 @@ export class ConnectorRegistry {
     await this.db
       .update(connectorSessions)
       .set({
-        metadata: metadata ? { ...(existing.metadata as Record<string, unknown> ?? {}), ...metadata } : existing.metadata,
+        metadata: metadata
+          ? { ...((existing.metadata as Record<string, unknown>) ?? {}), ...metadata }
+          : existing.metadata,
         lastValidatedAt: new Date(),
         updatedAt: new Date(),
       })
@@ -452,7 +452,8 @@ export class ConnectorRegistry {
     this.registerConnector({
       id: 'yc',
       name: 'YC',
-      description: 'Founder-authorized YC session for cofounder matching, Startup School, and application workflows',
+      description:
+        'Founder-authorized YC session for cofounder matching, Startup School, and application workflows',
       authType: 'session',
       requiredScopes: ['profile:read', 'matching:read', 'matching:write', 'applications:read'],
       requiresApproval: true,

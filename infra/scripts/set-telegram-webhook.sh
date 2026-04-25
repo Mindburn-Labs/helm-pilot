@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Sets the Telegram webhook URL for the HELM Pilot bot.
 # Usage: ./set-telegram-webhook.sh <APP_URL>
-# Example: ./set-telegram-webhook.sh https://helm-pilot.fly.dev
+# Example: ./set-telegram-webhook.sh https://pilot.example.com
 
 set -euo pipefail
 

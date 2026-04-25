@@ -1,9 +1,12 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
-import { createHmac } from 'node:crypto';
+import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { users, sessions, apiKeys, workspaces, workspaceMembers } from '@helm-pilot/db/schema';
 import { generateToken, generateApiKey, hashApiKey } from '../middleware/auth.js';
 import { type GatewayDeps } from '../index.js';
+
+const TELEGRAM_AUTH_MAX_AGE_SECONDS = 24 * 60 * 60;
+const TELEGRAM_AUTH_FUTURE_SKEW_SECONDS = 60;
 
 export function authRoutes(deps: GatewayDeps) {
   const app = new Hono();
@@ -38,10 +41,7 @@ export function authRoutes(deps: GatewayDeps) {
       .limit(1);
 
     if (!user) {
-      [user] = await deps.db
-        .insert(users)
-        .values({ telegramId, name })
-        .returning();
+      [user] = await deps.db.insert(users).values({ telegramId, name }).returning();
     }
 
     if (!user) return c.json({ error: 'Failed to create user' }, 500);
@@ -90,28 +90,9 @@ export function authRoutes(deps: GatewayDeps) {
     return c.json({
       token,
       user: { id: user.id, name: user.name, telegramId },
-      workspace: membership
-        ? { id: membership.workspaceId, name: workspaceName }
-        : null,
+      workspace: membership ? { id: membership.workspaceId, name: workspaceName } : null,
       expiresAt: expiresAt.toISOString(),
     });
-  });
-
-  // POST /api/auth/apikey — Create an API key (requires auth)
-  app.post('/apikey', async (c) => {
-    const userId = c.get('userId');
-    if (!userId) return c.json({ error: 'Unauthorized' }, 401);
-
-    const body = await c.req.json().catch(() => ({}));
-    const name = (body as { name?: string }).name ?? 'default';
-
-    const rawKey = generateApiKey();
-    const keyHash = hashApiKey(rawKey);
-    const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-
-    await deps.db.insert(apiKeys).values({ userId, name, keyHash, expiresAt });
-
-    return c.json({ key: rawKey, name, expiresAt: expiresAt.toISOString() }, 201);
   });
 
   // POST /api/auth/email/request — Request magic link
@@ -124,15 +105,11 @@ export function authRoutes(deps: GatewayDeps) {
 
     // Generate a magic link token (6-digit code + random token)
     const magicToken = generateToken();
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const code = randomInt(100000, 1000000).toString();
 
     // Store as a session with 'email_pending' channel (15-min expiry)
     // Find or create user by email
-    let [user] = await deps.db
-      .select()
-      .from(users)
-      .where(eq(users.email, email))
-      .limit(1);
+    let [user] = await deps.db.select().from(users).where(eq(users.email, email)).limit(1);
 
     if (!user) {
       [user] = await deps.db
@@ -188,21 +165,17 @@ export function authRoutes(deps: GatewayDeps) {
     }
 
     // Find the user
-    const [user] = await deps.db
-      .select()
-      .from(users)
-      .where(eq(users.email, email))
-      .limit(1);
+    const [user] = await deps.db.select().from(users).where(eq(users.email, email)).limit(1);
     if (!user) return c.json({ error: 'Invalid code' }, 401);
 
     // Find the magic session
-    const allSessions = await deps.db
-      .select()
-      .from(sessions)
-      .where(eq(sessions.userId, user.id));
+    const allSessions = await deps.db.select().from(sessions).where(eq(sessions.userId, user.id));
 
     const magicSession = allSessions.find(
-      (s) => s.channel === 'email_pending' && s.token.startsWith(`magic:${code}:`) && new Date(s.expiresAt) > new Date(),
+      (s) =>
+        s.channel === 'email_pending' &&
+        s.token.startsWith(`magic:${code}:`) &&
+        new Date(s.expiresAt) > new Date(),
     );
 
     if (!magicSession) return c.json({ error: 'Invalid or expired code' }, 401);
@@ -254,9 +227,7 @@ export function authRoutes(deps: GatewayDeps) {
     return c.json({
       token,
       user: { id: user.id, name: user.name, email },
-      workspace: membership
-        ? { id: membership.workspaceId, name: workspaceName }
-        : null,
+      workspace: membership ? { id: membership.workspaceId, name: workspaceName } : null,
       expiresAt: expiresAt.toISOString(),
     });
   });
@@ -288,7 +259,11 @@ export function authRoutes(deps: GatewayDeps) {
       .where(eq(sessions.token, fullToken))
       .limit(1);
 
-    if (!inviteSession || inviteSession.channel !== 'invite' || new Date(inviteSession.expiresAt) < new Date()) {
+    if (
+      !inviteSession ||
+      inviteSession.channel !== 'invite' ||
+      new Date(inviteSession.expiresAt) < new Date()
+    ) {
       return c.json({ error: 'Invalid or expired invite' }, 401);
     }
 
@@ -301,11 +276,7 @@ export function authRoutes(deps: GatewayDeps) {
     if (!workspaceId) return c.json({ error: 'Malformed invite token' }, 400);
 
     // Find or create user
-    let [user] = await deps.db
-      .select()
-      .from(users)
-      .where(eq(users.email, email))
-      .limit(1);
+    let [user] = await deps.db.select().from(users).where(eq(users.email, email)).limit(1);
     if (!user) {
       [user] = await deps.db
         .insert(users)
@@ -343,6 +314,29 @@ export function authRoutes(deps: GatewayDeps) {
   return app;
 }
 
+export function authenticatedAuthRoutes(deps: GatewayDeps) {
+  const app = new Hono();
+
+  // POST /api/auth/apikey — Create an API key (requires auth)
+  app.post('/apikey', async (c) => {
+    const userId = c.get('userId');
+    if (!userId) return c.json({ error: 'Unauthorized' }, 401);
+
+    const body = await c.req.json().catch(() => ({}));
+    const name = (body as { name?: string }).name ?? 'default';
+
+    const rawKey = generateApiKey();
+    const keyHash = hashApiKey(rawKey);
+    const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+
+    await deps.db.insert(apiKeys).values({ userId, name, keyHash, expiresAt });
+
+    return c.json({ key: rawKey, name, expiresAt: expiresAt.toISOString() }, 201);
+  });
+
+  return app;
+}
+
 // ─── Telegram Init Data Validation ───
 
 interface TelegramUser {
@@ -356,16 +350,31 @@ function validateTelegramInitData(initData: string, botToken: string): TelegramU
   try {
     const params = new URLSearchParams(initData);
     const hash = params.get('hash');
-    if (!hash) return null;
+    if (!hash || !/^[0-9a-f]{64}$/i.test(hash)) return null;
+
+    const authDateRaw = params.get('auth_date');
+    if (!authDateRaw || !/^\d+$/.test(authDateRaw)) return null;
+    const authDate = Number(authDateRaw);
+    const now = Math.floor(Date.now() / 1000);
+    const age = now - authDate;
+    if (age > TELEGRAM_AUTH_MAX_AGE_SECONDS || age < -TELEGRAM_AUTH_FUTURE_SKEW_SECONDS) {
+      return null;
+    }
 
     params.delete('hash');
     const entries = [...params.entries()].sort(([a], [b]) => a.localeCompare(b));
     const dataCheckString = entries.map(([k, v]) => `${k}=${v}`).join('\n');
 
     const secretKey = createHmac('sha256', 'WebAppData').update(botToken).digest();
-    const computedHash = createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+    const computedHash = createHmac('sha256', secretKey).update(dataCheckString).digest();
+    const providedHash = Buffer.from(hash, 'hex');
 
-    if (computedHash !== hash) return null;
+    if (
+      providedHash.length !== computedHash.length ||
+      !timingSafeEqual(providedHash, computedHash)
+    ) {
+      return null;
+    }
 
     const userStr = params.get('user');
     if (!userStr) return null;

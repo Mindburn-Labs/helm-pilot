@@ -219,7 +219,7 @@
 1. **V1: Single-process deployment.** All TS services run in one Node.js process (direct function calls, not network calls). Split into separate processes later if needed.
 2. Docker Compose for local dev with Postgres + the single service.
 3. Python pipelines are separate containers (triggered by pg-boss, not always-on).
-4. Fly.io: one app for the TS service, one for Postgres, one for Python pipelines.
+4. DigitalOcean: one Docker Compose stack for the TS service, Postgres, HELM, and Python-capable pipeline runtime.
 5. Keep deployment simple enough that `docker-compose up` starts everything.
 
 ### 5.3 Secret/Credential Management — LOW
@@ -264,7 +264,7 @@ Before starting Phase 1 (Architecture Freeze), confirm:
 - [ ] Tech stack decision finalized (TypeScript-first, Python pipelines) — **decided in plan**
 - [ ] Scope for V1 explicitly cut (what's in, what's deferred)
 - [ ] Deployment model confirmed (single-process V1 vs microservices)
-- [ ] Database hosting decided (local Postgres for dev, Fly Postgres for prod)
+- [ ] Database hosting decided (local Postgres for dev, DigitalOcean Compose Postgres for prod)
 - [ ] Feature creep guardrails agreed (phase gates, vertical slice first)
 
 ---

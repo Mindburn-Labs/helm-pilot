@@ -15,16 +15,14 @@
  */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 async function main() {
   const name = process.argv[2];
   if (!name || !/^[a-z][a-z0-9-]*$/.test(name)) {
-    console.error(
-      'Usage: install-skill <skill-name>  (lowercase letters, digits, hyphens only)',
-    );
+    console.error('Usage: install-skill <skill-name>  (lowercase letters, digits, hyphens only)');
     process.exit(2);
   }
   const registry = process.env['HELM_SKILLS_REGISTRY_URL'];
@@ -45,9 +43,7 @@ async function main() {
   }
   const expectedHash = (await manifestRes.text()).trim().split(/\s+/)[0];
   if (!expectedHash || !/^[0-9a-f]{64}$/.test(expectedHash)) {
-    console.error(
-      `Manifest does not contain a valid SHA-256 hex digest: "${expectedHash}"`,
-    );
+    console.error(`Manifest does not contain a valid SHA-256 hex digest: "${expectedHash}"`);
     process.exit(1);
   }
   console.log(`Expected SHA-256: ${expectedHash}`);
@@ -62,30 +58,30 @@ async function main() {
   const buffer = Buffer.from(await tarballRes.arrayBuffer());
   const actualHash = createHash('sha256').update(buffer).digest('hex');
   if (actualHash !== expectedHash) {
-    console.error(
-      `SHA-256 mismatch. Expected ${expectedHash}, got ${actualHash}`,
-    );
+    console.error(`SHA-256 mismatch. Expected ${expectedHash}, got ${actualHash}`);
     process.exit(1);
   }
   console.log(`Integrity verified (${buffer.byteLength} bytes).`);
 
-  // 3. Extract into install dir via system tar (avoids npm tar dep).
+  // 3. Validate archive paths, then extract into a staging dir via system tar.
   const installDir = join(homedir(), '.helm-pilot', 'skills', name);
-  if (!existsSync(installDir)) mkdirSync(installDir, { recursive: true });
   const tmpTarball = join(tmpdir(), `helm-skill-${name}-${Date.now()}.tar.gz`);
+  const stagingDir = join(tmpdir(), `helm-skill-${name}-${Date.now()}-staging`);
   writeFileSync(tmpTarball, buffer);
+  mkdirSync(stagingDir, { recursive: true });
+
+  console.log('Validating archive paths');
+  const entries = await listTarballEntries(tmpTarball);
+  for (const entry of entries) {
+    assertSafeTarEntry(entry);
+  }
 
   console.log(`Extracting to: ${installDir}`);
-  await new Promise<void>((resolve, reject) => {
-    const proc = spawn('tar', ['-xzf', tmpTarball, '-C', installDir], {
-      stdio: 'inherit',
-    });
-    proc.on('exit', (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`tar exited ${code}`));
-    });
-    proc.on('error', reject);
-  });
+  await runTar(['-xzf', tmpTarball, '-C', stagingDir]);
+
+  mkdirSync(dirname(installDir), { recursive: true });
+  if (existsSync(installDir)) rmSync(installDir, { recursive: true, force: true });
+  renameSync(stagingDir, installDir);
 
   // 4. Write install manifest.
   writeFileSync(
@@ -110,3 +106,40 @@ main().catch((err) => {
   console.error(err);
   process.exit(2);
 });
+
+async function listTarballEntries(tarballPath: string): Promise<string[]> {
+  const output = await runTar(['-tzf', tarballPath], false);
+  return output.split('\n').filter(Boolean);
+}
+
+async function runTar(args: string[], inherit = true): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    const proc = spawn('tar', args, { stdio: inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'] });
+    if (proc.stdout) proc.stdout.on('data', (chunk) => (stdout += String(chunk)));
+    if (proc.stderr) proc.stderr.on('data', (chunk) => (stderr += String(chunk)));
+    proc.on('exit', (code) => {
+      if (code === 0) resolve(stdout);
+      else reject(new Error(`tar exited ${code}: ${stderr.trim()}`));
+    });
+    proc.on('error', reject);
+  });
+}
+
+function assertSafeTarEntry(entry: string): void {
+  if (
+    entry === '' ||
+    entry.startsWith('/') ||
+    entry.startsWith('\\') ||
+    entry.includes('\0') ||
+    entry.includes('\\') ||
+    /^[A-Za-z]:/.test(entry)
+  ) {
+    throw new Error(`Unsafe archive entry path: ${entry}`);
+  }
+  const parts = entry.split('/');
+  if (parts.includes('..')) {
+    throw new Error(`Unsafe archive entry path: ${entry}`);
+  }
+}

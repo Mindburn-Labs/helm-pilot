@@ -4,6 +4,7 @@
  * No heavy SDKs. Uses fetch() directly for minimal dependencies.
  * Task-class routing: different models for different cost/quality tradeoffs.
  */
+import { OllamaProvider } from './ollama.js';
 
 /** Token usage returned from each LLM call. */
 export interface LlmUsage {
@@ -103,9 +104,6 @@ export function createLlmProvider(config: LlmConfig): LlmProvider {
     if (!config.ollamaModel) {
       throw new Error('OLLAMA_MODEL is required when OLLAMA_BASE_URL is set.');
     }
-    // Dynamic import to keep the module tree-shakable.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { OllamaProvider } = require('./ollama.js') as typeof import('./ollama.js');
     return new OllamaProvider({
       baseUrl: config.ollamaBaseUrl,
       model: config.ollamaModel,
@@ -231,7 +229,13 @@ class AnthropicProvider implements LlmProvider {
   async completeStructured(prompt: StructuredPrompt): Promise<LlmResult> {
     const useCache = prompt.cacheSystem !== false;
     const systemBlock = useCache
-      ? [{ type: 'text' as const, text: prompt.system, cache_control: { type: 'ephemeral' as const } }]
+      ? [
+          {
+            type: 'text' as const,
+            text: prompt.system,
+            cache_control: { type: 'ephemeral' as const },
+          },
+        ]
       : [{ type: 'text' as const, text: prompt.system }];
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {

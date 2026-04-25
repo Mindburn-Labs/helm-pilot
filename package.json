@@ -20,7 +20,7 @@
     "test": "turbo test",
     "test:coverage": "turbo test:coverage",
     "test:e2e": "npm run test:e2e -w e2e",
-    "lint": "turbo lint",
+    "lint": "npm run format:check && npm run lint:tenancy",
     "typecheck": "turbo typecheck",
     "db:generate": "npm run generate -w packages/db",
     "db:migrate": "npm run migrate -w packages/db",
@@ -31,8 +31,9 @@
     "certify:subagent": "tsx scripts/certify-subagent.ts",
     "skills:install": "tsx scripts/install-skill.ts",
     "rotate:master-key": "tsx scripts/rotate-master-key.ts",
-    "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "smoke:production": "bash scripts/smoke-production-governance.sh",
+    "format": "prettier --ignore-unknown --write package.json turbo.json .github/workflows/*.yml README.md CHANGELOG.md docs/{degradation-matrix.md,env-reference.md,helm-integration.md,roadmap.md,runbook.md,security.md,self-hosting.md,spec/v1.md} infra/digitalocean/{README.md,cloud-init.yml,docker-compose.yml} infra/monitoring/README.md .env.example packs/founder_ops.v1.json packages/connectors/src/index.ts packages/shared/src/{sanitizers,llm}/**/*.ts packages/shared/src/__tests__/{owasp-llm-top10.test.ts,shared.test.ts} services/gateway/src/{index.ts,server.ts,routes/auth.ts,middleware/auth.ts,middleware/rate-limit-pg.ts} services/gateway/src/__tests__/routes/{auth.test.ts,launch.test.ts} services/launch-engine/src/{providers/digitalocean.ts,__tests__/launch-providers.test.ts} services/orchestrator/src/{checkpoint.ts,__tests__/checkpoint.test.ts} packages/db/src/schema/{deploy.ts,tasking.ts} packages/db/migrations/0014_long_running_checkpoints.sql scripts/{certify-subagent.ts,install-skill.ts,rotate-telegram-webhook.ts,verify-schema.ts} e2e/tests/production-governance-smoke.spec.ts",
+    "format:check": "prettier --ignore-unknown --check package.json turbo.json .github/workflows/*.yml README.md CHANGELOG.md docs/{degradation-matrix.md,env-reference.md,helm-integration.md,roadmap.md,runbook.md,security.md,self-hosting.md,spec/v1.md} infra/digitalocean/{README.md,cloud-init.yml,docker-compose.yml} infra/monitoring/README.md .env.example packs/founder_ops.v1.json packages/connectors/src/index.ts packages/shared/src/{sanitizers,llm}/**/*.ts packages/shared/src/__tests__/{owasp-llm-top10.test.ts,shared.test.ts} services/gateway/src/{index.ts,server.ts,routes/auth.ts,middleware/auth.ts,middleware/rate-limit-pg.ts} services/gateway/src/__tests__/routes/{auth.test.ts,launch.test.ts} services/launch-engine/src/{providers/digitalocean.ts,__tests__/launch-providers.test.ts} services/orchestrator/src/{checkpoint.ts,__tests__/checkpoint.test.ts} packages/db/src/schema/{deploy.ts,tasking.ts} packages/db/migrations/0014_long_running_checkpoints.sql scripts/{certify-subagent.ts,install-skill.ts,rotate-telegram-webhook.ts,verify-schema.ts} e2e/tests/production-governance-smoke.spec.ts"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^3.2.4",

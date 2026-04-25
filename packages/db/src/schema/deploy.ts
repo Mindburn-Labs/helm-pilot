@@ -8,8 +8,8 @@ export const deployTargets = pgTable('deploy_targets', {
   workspaceId: uuid('workspace_id')
     .notNull()
     .references(() => workspaces.id, { onDelete: 'cascade' }),
-  name: text('name').notNull(), // 'fly-production', 'local-dev', etc.
-  provider: text('provider').notNull(), // 'fly', 'docker', 'local'
+  name: text('name').notNull(), // 'digitalocean-production', 'local-dev', etc.
+  provider: text('provider').notNull(), // 'digitalocean', 'docker', 'local'
   config: jsonb('config').notNull().default({}), // provider-specific config
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

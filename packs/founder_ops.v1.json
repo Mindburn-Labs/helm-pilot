@@ -9,17 +9,17 @@
       "program_id": "prog-founder-intake",
       "label": "Founder Intake",
       "status": "active",
-      "signal_filters": [
-        { "class": "PROFILE_UPDATE" },
-        { "class": "ASSESSMENT_COMPLETED" }
-      ]
+      "signal_filters": [{ "class": "PROFILE_UPDATE" }, { "class": "ASSESSMENT_COMPLETED" }]
     },
     {
       "program_id": "prog-opportunity-discovery",
       "label": "Opportunity Discovery",
       "status": "active",
       "signal_filters": [
-        { "class": "OPPORTUNITY_INGESTED", "source": ["yc", "hn", "producthunt", "indiehackers", "github", "crunchbase"] },
+        {
+          "class": "OPPORTUNITY_INGESTED",
+          "source": ["yc", "hn", "producthunt", "indiehackers", "github", "crunchbase"]
+        },
         { "class": "OPPORTUNITY_SCORED" }
       ]
     },
@@ -59,7 +59,7 @@
       "label": "Launch Preparation",
       "status": "active",
       "signal_filters": [
-        { "class": "DEPLOY_ATTEMPTED", "provider_class": ["fly", "vercel", "digitalocean"] },
+        { "class": "DEPLOY_ATTEMPTED", "provider_class": ["vercel", "digitalocean"] },
         { "class": "DISTRIBUTION_DRAFTED" },
         { "class": "EXTERNAL_POST_REQUESTED" }
       ]
@@ -79,7 +79,10 @@
       "label": "Content Pipeline",
       "status": "active",
       "signal_filters": [
-        { "class": "CONTENT_GENERATED", "content_type": ["blog_post", "email", "social_post", "video_script", "landing_copy"] },
+        {
+          "class": "CONTENT_GENERATED",
+          "content_type": ["blog_post", "email", "social_post", "video_script", "landing_copy"]
+        },
         { "class": "AUTHENTICITY_AUDIT_COMPLETED" }
       ]
     },
@@ -107,10 +110,7 @@
       "program_id": "prog-diagnose",
       "label": "Business Diagnosis",
       "status": "active",
-      "signal_filters": [
-        { "class": "DIAGNOSIS_REQUESTED" },
-        { "class": "WORKSPACE_STUCK_SIGNAL" }
-      ]
+      "signal_filters": [{ "class": "DIAGNOSIS_REQUESTED" }, { "class": "WORKSPACE_STUCK_SIGNAL" }]
     }
   ],
 
@@ -122,10 +122,16 @@
       "execution_mode": "SUPERVISED",
       "tool_scope": {
         "allowed_tools": [
-          "github.read_repo", "github.list_issues", "github.list_prs",
-          "github.create_branch", "github.commit", "github.open_pr",
-          "files.write_scaffold", "files.read_spec",
-          "product_factory.generate_spec", "product_factory.scaffold"
+          "github.read_repo",
+          "github.list_issues",
+          "github.list_prs",
+          "github.create_branch",
+          "github.commit",
+          "github.open_pr",
+          "files.write_scaffold",
+          "files.read_spec",
+          "product_factory.generate_spec",
+          "product_factory.scaffold"
         ],
         "max_risk_class": "R2",
         "requires_approval_above": "R1"
@@ -143,9 +149,12 @@
       "execution_mode": "SUPERVISED",
       "tool_scope": {
         "allowed_tools": [
-          "product_factory.generate_spec", "product_factory.revise_spec",
-          "memory.search", "memory.ingest",
-          "opportunity.score", "opportunity.cluster"
+          "product_factory.generate_spec",
+          "product_factory.revise_spec",
+          "memory.search",
+          "memory.ingest",
+          "opportunity.score",
+          "opportunity.cluster"
         ],
         "max_risk_class": "R2",
         "requires_approval_above": "R1"
@@ -162,10 +171,12 @@
       "execution_mode": "SUPERVISED",
       "tool_scope": {
         "allowed_tools": [
-          "launch.draft_distribution", "launch.schedule_post",
+          "launch.draft_distribution",
+          "launch.schedule_post",
           "memory.search",
           "opportunity.research",
-          "gmail.draft_create", "gmail.read_thread"
+          "gmail.draft_create",
+          "gmail.read_thread"
         ],
         "max_risk_class": "R2",
         "requires_approval_above": "R1"
@@ -182,7 +193,8 @@
       "execution_mode": "SUPERVISED",
       "tool_scope": {
         "allowed_tools": [
-          "files.write_scaffold", "files.read_spec",
+          "files.write_scaffold",
+          "files.read_spec",
           "product_factory.generate_landing",
           "memory.search"
         ],
@@ -201,8 +213,12 @@
       "execution_mode": "SUPERVISED",
       "tool_scope": {
         "allowed_tools": [
-          "launch.provision", "launch.deploy", "launch.health_check", "launch.rollback",
-          "fly.deploy", "vercel.deploy", "digitalocean.deploy",
+          "launch.provision",
+          "launch.deploy",
+          "launch.health_check",
+          "launch.rollback",
+          "vercel.deploy",
+          "digitalocean.deploy",
           "memory.search"
         ],
         "max_risk_class": "R3",
@@ -210,7 +226,7 @@
       },
       "presence": [
         { "channel_type": "telegram", "active": true },
-        { "channel_type": "fly", "active": true }
+        { "channel_type": "digitalocean", "active": true }
       ]
     },
     {
@@ -220,9 +236,12 @@
       "execution_mode": "SUPERVISED",
       "tool_scope": {
         "allowed_tools": [
-          "content.generate", "content.rewrite_for_authenticity",
-          "content.audit_authenticity", "content.score_headline",
-          "memory.search", "memory.ingest",
+          "content.generate",
+          "content.rewrite_for_authenticity",
+          "content.audit_authenticity",
+          "content.score_headline",
+          "memory.search",
+          "memory.ingest",
           "gmail.draft_create"
         ],
         "max_risk_class": "R1",
@@ -241,8 +260,10 @@
       "execution_mode": "SUPERVISED",
       "tool_scope": {
         "allowed_tools": [
-          "seo.audit", "seo.generate_schema_markup",
-          "seo.analyze_geo", "seo.suggest_improvements",
+          "seo.audit",
+          "seo.generate_schema_markup",
+          "seo.analyze_geo",
+          "seo.suggest_improvements",
           "memory.search"
         ],
         "max_risk_class": "R1",
@@ -260,9 +281,12 @@
       "execution_mode": "SUPERVISED",
       "tool_scope": {
         "allowed_tools": [
-          "ads.draft_campaign", "ads.suggest_keywords",
-          "ads.track_roas", "ads.pause_campaign",
-          "google_ads.read_campaign", "meta_ads.read_campaign"
+          "ads.draft_campaign",
+          "ads.suggest_keywords",
+          "ads.track_roas",
+          "ads.pause_campaign",
+          "google_ads.read_campaign",
+          "meta_ads.read_campaign"
         ],
         "max_risk_class": "R3",
         "requires_approval_above": "R1"
@@ -279,10 +303,13 @@
       "execution_mode": "SUPERVISED",
       "tool_scope": {
         "allowed_tools": [
-          "social.draft_post", "social.schedule_post",
+          "social.draft_post",
+          "social.schedule_post",
           "content.score_headline",
-          "launch.post_producthunt", "launch.post_hackernews",
-          "launch.post_twitter", "launch.post_linkedin"
+          "launch.post_producthunt",
+          "launch.post_hackernews",
+          "launch.post_twitter",
+          "launch.post_linkedin"
         ],
         "max_risk_class": "R2",
         "requires_approval_above": "R1"
@@ -299,9 +326,12 @@
       "execution_mode": "SUPERVISED",
       "tool_scope": {
         "allowed_tools": [
-          "finance.generate_report", "finance.calculate_mrr",
-          "finance.calculate_unit_economics", "finance.analyze_cohorts",
-          "stripe.read_transactions", "stripe.read_subscriptions"
+          "finance.generate_report",
+          "finance.calculate_mrr",
+          "finance.calculate_unit_economics",
+          "finance.analyze_cohorts",
+          "stripe.read_transactions",
+          "stripe.read_subscriptions"
         ],
         "max_risk_class": "R2",
         "requires_approval_above": "R1"
@@ -318,7 +348,8 @@
       "execution_mode": "SUPERVISED",
       "tool_scope": {
         "allowed_tools": [
-          "diagnose.ask_socratic", "diagnose.analyze_workspace_state",
+          "diagnose.ask_socratic",
+          "diagnose.analyze_workspace_state",
           "diagnose.audit_premise",
           "memory.search",
           "proofgraph.query"
@@ -337,7 +368,14 @@
     {
       "employee_id": "ve-engineering-operator",
       "connector_id": "github-v1",
-      "tool_names": ["github.read_repo", "github.list_issues", "github.list_prs", "github.create_branch", "github.commit", "github.open_pr"],
+      "tool_names": [
+        "github.read_repo",
+        "github.list_issues",
+        "github.list_prs",
+        "github.create_branch",
+        "github.commit",
+        "github.open_pr"
+      ],
       "max_daily_actions": 200,
       "first_action_per_repo_requires_approval": true
     },
@@ -347,13 +385,6 @@
       "tool_names": ["gmail.draft_create", "gmail.read_thread"],
       "max_daily_actions": 80,
       "external_email_requires_draft_preview": true
-    },
-    {
-      "employee_id": "ve-ops-operator",
-      "connector_id": "fly-v1",
-      "tool_names": ["fly.deploy", "fly.rollback"],
-      "max_daily_actions": 30,
-      "first_deploy_per_app_requires_approval": true
     },
     {
       "employee_id": "ve-ops-operator",
@@ -393,7 +424,12 @@
     {
       "employee_id": "ve-social-operator",
       "connector_id": "launch-channels-v1",
-      "tool_names": ["launch.post_producthunt", "launch.post_hackernews", "launch.post_twitter", "launch.post_linkedin"],
+      "tool_names": [
+        "launch.post_producthunt",
+        "launch.post_hackernews",
+        "launch.post_twitter",
+        "launch.post_linkedin"
+      ],
       "max_daily_actions": 20,
       "every_external_post_requires_approval": true
     },
@@ -504,13 +540,20 @@
     {
       "rule_id": "deploy_requires_approval",
       "description": "First deploy per (connector, project) requires explicit founder approval. Subsequent deploys to the same target within 24h auto-allow unless code diff exceeds threshold.",
-      "applies_to": { "tool_names": ["fly.deploy", "vercel.deploy", "digitalocean.deploy"] },
+      "applies_to": { "tool_names": ["vercel.deploy", "digitalocean.deploy"] },
       "mode": "escalate_on_first_per_target"
     },
     {
       "rule_id": "financial_action_requires_approval",
       "description": "Any tool call that moves money or sets up billing escalates to the founder with a signed intent preview.",
-      "applies_to": { "tool_names": ["stripe.charge", "stripe.subscription_create", "fly.upgrade_plan", "vercel.upgrade_plan"] },
+      "applies_to": {
+        "tool_names": [
+          "stripe.charge",
+          "stripe.subscription_create",
+          "digitalocean.upgrade_plan",
+          "vercel.upgrade_plan"
+        ]
+      },
       "mode": "escalate"
     },
     {
@@ -522,7 +565,14 @@
     {
       "rule_id": "external_post_requires_approval",
       "description": "Posts to ProductHunt, HN, Twitter/X, LinkedIn all escalate — launch distribution never happens autonomously.",
-      "applies_to": { "tool_names": ["launch.post_producthunt", "launch.post_hackernews", "launch.post_twitter", "launch.post_linkedin"] },
+      "applies_to": {
+        "tool_names": [
+          "launch.post_producthunt",
+          "launch.post_hackernews",
+          "launch.post_twitter",
+          "launch.post_linkedin"
+        ]
+      },
       "mode": "escalate"
     },
     {
@@ -534,25 +584,51 @@
     {
       "rule_id": "content_publication_requires_authenticity_audit",
       "description": "Content published to any external channel (blog, email, social) must pass the 12-signal authenticity audit with verdict=authentic before publication. AI-tell content fails.",
-      "applies_to": { "tool_names": ["blog.publish", "gmail.send", "launch.post_producthunt", "launch.post_hackernews", "launch.post_twitter", "launch.post_linkedin"] },
+      "applies_to": {
+        "tool_names": [
+          "blog.publish",
+          "gmail.send",
+          "launch.post_producthunt",
+          "launch.post_hackernews",
+          "launch.post_twitter",
+          "launch.post_linkedin"
+        ]
+      },
       "mode": "escalate"
     },
     {
       "rule_id": "ad_spend_change_requires_approval",
       "description": "Any change that increases daily ad spend or starts a new campaign escalates. Pausing or decreasing spend auto-allows.",
-      "applies_to": { "tool_names": ["google_ads.create_campaign", "google_ads.increase_budget", "meta_ads.create_campaign", "meta_ads.increase_budget"] },
+      "applies_to": {
+        "tool_names": [
+          "google_ads.create_campaign",
+          "google_ads.increase_budget",
+          "meta_ads.create_campaign",
+          "meta_ads.increase_budget"
+        ]
+      },
       "mode": "escalate"
     },
     {
       "rule_id": "finance_read_only_by_default",
       "description": "Finance operator is read-only by policy. Writes to Stripe (charge, refund, subscription change) always escalate.",
-      "applies_to": { "tool_names": ["stripe.charge", "stripe.refund", "stripe.subscription_update", "stripe.subscription_cancel"] },
+      "applies_to": {
+        "tool_names": [
+          "stripe.charge",
+          "stripe.refund",
+          "stripe.subscription_update",
+          "stripe.subscription_cancel"
+        ]
+      },
       "mode": "escalate"
     },
     {
       "rule_id": "diagnose_no_writes",
       "description": "Diagnose mode is strictly read-only. Writes from any diagnose operator deny outright — diagnosis produces recommendations, not actions.",
-      "applies_to": { "employee_roles": ["diagnose"], "tool_match": "*.write_*|*.create_*|*.update_*|*.delete_*|*.send*|*.post_*" },
+      "applies_to": {
+        "employee_roles": ["diagnose"],
+        "tool_match": "*.write_*|*.create_*|*.update_*|*.delete_*|*.send*|*.post_*"
+      },
       "mode": "deny"
     }
   ],
@@ -564,8 +640,14 @@
     "target_product_version": "0.1.0",
     "helm_oss_min_version": "0.3.0",
     "changelog": [
-      { "date": "2026-04-15", "change": "Initial pack — 7 programs, 5 operators, 5 capability grants, 6 policy overlays" },
-      { "date": "2026-04-16", "change": "Phase 11: added 5 programs (content/seo/finance/diagnose + SMTM-inspired), 7 operators (content/seo/ads/social/finance/diagnostician), 5 capability grants, 4 policy overlays, 6 per-operator budget envelopes" }
+      {
+        "date": "2026-04-15",
+        "change": "Initial pack — 7 programs, 5 operators, 5 capability grants, 6 policy overlays"
+      },
+      {
+        "date": "2026-04-16",
+        "change": "Phase 11: added 5 programs (content/seo/finance/diagnose + SMTM-inspired), 7 operators (content/seo/ads/social/finance/diagnostician), 5 capability grants, 4 policy overlays, 6 per-operator budget envelopes"
+      }
     ]
   }
 }

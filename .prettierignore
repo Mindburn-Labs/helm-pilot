@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.next/
+coverage/
+playwright-report/
+test-results/
+.turbo/
+.cache/
+.venv-pipelines/
+backups/
+data/
+_archive/
+*.log
+package-lock.json

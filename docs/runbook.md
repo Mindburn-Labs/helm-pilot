@@ -9,7 +9,7 @@ On-call response procedures, diagnostic commands, and rollback playbooks for ope
 1. **Check `/health`** — `curl https://<your-domain>/health`. Anything non-200 is a hard incident.
 2. **Check Sentry** — are there recent unhandled errors spiking?
 3. **Check Grafana dashboards** — `api.json`, `orchestrator.json`, `infrastructure.json`.
-4. **Check Fly.io status / recent deploys** — `fly status && fly releases`.
+4. **Check DigitalOcean Droplet and Compose status** — `bash infra/digitalocean/deploy.sh status`.
 5. Declare severity and communicate on your internal channel.
 
 ---
@@ -23,43 +23,44 @@ Symptoms: users report not receiving email magic link, or verify returns 401 des
 - Check `/health` → `checks.db` true?
 - Check `EMAIL_PROVIDER` config — if it reverted to `noop`, codes aren't being sent.
   ```bash
-  fly ssh console --app helm-pilot -C 'env | grep EMAIL'
+  ssh root@$DO_DROPLET_IP 'cd /opt/helm-pilot/current && docker compose -f infra/digitalocean/docker-compose.yml exec helm-pilot env | grep EMAIL'
   ```
 - Check Resend/SMTP dashboard for bounces or rate limiting.
 - Check the `sessions` table — are rows being written?
   ```sql
   SELECT COUNT(*), MAX(created_at) FROM sessions WHERE channel = 'email_pending';
   ```
-- If Resend API is down: temporarily switch to a backup SMTP provider (`fly secrets set EMAIL_PROVIDER=smtp SMTP_HOST=...`) and redeploy.
+- If Resend API is down: temporarily switch to a backup SMTP provider in `.env.production`, redeploy with `bash infra/digitalocean/deploy.sh deploy`, and verify login.
 
 ### 1B. Database down
 
 Symptoms: `/health` returns 503 with `checks.db: false`.
 
-- Fly Postgres: `fly postgres connect -a <db-app>` → `\l` → check DB exists.
-- Check DB logs: `fly logs -a <db-app> --since 10m`.
+- DigitalOcean Compose Postgres: `docker compose -f infra/digitalocean/docker-compose.yml exec postgres psql -U helm -d helm_pilot -c '\l'`.
+- Check DB logs: `docker compose -f infra/digitalocean/docker-compose.yml logs --tail=200 postgres`.
 - Connection pool exhausted? Query `SELECT count(*) FROM pg_stat_activity`. If >80 increase `DB_POOL_MAX` or investigate slow queries.
-- If the DB is truly down, failover: provision a replica via `fly postgres create`, restore latest backup with `scripts/backup.sh restore`, swap `DATABASE_URL` secret, redeploy.
+- If the DB is truly down, restore the latest verified backup on a replacement Droplet, then point DNS at the new Droplet IP.
 
-### 1C. LLM provider outage
+### 1C. HELM sidecar or LLM provider outage
 
-Symptoms: agent tasks fail with timeouts or 5xx from OpenRouter/Anthropic/OpenAI.
+Symptoms: `/health` returns degraded with `checks.helm: "unreachable"`, or agent tasks fail with HELM unreachability / upstream provider errors.
 
-- Check provider status pages.
-- Failover: the provider chain already falls through — ensure *all three* keys are set (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) so one outage doesn't kill you.
+- Check HELM first: `docker compose -f infra/digitalocean/docker-compose.yml logs --tail=200 helm` and `docker compose -f infra/digitalocean/docker-compose.yml exec helm wget -qO- http://localhost:8081/healthz`.
+- Check provider status pages for the upstream configured on HELM (`HELM_UPSTREAM_URL`). In production, provider keys belong on the HELM sidecar, not on the Pilot app.
+- If HELM is healthy but the upstream is down, rotate the sidecar upstream/key in `.env.production` and redeploy.
 - Enable kill switch temporarily: set `policy.killSwitch=true` via a workspace-settings update. Tasks will be blocked rather than retry-storming.
 
 ### 1D. Rate-limiting users unexpectedly
 
 Symptoms: users report 429 on normal usage.
 
-- Check if Redis-backed limiter flipped to in-memory mode: `GET /metrics | grep redis`.
-- If a single bad IP is hammering, upstream Cloudflare / Fly firewall is the right place to block (not app layer).
+- Check Postgres token buckets in `ratelimit_buckets` for the reported subject and route class.
+- If a single bad IP is hammering, block it with Cloudflare, Caddy, or the DigitalOcean Cloud Firewall before changing app limits.
 - Bump limits temporarily via code — update `services/gateway/src/index.ts` rate-limit configs and ship.
 
 ### 1E. Disk full / storage exhausted
 
-- Check `fly volumes list` for data volume usage.
+- Check Droplet and Docker volume usage with `df -h` and `docker system df`.
 - Rotate old Pino logs (if writing to disk): `find /app/logs -mtime +7 -delete`.
 - Clean old S3 backups via `scripts/backup.sh` retention (default 30 days).
 - If `STORAGE_PROVIDER=local`, migrate to S3.
@@ -93,21 +94,26 @@ Symptoms: YC connector validates in UI but private sync jobs fail, or operator f
 ## 2. Diagnostic Commands
 
 ### Health
+
 ```bash
 curl https://<host>/health | jq          # full health JSON
 curl https://<host>/metrics | head -50   # Prometheus metrics sample
 ```
 
-### Logs (Fly.io)
+### Logs (DigitalOcean Compose)
+
 ```bash
-fly logs -a helm-pilot --since 10m             # app logs, last 10 min
-fly logs -a helm-pilot | grep ERROR            # errors only
-fly logs -a helm-pilot | grep requestId=XXX    # one request's full trace
+ssh root@$DO_DROPLET_IP
+cd /opt/helm-pilot/current
+docker compose -f infra/digitalocean/docker-compose.yml logs --tail=200 helm-pilot
+docker compose -f infra/digitalocean/docker-compose.yml logs helm-pilot | grep ERROR
+docker compose -f infra/digitalocean/docker-compose.yml logs helm-pilot | grep requestId=XXX
 ```
 
-### Database (Fly Postgres)
+### Database (DigitalOcean Compose Postgres)
+
 ```bash
-fly postgres connect -a <db-app>
+docker compose -f infra/digitalocean/docker-compose.yml exec postgres psql -U helm -d helm_pilot
 
 # Most active tables
 SELECT schemaname, relname, n_live_tup
@@ -124,12 +130,14 @@ WHERE state = 'active' AND now() - pg_stat_activity.query_start > interval '30 s
 ```
 
 ### pg-boss queue
+
 ```sql
 SELECT name, state, COUNT(*) FROM pgboss.job GROUP BY name, state;
 SELECT * FROM pgboss.archive ORDER BY completed_on DESC LIMIT 20;  -- recently completed
 ```
 
 ### Python / Scrapling
+
 ```bash
 PYTHON_BIN=${PYTHON_BIN:-./.venv-pipelines/bin/python} $PYTHON_BIN scripts/verify-python-runtime.py
 ls -la ${PLAYWRIGHT_BROWSERS_PATH:-./.cache/ms-playwright}
@@ -144,11 +152,12 @@ ls -la ${PATCHRIGHT_BROWSERS_PATH:-./.cache/ms-patchright}
 
 1. Find the last known-good release:
    ```bash
-   fly releases -a helm-pilot | head -20
+   git log --oneline -20
    ```
-2. Roll back:
+2. Roll back from the workstation checkout:
    ```bash
-   fly deploy -a helm-pilot --image <previous-image-tag>
+   git checkout <known-good-sha>
+   ENV_FILE=.env.production DO_DROPLET_IP=<ip> bash infra/digitalocean/deploy.sh deploy
    ```
 3. Watch health:
    ```bash
@@ -157,13 +166,13 @@ ls -la ${PATCHRIGHT_BROWSERS_PATH:-./.cache/ms-patchright}
 
 ### 3B. Database rollback (destructive — last resort)
 
-1. Stop the gateway: `fly scale count 0 -a helm-pilot`.
+1. Stop the gateway: `docker compose -f infra/digitalocean/docker-compose.yml stop helm-pilot`.
 2. Take a snapshot of current DB state.
 3. Restore from last known-good backup:
    ```bash
    bash scripts/backup.sh restore <backup-file.sql.gz>
    ```
-4. Start gateway: `fly scale count 1 -a helm-pilot`.
+4. Start gateway: `docker compose -f infra/digitalocean/docker-compose.yml up -d helm-pilot`.
 5. **Warning:** connector tokens encrypted with a since-rotated ENCRYPTION_KEY will be unreadable. Plan carefully.
 
 ### 3C. Migration rollback

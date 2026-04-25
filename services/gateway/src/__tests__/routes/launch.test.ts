@@ -7,8 +7,16 @@ const mockEngine = {
   getArtifact: vi.fn(async () => null),
   listDeployments: vi.fn(async () => []),
   listDeployTargets: vi.fn(async () => []),
-  createDeployTarget: vi.fn(async () => ({ id: 'target-1', name: 'prod', provider: 'fly' })),
-  recordDeployment: vi.fn(async () => ({ id: 'deploy-1', targetId: 'target-1', status: 'pending' })),
+  createDeployTarget: vi.fn(async () => ({
+    id: 'target-1',
+    name: 'prod',
+    provider: 'digitalocean',
+  })),
+  recordDeployment: vi.fn(async () => ({
+    id: 'deploy-1',
+    targetId: 'target-1',
+    status: 'pending',
+  })),
   updateDeploymentStatus: vi.fn(async () => null),
   recordHealthCheck: vi.fn(async () => ({ id: 'hc-1', status: 'healthy' })),
 };
@@ -102,7 +110,7 @@ describe('launchRoutes', () => {
     });
 
     it('returns list of targets', async () => {
-      const targets = [{ id: 'target-1', name: 'prod', provider: 'fly' }];
+      const targets = [{ id: 'target-1', name: 'prod', provider: 'digitalocean' }];
       mockEngine.listDeployTargets.mockResolvedValueOnce(targets);
 
       const { fetch } = testApp(launchRoutes);
@@ -129,16 +137,16 @@ describe('launchRoutes', () => {
       const res = await fetch('POST', '/targets', {
         workspaceId: 'ws-1',
         name: 'prod',
-        provider: 'fly',
+        provider: 'digitalocean',
       });
       const json = await expectJson(res, 201);
 
       expect(mockEngine.createDeployTarget).toHaveBeenCalledWith('ws-1', {
         name: 'prod',
-        provider: 'fly',
+        provider: 'digitalocean',
         config: undefined,
       });
-      expect(json).toEqual({ id: 'target-1', name: 'prod', provider: 'fly' });
+      expect(json).toEqual({ id: 'target-1', name: 'prod', provider: 'digitalocean' });
     });
   });
 
@@ -182,20 +190,20 @@ describe('launchRoutes', () => {
     });
 
     it('returns 200 when updated', async () => {
-      const updated = { id: 'dep-1', status: 'running', url: 'https://app.fly.dev' };
+      const updated = { id: 'dep-1', status: 'running', url: 'https://app.ondigitalocean.app' };
       mockEngine.updateDeploymentStatus.mockResolvedValueOnce(updated);
 
       const { fetch } = testApp(launchRoutes);
       const res = await fetch('PUT', '/deployments/dep-1/status', {
         status: 'running',
-        url: 'https://app.fly.dev',
+        url: 'https://app.ondigitalocean.app',
       });
       const json = await expectJson(res, 200);
 
       expect(mockEngine.updateDeploymentStatus).toHaveBeenCalledWith(
         'dep-1',
         'running',
-        'https://app.fly.dev',
+        'https://app.ondigitalocean.app',
       );
       expect(json).toEqual(updated);
     });

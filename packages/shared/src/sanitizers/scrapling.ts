@@ -13,6 +13,7 @@
 
 const ZERO_WIDTH_RE = /[\u200B\u200C\u200D\u2060\u180E\uFEFF]/g;
 const BIDI_OVERRIDE_RE = /[\u202A-\u202E\u2066-\u2069]/g;
+export const MAX_SANITIZED_OUTPUT_CHARS = 1_000_000;
 
 export interface SanitizeResult {
   cleaned: string;
@@ -31,16 +32,29 @@ export function sanitizeScrapingOutput(input: string): SanitizeResult {
   const warnings: string[] = [];
   let s = input;
 
-  const zeroWidthCount = (s.match(ZERO_WIDTH_RE) ?? []).length;
-  if (zeroWidthCount > 0) {
-    warnings.push(`Stripped ${zeroWidthCount} zero-width character(s)`);
-    s = s.replace(ZERO_WIDTH_RE, '');
+  if (s.length > MAX_SANITIZED_OUTPUT_CHARS) {
+    warnings.push(
+      `Input length ${s.length} exceeds sanitizer output limit ${MAX_SANITIZED_OUTPUT_CHARS}`,
+    );
   }
 
-  const bidiCount = (s.match(BIDI_OVERRIDE_RE) ?? []).length;
+  const zeroWidth = stripAndCount(s, ZERO_WIDTH_RE);
+  const zeroWidthCount = zeroWidth.count;
+  if (zeroWidthCount > 0) {
+    warnings.push(`Stripped ${zeroWidthCount} zero-width character(s)`);
+    s = zeroWidth.cleaned;
+  }
+
+  const bidi = stripAndCount(s, BIDI_OVERRIDE_RE);
+  const bidiCount = bidi.count;
   if (bidiCount > 0) {
     warnings.push(`Stripped ${bidiCount} bidirectional override character(s)`);
-    s = s.replace(BIDI_OVERRIDE_RE, '');
+    s = bidi.cleaned;
+  }
+
+  if (s.length > MAX_SANITIZED_OUTPUT_CHARS) {
+    s = s.slice(0, MAX_SANITIZED_OUTPUT_CHARS);
+    warnings.push(`Truncated cleaned output to ${MAX_SANITIZED_OUTPUT_CHARS} character(s)`);
   }
 
   const normalized = s.normalize('NFKC');
@@ -57,4 +71,13 @@ export function sanitizeScrapingOutput(input: string): SanitizeResult {
  */
 export function sanitize(input: string): string {
   return sanitizeScrapingOutput(input).cleaned;
+}
+
+function stripAndCount(input: string, pattern: RegExp): { cleaned: string; count: number } {
+  let count = 0;
+  const cleaned = input.replace(pattern, () => {
+    count++;
+    return '';
+  });
+  return { cleaned, count };
 }

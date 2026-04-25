@@ -100,7 +100,7 @@ export async function consumeToken(
 
     // `postgres` returns rows as an array-like. Drizzle's execute returns the
     // query result; we count rows to discriminate allow vs deny.
-    const rows = (result as unknown as Array<{ tokens: number }>);
+    const rows = result as unknown as Array<{ tokens: number }>;
     if (rows.length === 0) {
       // Row exists but refilled level is still below 1 → rejected. Compute
       // the wait by querying the current state for a retry-after hint.
@@ -177,7 +177,11 @@ export function rateLimitPg(db: Db, opts: RateLimitPgOptions): MiddlewareHandler
 
 export const ROUTE_CLASSES = {
   AUTH: { name: 'auth', capacity: 5, refillPerSec: 5 / 60 } satisfies RouteClassConfig,
-  CONNECTOR_OAUTH: { name: 'connector_oauth', capacity: 10, refillPerSec: 10 / 60 } satisfies RouteClassConfig,
+  CONNECTOR_OAUTH: {
+    name: 'connector_oauth',
+    capacity: 10,
+    refillPerSec: 10 / 60,
+  } satisfies RouteClassConfig,
   TASK: { name: 'task', capacity: 30, refillPerSec: 30 / 60 } satisfies RouteClassConfig,
   DEFAULT: { name: 'default', capacity: 100, refillPerSec: 100 / 60 } satisfies RouteClassConfig,
 } as const;

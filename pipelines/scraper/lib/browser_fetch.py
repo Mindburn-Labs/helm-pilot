@@ -2,7 +2,7 @@
 browser_fetch.py — Playwright-based fetcher for Cloudflare-protected classifieds.
 
 Uses a real Chromium instance to render JS and bypass bot protection. Required
-on the Fly OpenClaw machine where the Dockerfile installs Playwright via the
+in production containers where the Dockerfile installs Playwright via the
 OPENCLAW_INSTALL_BROWSER=1 build arg.
 
 Sites listed here are confirmed Cloudflare-blocked via plain curl. Each one
@@ -205,7 +205,7 @@ def fetch_one_site(page, site: dict) -> list[dict]:
 
 def main():
     if not HAVE_PLAYWRIGHT:
-        print("[browser_fetch] Playwright not installed — set OPENCLAW_INSTALL_BROWSER=1 in fly.toml or run `pip install playwright && playwright install chromium` locally", file=sys.stderr)
+        print("[browser_fetch] Playwright not installed — set OPENCLAW_INSTALL_BROWSER=1 in the production Docker build or run `pip install playwright && playwright install chromium` locally", file=sys.stderr)
         sys.exit(0)  # silent exit, not an error
 
     browsers_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")

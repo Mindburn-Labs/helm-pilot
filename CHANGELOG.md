@@ -145,7 +145,7 @@ changes; purely additive hardening + real dispatch where v1.2.0 shipped stubs.
 - **Connector token refresh** (Track B): pg-boss tick + per-grant job queue, advisory-lock serialization, 30-min proactive refresh window, 3-attempt permanent-failure threshold, Telegram re-auth notifier, `GET /api/connectors/reauth-status` endpoint. Migration `0011_connector_refresh_state.sql`.
 - **CI/CD hardening** (Track E): CycloneDX SBOM + SLSA L3 provenance via `actions/attest-build-provenance@v2`, Trivy CRITICAL/HIGH vulnerability gate, gitleaks job, license-audit script, weekly `restore-drill.yml` cron, staging smoke-test gate before prod promotion.
 - **Observability deepening** (Track D): 5 new Prometheus alerts (`HelmUnavailable`, `DbPoolSaturated`, `BackupMissedTwoRuns`, `TenantOverBudget`, `ConductorSpawnFailureRate`), Alertmanager config with Telegram + SMTP receivers + inhibit rule for HELM outage, OpenTelemetry GenAI semantic-conventions wrapper (`withAgentSpan`, `withToolSpan`, `setLlmUsageAttributes`, `setHelmAttributes`), GenAI-focused Grafana dashboard, Sentry + OTel env-var documentation.
-- **Real Fly.io Machines API v2 provider** (Track A): `FlyMachinesClient` with Zod-validated responses + typed `FlyApiError`, `FlyProvider` dual-mode (mock for dev / real for prod), blue-green rollback via `image_ref.tag` lookup. Vercel + DigitalOcean deferred to Phase 14.
+- **DigitalOcean production deployment path** (Track A): Droplet + Docker Compose topology for Pilot, HELM sidecar, Postgres, Caddy, and backup scheduling. Vercel deferred to Phase 14.
 - **Web dashboard mode pages + governance DAG** (Tracks C1+C2): `/decide`, `/launch`, `/apply`, `/governance` pages; `GET /api/governance/proofgraph/:taskId` recursive-CTE endpoint; pure-CSS DAG tree viewer (no new deps); `scripts/dump-proof-graph.ts` CLI emitting Graphviz DOT or JSON.
 - **Mini App re-auth banner** (Track C3): Polls `getReauthStatus(workspaceId)` every 60s; per-grant reconnect CTAs with session-local dismiss.
 - **Telegram bot orchestrator wiring** (Track C4): `/chat` free-text routes to `orchestrator.runTask`; new `/conduct <prompt>` command routes to `orchestrator.runConduct` (Phase 12 subagents). `BotDeps` gains `runTask?` and `runConduct?` callbacks.
@@ -155,7 +155,7 @@ changes; purely additive hardening + real dispatch where v1.2.0 shipped stubs.
 
 ### Deferred to Phase 14
 
-- Vercel + DigitalOcean launch providers
+- Vercel launch provider parity and deeper DigitalOcean automation
 - Playwright docker-stack shared fixture
 - Interactive DAG replay (re-execute node with modified inputs)
 - Mini App full per-mode tabs
@@ -185,5 +185,5 @@ changes; purely additive hardening + real dispatch where v1.2.0 shipped stubs.
 - Magic-link and Telegram authentication
 - Playwright E2E test suite
 - Prometheus metrics and alerting rules
-- Fly.io deployment configuration (gateway + HELM sidecar)
+- DigitalOcean deployment configuration (gateway + HELM sidecar)
 - Docker multi-stage build with non-root user

@@ -79,7 +79,7 @@
 |--------|----------------|----------------------|-------------|----------|
 | `money-engine/lib/oauth_handlers.py` | OAuth2 flow for Google, Stripe, Gumroad. Token management. | Rewrite Python→TS. Generalize into connector auth service. Add more providers. | `packages/connectors/auth/` | P2 |
 | `money-engine/skills/closer-inbox/SKILL.md` | Inbound message matching: query → product catalog match → response. | Generalize from classifieds inbox to any inbound channel handling. | `services/launch-engine/inbound/` | P3 |
-| `money-engine/skills/builder-landing/SKILL.md` | Landing page generation: index.html + fly.toml + Stripe price. | Keep as Build mode task type. Remove Fly.io-specific deploy (make deployment configurable). | `services/product-factory/tasks/landing.ts` | P2 |
+| `money-engine/skills/builder-landing/SKILL.md` | Landing page generation: index.html + provider deploy config + Stripe price. | Keep as Build mode task type. Make deployment configurable. | `services/product-factory/tasks/landing.ts` | P2 |
 | `money-engine/skills/builder-pdf/SKILL.md` | PDF artifact creation: content generation → PDF conversion → marketplace publish. | Keep as Build mode task type. Remove Gumroad-specific publish. | `services/product-factory/tasks/pdf.ts` | P2 |
 | `money-engine/state/playbook.md` | Living operational memory content: Mission, Non-negotiables, Heuristics. | Seed content for knowledge layer. Parse into structured timeline entries. | `services/memory/seed/` | P2 |
 | `openclaw/src/config/` | YAML config + Zod validation + hierarchical merge. | Simplify for HELM Pilot config needs. Keep Zod validation pattern. | `packages/shared/config/` | P1 |
@@ -106,7 +106,7 @@
 | Web UI | S13 | Next.js 16 dashboard with all product modes | P2 | DB schema, API layer, services |
 | Telegram Mini App | S13 | React + Telegram Web App SDK | P2 | Web components, bot auth |
 | Memory / knowledge layer | S16 | GBrain-style: compiled truth + timeline, MECE registry, hybrid search | P1 | DB schema (pgvector), GBrain patterns |
-| Deployment topology | S30 | Fly.io configs, Docker Compose local dev | P3 | All services stable |
+| Deployment topology | S30 | DigitalOcean configs, Docker Compose local dev | P3 | All services stable |
 | Self-hosting install flow | S32 | One-command Docker Compose → running system | P3 | All services, Docker configs |
 | Application workflow | S12 (Mode E) | YC application template, narrative builder, pitch deck helper | P2 | Founder profiles, knowledge layer |
 | Connector system | S26 | OAuth grants, token management, per-connector access control | P2 | DB schema, auth |
@@ -188,7 +188,7 @@
 19. Data migrations
 
 ### P3 — Ship
-20. Deployment (Fly.io + Docker Compose)
+20. Deployment (DigitalOcean + Docker Compose)
 21. Self-hosting flow
 22. CI/CD
 23. Documentation

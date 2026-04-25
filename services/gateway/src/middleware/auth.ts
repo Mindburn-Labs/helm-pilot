@@ -43,7 +43,12 @@ export function requireAuth(db: Db) {
           const newExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
           // Create new session, delete old (fire-and-forget)
           db.insert(sessions)
-            .values({ userId: sess.userId, token: newToken, channel: sess.channel, expiresAt: newExpiry })
+            .values({
+              userId: sess.userId,
+              token: newToken,
+              channel: sess.channel,
+              expiresAt: newExpiry,
+            })
             .then(() => db.delete(sessions).where(eq(sessions.id, sess.id)))
             .then(() => {})
             .catch(() => {});
@@ -55,15 +60,14 @@ export function requireAuth(db: Db) {
     // Fall back to API key
     if (!userId && apiKeyHeader) {
       const hash = hashApiKey(apiKeyHeader);
-      const [key] = await db
-        .select()
-        .from(apiKeys)
-        .where(eq(apiKeys.keyHash, hash))
-        .limit(1);
+      const [key] = await db.select().from(apiKeys).where(eq(apiKeys.keyHash, hash)).limit(1);
       if (key && (!key.expiresAt || key.expiresAt > new Date())) {
         userId = key.userId;
         // Update last used (fire-and-forget)
-        db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, key.id)).then(() => {});
+        db.update(apiKeys)
+          .set({ lastUsedAt: new Date() })
+          .where(eq(apiKeys.id, key.id))
+          .then(() => {});
       }
     }
 
@@ -77,7 +81,9 @@ export function requireAuth(db: Db) {
       const [membership] = await db
         .select()
         .from(workspaceMembers)
-        .where(and(eq(workspaceMembers.userId, userId), eq(workspaceMembers.workspaceId, workspaceId)))
+        .where(
+          and(eq(workspaceMembers.userId, userId), eq(workspaceMembers.workspaceId, workspaceId)),
+        )
         .limit(1);
       if (!membership) {
         return c.json({ error: 'Not a member of this workspace' }, 403);

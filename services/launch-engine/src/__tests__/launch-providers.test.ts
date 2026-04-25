@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { LaunchChecklist } from '../checklist.js';
 import { DistributionPlanner } from '../distribution.js';
-import { FlyProvider } from '../providers/fly.js';
+import { DigitalOceanProvider } from '../providers/digitalocean.js';
 import { VercelProvider } from '../providers/vercel.js';
 import type { LlmProvider } from '@helm-pilot/shared/llm';
 
@@ -29,29 +29,36 @@ describe('LaunchChecklist', () => {
   });
 });
 
-describe('FlyProvider', () => {
-  const fly = new FlyProvider();
+describe('DigitalOceanProvider', () => {
+  const digitalocean = new DigitalOceanProvider({ mock: true });
 
   it('provision returns a valid structure', async () => {
-    const result = await fly.provision({ appName: 'my-app', region: 'iad' });
-    expect(result.providerId).toContain('fly_my-app');
+    const result = await digitalocean.provision({ appName: 'my-app', region: 'nyc3' });
+    expect(result.providerId).toMatch(/[0-9a-f-]{36}/u);
     expect(result.appName).toBe('my-app');
-    expect(result.region).toBe('iad');
+    expect(result.region).toBe('nyc3');
     expect(result.status).toBe('provisioning');
-    expect(result.dashboardUrl).toBe('https://fly.io/apps/my-app');
+    expect(result.dashboardUrl).toContain('https://cloud.digitalocean.com/apps/');
     expect(result.createdAt).toBeTruthy();
   });
 
   it('deploy returns a URL', async () => {
-    const result = await fly.deploy({
-      providerId: 'fly_my-app_123',
-      image: 'registry.fly.io/my-app',
+    const result = await digitalocean.deploy({
+      providerId: '12345678-1234-1234-1234-123456789abc',
+      image: 'registry.digitalocean.com/helm-pilot/my-app',
       tag: 'v1.0.0',
     });
-    expect(result.url).toContain('fly.dev');
+    expect(result.url).toContain('ondigitalocean.app');
     expect(result.status).toBe('live');
     expect(result.version).toBe('v1.0.0');
     expect(result.deploymentId).toBeTruthy();
+  });
+
+  it('requires an app spec in real API mode', async () => {
+    const realProvider = new DigitalOceanProvider({ token: 'dop_v1_test', mock: false });
+    await expect(realProvider.provision({ appName: 'my-app', region: 'nyc3' })).rejects.toThrow(
+      /config\.appSpec/,
+    );
   });
 });
 
@@ -69,7 +76,13 @@ describe('VercelProvider', () => {
 
 describe('DistributionPlanner', () => {
   const planner = new DistributionPlanner();
-  const channels = ['producthunt', 'hackernews', 'twitter', 'linkedin', 'personal_network'] as const;
+  const channels = [
+    'producthunt',
+    'hackernews',
+    'twitter',
+    'linkedin',
+    'personal_network',
+  ] as const;
 
   it('generates drafts for all requested channels', async () => {
     const plan = await planner.planDistribution({

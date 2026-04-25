@@ -10,7 +10,7 @@ Snapshot as of the v1.0.0-rc cut. Items marked (🟢) ship in v1.0.0;
 - 🟢 Discover mode: YC + HN + ProductHunt + IndieHackers + GitHub trending + Reddit r/SaaS + Crunchbase RSS + YC blog intelligence pipeline
 - 🟢 Decide mode: adversarial decision court with bull/bear/referee/scenarios and cofounder matching
 - 🟢 Build mode: spec generation + scaffolding templates + HELM-governed GitHub commits
-- 🟢 Launch mode: real Fly Machines v2 provider with blue-green rollback (Phase 13 Track A)
+- 🟢 Launch mode: DigitalOcean deploy target with guarded deploy receipts
 - 🟢 Apply mode: YC/Techstars/Antler templates with HELM-escalated submissions
 - 🟢 Governance surface: receipts list + proof-graph DAG viewer + `dump-proof-graph.ts` CLI
 - 🟢 Governed subagents: Conductor + three built-ins (opportunity_scout, decision_facilitator, founder_diagnostician)
@@ -19,7 +19,7 @@ Snapshot as of the v1.0.0-rc cut. Items marked (🟢) ship in v1.0.0;
 
 ## Phase 14 — v1.1 (next)
 
-- 🟡 Vercel + DigitalOcean launch providers (mirror the Fly implementation)
+- 🟡 Vercel launch provider parity and deeper DigitalOcean automation
 - 🟡 `decision_court_run` tool wrapper enabling `decision_facilitator` to invoke the full court
 - 🟡 Four more built-in subagents: `build_engineer`, `launch_captain`, `application_drafter`, plus governed wrappers around the SMTM-Phase-11 ops (`content_strategist`, `seo_analyst`, `ads_operator`, `social_operator`, `finance_ops_lead`)
 - 🟡 Interactive DAG replay — re-execute an evidence-pack node with modified inputs (diff-render the new subtree)

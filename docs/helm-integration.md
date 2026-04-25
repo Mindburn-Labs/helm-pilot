@@ -26,7 +26,7 @@ HELM Pilot (Node.js)                       helm-oss (Go, :8080)
 └──────────────────────┘                   └──────────────────────────┘
 ```
 
-## What's Wired Today (Phase 1, partial)
+## What's Wired Today
 
 ### Docker sidecar
 
@@ -63,6 +63,10 @@ Set `HELM_IMAGE` in `.env` to pin a published image and skip the local build.
 - 5xx or network failure → retried up to 3 times with exponential backoff, then `HelmUnreachableError`.
 - A 403 verdict is NEVER retried; it's a definitive governance outcome.
 
+### Gateway and orchestrator wiring
+
+When `HELM_GOVERNANCE_URL` is set, `services/gateway/src/server.ts` builds a `HelmLlmProvider` instead of a direct provider. The orchestrator receives both that provider and the `HelmClient`, so LLM inference goes through HELM and receipts are persisted onto `task_runs` plus `evidence_packs`. If `HELM_FAIL_CLOSED=1`, `/health` reports degraded when HELM is unreachable.
+
 ### Policy pack
 
 `packs/founder_ops.v1.json` is HELM Pilot's policy bundle. It mirrors the structure of `helm-oss/reference_packs/exec_ops.v1.json`:
@@ -89,17 +93,9 @@ Three new columns on `task_runs` (`helm_decision_id`, `helm_policy_version`, `he
 - `GET /api/governance/receipts` — paginated workspace receipts (cursor pagination)
 - `GET /api/governance/receipts/:decisionId` — single receipt with the signed blob for offline verification
 
-## What's Not Wired Yet (remaining Phase 1)
+## What's Not Wired Yet
 
-1. **AgentLoop wiring.** `services/orchestrator/src/agent-loop.ts` still calls its local LLM provider directly. The next Phase 1 slice replaces that path with `HelmClient.chatCompletion()` and persists `receipt.decisionId` + `receipt.policyVersion` onto the `taskRuns` row. This is the change that makes the "every LLM call is governed" invariant real.
-
-2. **HelmTrustBoundary for tool calls.** helm-oss v0.3.0 does not yet expose a generic `POST /api/v1/guardian/evaluate` for non-LLM tool invocations (see §"Known gap" below). Until then, Pilot's local `TrustBoundary` stays authoritative for tool calls; HELM receipts only flow for LLM_INFERENCE actions.
-
-3. **Migration generation.** `npm run db:generate` needs to be run against the current schema to produce the `0005_governance.sql` migration artifact. Deferred to a database-attached session.
-
-4. **/health endpoint extension.** The gateway's `/health` should include HELM liveness as a sub-check (`checks.helm`) so the docker-compose healthcheck is end-to-end.
-
-5. **Fly.io deploy config.** `infra/fly/` needs a sibling app for the helm sidecar with internal networking.
+1. **HelmTrustBoundary for generic tool calls.** helm-oss v0.3.0 does not yet expose a generic `POST /api/v1/guardian/evaluate` for non-LLM tool invocations (see "Known gap" below). Until then, Pilot's local `TrustBoundary` stays authoritative for tool calls; HELM receipts flow for LLM_INFERENCE actions.
 
 ## Known Gap: Generic Guardian evaluate() endpoint
 
@@ -109,7 +105,7 @@ helm-oss v0.3.0 governs LLM calls via its OpenAI-proxy pattern at `/v1/chat/comp
 - `/api/v1/boundary/check` — network-egress-specific.
 - `/api/v1/obligation/create` — creates an obligation artifact, not an evaluation.
 
-For Pilot to enforce tool-level governance end-to-end (e.g. `github.commit`, `fly.deploy`, `launch.post_hackernews`), helm-oss needs a new endpoint:
+For Pilot to enforce tool-level governance end-to-end (e.g. `github.commit`, `digitalocean.deploy`, `launch.post_hackernews`), helm-oss needs a new endpoint:
 
 ```
 POST /api/v1/guardian/evaluate
@@ -132,15 +128,15 @@ The `HelmClient.evaluate()` method is reserved for this endpoint and throws `Hel
 
 ## Environment reference
 
-| Variable | Purpose | Default |
-|---|---|---|
-| `HELM_GOVERNANCE_URL` | Base URL of HELM's governed API | `http://helm:8080` in compose, `http://localhost:8420` on host |
-| `HELM_HEALTH_URL` | Base URL of HELM's health server | `http://helm:8081` / `http://localhost:8421` |
-| `HELM_FAIL_CLOSED` | When `1` (default) any HELM unreachability denies tool calls | `1` |
-| `HELM_UPSTREAM_URL` | Upstream LLM endpoint HELM forwards allowed requests to | `https://openrouter.ai/api/v1` |
-| `EVIDENCE_SIGNING_KEY` | Ed25519 signing key for evidence packs — use Docker/Fly secret in production | `pilot-dev-ephemeral-key-change-me` |
-| `HELM_IMAGE` | Pin a published HELM image instead of building from `../../../helm-oss` | unset → build locally |
-| `HELM_PORT` / `HELM_HEALTH_PORT` | Host ports for the sidecar | `8420` / `8421` |
+| Variable                         | Purpose                                                                           | Default                                                        |
+| -------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `HELM_GOVERNANCE_URL`            | Base URL of HELM's governed API                                                   | `http://helm:8080` in compose, `http://localhost:8420` on host |
+| `HELM_HEALTH_URL`                | Base URL of HELM's health server                                                  | `http://helm:8081` / `http://localhost:8421`                   |
+| `HELM_FAIL_CLOSED`               | When `1` (default) any HELM unreachability denies tool calls                      | `1`                                                            |
+| `HELM_UPSTREAM_URL`              | Upstream LLM endpoint HELM forwards allowed requests to                           | `https://openrouter.ai/api/v1`                                 |
+| `EVIDENCE_SIGNING_KEY`           | Ed25519 signing key for evidence packs — set from `.env.production` in production | `pilot-dev-ephemeral-key-change-me`                            |
+| `HELM_IMAGE`                     | Pin a published HELM image for DigitalOcean production or local compose           | `ghcr.io/mindburn-labs/helm-oss:latest`                        |
+| `HELM_PORT` / `HELM_HEALTH_PORT` | Host ports for the sidecar                                                        | `8420` / `8421`                                                |
 
 ## Offline receipt verification
 
@@ -159,9 +155,9 @@ The verification path is part of the launch-readiness definition of done. Until 
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Action |
-|---|---|---|
-| Every LLM call returns 500 with `HelmUnreachableError` | HELM sidecar unhealthy | `docker compose logs helm`, check `/healthz`, verify `EVIDENCE_SIGNING_KEY` set |
-| Agent loop blocks on `HelmDeniedError` | Policy bundle denies the action | Inspect receipt in `evidence_packs`, check which overlay triggered; review `packs/founder_ops.v1.json` |
-| Receipts table empty despite agent runs | `helmClient` not passed to orchestrator | Startup log should show `HELM client configured`; if not, check `HELM_GOVERNANCE_URL` |
-| HELM build fails on `docker compose build` | `../../../helm-oss` not present or out of date | `git clone https://github.com/Mindburn-Labs/helm-oss` as a sibling of HELM Pilot |
+| Symptom                                                | Likely cause                                   | Action                                                                                                 |
+| ------------------------------------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Every LLM call returns 500 with `HelmUnreachableError` | HELM sidecar unhealthy                         | `docker compose logs helm`, check `/healthz`, verify `EVIDENCE_SIGNING_KEY` set                        |
+| Agent loop blocks on `HelmDeniedError`                 | Policy bundle denies the action                | Inspect receipt in `evidence_packs`, check which overlay triggered; review `packs/founder_ops.v1.json` |
+| Receipts table empty despite agent runs                | `helmClient` not passed to orchestrator        | Startup log should show `HELM client configured`; if not, check `HELM_GOVERNANCE_URL`                  |
+| HELM build fails on `docker compose build`             | `../../../helm-oss` not present or out of date | `git clone https://github.com/Mindburn-Labs/helm-oss` as a sibling of HELM Pilot                       |

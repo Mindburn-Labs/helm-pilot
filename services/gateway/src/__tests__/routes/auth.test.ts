@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
-import { authRoutes } from '../../routes/auth.js';
+import { createHmac } from 'node:crypto';
+import { authenticatedAuthRoutes, authRoutes } from '../../routes/auth.js';
+import { createGateway } from '../../index.js';
 import {
   createMockDeps,
   testApp,
@@ -53,16 +55,35 @@ describe('authRoutes', () => {
       const json = await expectJson(res, 401);
       expect(json).toHaveProperty('error', 'Invalid Telegram initData');
     });
+
+    it('returns 401 when signed initData is stale', async () => {
+      const { fetch } = testApp(authRoutes);
+      const staleAuthDate = Math.floor(Date.now() / 1000) - 25 * 60 * 60;
+      const res = await fetch('POST', '/telegram', {
+        initData: signedTelegramInitData('test-token', staleAuthDate),
+      });
+      const json = await expectJson(res, 401);
+      expect(json).toHaveProperty('error', 'Invalid Telegram initData');
+    });
+
+    it('returns 401 when signed initData is too far in the future', async () => {
+      const { fetch } = testApp(authRoutes);
+      const futureAuthDate = Math.floor(Date.now() / 1000) + 120;
+      const res = await fetch('POST', '/telegram', {
+        initData: signedTelegramInitData('test-token', futureAuthDate),
+      });
+      const json = await expectJson(res, 401);
+      expect(json).toHaveProperty('error', 'Invalid Telegram initData');
+    });
   });
 
   // ─── POST /apikey ───
 
   describe('POST /apikey', () => {
-    it('returns 401 when userId is not set (no auth middleware)', async () => {
+    it('is not mounted on the public auth routes', async () => {
       const { fetch } = testApp(authRoutes);
       const res = await fetch('POST', '/apikey', { name: 'my-key' });
-      const json = await expectJson(res, 401);
-      expect(json).toHaveProperty('error', 'Unauthorized');
+      expect(res.status).toBe(404);
     });
 
     it('returns 201 with api key when userId is set', async () => {
@@ -73,7 +94,7 @@ describe('authRoutes', () => {
         c.set('userId', 'user-1');
         await next();
       });
-      app.route('/', authRoutes(deps));
+      app.route('/', authenticatedAuthRoutes(deps));
 
       const res = await app.fetch(
         new Request('http://localhost/apikey', {
@@ -86,6 +107,30 @@ describe('authRoutes', () => {
       expect(json.key).toMatch(/^hp_/);
       expect(json.name).toBe('ci-key');
       expect(json.expiresAt).toBeDefined();
+    });
+
+    it('is reachable through the full gateway only after auth middleware succeeds', async () => {
+      const deps = createMockDeps();
+      deps.db._setResult([mockSession({ token: 'session-token', createdAt: new Date() })]);
+      deps.db.insert = vi.fn(() => ({
+        values: vi.fn(() => Promise.resolve([])),
+      })) as any;
+      const app = createGateway(deps);
+
+      const res = await app.fetch(
+        new Request('http://localhost/api/auth/apikey', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer session-token',
+          },
+          body: JSON.stringify({ name: 'full-gateway-key' }),
+        }),
+      );
+
+      const json = await expectJson<{ key: string; name: string; expiresAt: string }>(res, 201);
+      expect(json.key).toMatch(/^hp_/);
+      expect(json.name).toBe('full-gateway-key');
     });
   });
 
@@ -107,7 +152,11 @@ describe('authRoutes', () => {
     });
 
     it('returns sent:true on success', async () => {
-      const deps = createMockDeps();
+      const sendMagicLink = vi.fn(async () => {});
+      const randomSpy = vi.spyOn(Math, 'random');
+      const deps = createMockDeps({
+        emailProvider: { kind: 'noop', sendMagicLink } as any,
+      });
       // First select (find user by email) returns nothing, then insert returns the new user
       deps.db.select = vi.fn(() => ({
         from: vi.fn(() => ({
@@ -134,9 +183,15 @@ describe('authRoutes', () => {
           body: JSON.stringify({ email: 'test@example.com' }),
         }),
       );
-      const json = await expectJson<{ sent: boolean; email: string }>(res, 200);
+      const json = await expectJson<{ sent: boolean; email: string; code?: string }>(res, 200);
       expect(json.sent).toBe(true);
       expect(json.email).toBe('test@example.com');
+      expect(json.code).toMatch(/^\d{6}$/);
+      expect(sendMagicLink).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'test@example.com', code: json.code }),
+      );
+      expect(randomSpy).not.toHaveBeenCalled();
+      randomSpy.mockRestore();
     });
   });
 
@@ -153,7 +208,10 @@ describe('authRoutes', () => {
     it('returns 401 when user not found', async () => {
       // Default mock db returns [] for selects, so user won't be found
       const { fetch } = testApp(authRoutes);
-      const res = await fetch('POST', '/email/verify', { email: 'ghost@example.com', code: '123456' });
+      const res = await fetch('POST', '/email/verify', {
+        email: 'ghost@example.com',
+        code: '123456',
+      });
       const json = await expectJson(res, 401);
       expect(json).toHaveProperty('error', 'Invalid code');
     });
@@ -231,3 +289,15 @@ describe('authRoutes', () => {
     });
   });
 });
+
+function signedTelegramInitData(botToken: string, authDate: number): string {
+  const params = new URLSearchParams();
+  params.set('auth_date', String(authDate));
+  params.set('user', JSON.stringify({ id: 123, first_name: 'Test' }));
+  const entries = [...params.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const dataCheckString = entries.map(([key, value]) => `${key}=${value}`).join('\n');
+  const secretKey = createHmac('sha256', 'WebAppData').update(botToken).digest();
+  const hash = createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+  params.set('hash', hash);
+  return params.toString();
+}

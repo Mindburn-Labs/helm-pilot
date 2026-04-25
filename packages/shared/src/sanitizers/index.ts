@@ -1,5 +1,1 @@
-export {
-  sanitize,
-  sanitizeScrapingOutput,
-  type SanitizeResult,
-} from './scrapling.js';
+export { sanitize, sanitizeScrapingOutput, type SanitizeResult } from './scrapling.js';

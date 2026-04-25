@@ -15,11 +15,11 @@ export ENCRYPTION_KEY=$(openssl rand -hex 32)
 export TELEGRAM_WEBHOOK_SECRET=$(openssl rand -hex 32)
 ```
 
-| Secret | Purpose | Risk if compromised |
-|--------|---------|---------------------|
-| `SESSION_SECRET` | HMAC signing for session tokens and OAuth state | Session forgery, CSRF bypass |
-| `ENCRYPTION_KEY` | AES-256-GCM encryption of connector OAuth tokens | Token theft for GitHub/Gmail/Drive |
-| `TELEGRAM_WEBHOOK_SECRET` | HMAC validation of incoming Telegram webhooks | Spoofed bot commands |
+| Secret                    | Purpose                                          | Risk if compromised                |
+| ------------------------- | ------------------------------------------------ | ---------------------------------- |
+| `SESSION_SECRET`          | HMAC signing for session tokens and OAuth state  | Session forgery, CSRF bypass       |
+| `ENCRYPTION_KEY`          | AES-256-GCM encryption of connector OAuth tokens | Token theft for GitHub/Gmail/Drive |
+| `TELEGRAM_WEBHOOK_SECRET` | HMAC validation of incoming Telegram webhooks    | Spoofed bot commands               |
 
 > ⚠️ **Never** use the default dev values in production. The `launch-gate.sh` script will flag this.
 
@@ -49,8 +49,9 @@ ENCRYPTION_KEY_NEW=$NEW_KEY \
 DATABASE_URL=$PROD_DATABASE_URL \
   tsx scripts/rotate-encryption-key.ts
 
-# 4. Swap the env var in production (Fly.io example)
-fly secrets set ENCRYPTION_KEY=$NEW_KEY --app helm-pilot
+# 4. Swap the env var in production
+scp .env.production root@$DO_DROPLET_IP:/opt/helm-pilot/current/.env
+ssh root@$DO_DROPLET_IP 'cd /opt/helm-pilot/current && docker compose -f infra/digitalocean/docker-compose.yml up -d helm-pilot'
 
 # 5. Verify — a subsequent agent run that uses a connector token should succeed
 ```
@@ -68,7 +69,7 @@ The agent loop treats all user-controlled and tool-output content as **untrusted
 
 **Known gaps:**
 
-- LLMs can still be convinced to misuse *allowed* tools in unexpected ways. Defense-in-depth: approval-gated sensitive tools (email send, financial actions, external posts).
+- LLMs can still be convinced to misuse _allowed_ tools in unexpected ways. Defense-in-depth: approval-gated sensitive tools (email send, financial actions, external posts).
 - The model may leak short strings from context into its reply. Do not place credentials, other users' data, or raw secrets into agent-visible context.
 
 **Testing:** See `services/orchestrator/src/__tests__/agent-loop.test.ts` for injection-resistance assertions.
@@ -109,13 +110,13 @@ Admins may execute the same deletion on behalf of a user via a direct DB query; 
 
 Built-in rate limiting by endpoint category:
 
-| Endpoint | Limit | Window |
-|----------|-------|--------|
-| `/api/auth/*` | 5 req | 1 min |
-| `/api/connectors/*/grant` | 10 req | 1 min |
-| `/api/connectors/*/token` | 10 req | 1 min |
-| `/api/tasks` | 30 req | 1 min |
-| `/api/*` (general) | 100 req | 1 min |
+| Endpoint                  | Limit   | Window |
+| ------------------------- | ------- | ------ |
+| `/api/auth/*`             | 5 req   | 1 min  |
+| `/api/connectors/*/grant` | 10 req  | 1 min  |
+| `/api/connectors/*/token` | 10 req  | 1 min  |
+| `/api/tasks`              | 30 req  | 1 min  |
+| `/api/*` (general)        | 100 req | 1 min  |
 
 For production, consider adding an external rate limiter (Cloudflare, nginx) for DDoS protection.
 
@@ -124,6 +125,7 @@ For production, consider adding an external rate limiter (Cloudflare, nginx) for
 ### CSRF Protection
 
 OAuth flows use HMAC-signed state parameters:
+
 - State = `{connectorId}:{workspaceId}:{nonce}:{hmac}`
 - HMAC computed with `SESSION_SECRET`
 - States expire after 10 minutes
@@ -149,6 +151,7 @@ OAuth flows use HMAC-signed state parameters:
 HELM Pilot does not terminate TLS directly. Use a reverse proxy:
 
 **Caddy (recommended — automatic HTTPS):**
+
 ```
 your-domain.com {
     reverse_proxy localhost:3100
@@ -156,6 +159,7 @@ your-domain.com {
 ```
 
 **nginx:**
+
 ```nginx
 server {
     listen 443 ssl;
@@ -174,6 +178,7 @@ server {
 ```
 
 **Cloudflare Tunnel (zero-config):**
+
 ```bash
 cloudflared tunnel --url http://localhost:3100
 ```
@@ -181,6 +186,7 @@ cloudflared tunnel --url http://localhost:3100
 ### CORS
 
 In production, explicitly set `ALLOWED_ORIGINS`:
+
 ```
 ALLOWED_ORIGINS=https://your-domain.com,https://app.your-domain.com
 ```
@@ -232,6 +238,7 @@ Set via workspace settings (`/api/workspace/settings`):
 ### Fail-Closed Behavior
 
 If `failClosed` is `true` (default), any policy validation failure blocks all actions. This means:
+
 - Missing or malformed budget config → all actions denied
 - Budget values out of range → all actions denied
 - Invalid `perTaskMax > dailyTotalMax` → all actions denied
@@ -241,6 +248,7 @@ If `failClosed` is `true` (default), any policy validation failure blocks all ac
 ### Connection Security
 
 For production PostgreSQL:
+
 ```
 DATABASE_URL=postgresql://helm:STRONG_PASSWORD@db-host:5432/helm_pilot?sslmode=require
 ```
@@ -262,6 +270,7 @@ bash scripts/backup.sh restore backup.sql.gz
 ## Audit Trail
 
 All mutating API requests are logged to the `audit_events` table:
+
 - User ID, workspace ID, action, resource, timestamp
 - Request body (sanitized — tokens/secrets redacted)
 - Response status code

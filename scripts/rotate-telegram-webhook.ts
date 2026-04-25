@@ -4,7 +4,7 @@
  *
  * 1. Generates a new secret
  * 2. Calls Telegram's setWebhook API with the new secret
- * 3. Prints the new value to set in your secret manager (Fly, .env, etc.)
+ * 3. Prints the new value to set in your secret manager (.env.production, etc.)
  *
  * Usage:
  *   TELEGRAM_BOT_TOKEN=<token> APP_URL=https://your-domain \

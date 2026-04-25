@@ -55,6 +55,27 @@ const checks: Check[] = [
     },
   },
   {
+    name: 'task_runs checkpoint columns exist',
+    run: async (sql) => {
+      const rows = await sql<{ column_name: string }[]>`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'task_runs'
+          AND column_name IN ('checkpoint_state', 'last_checkpoint_at', 'watchdog_alerted_at')
+      `;
+      return rows.length === 3;
+    },
+  },
+  {
+    name: 'task_runs running checkpoint index exists',
+    run: async (sql) => {
+      const rows = await sql<{ indexname: string }[]>`
+        SELECT indexname FROM pg_indexes
+        WHERE tablename = 'task_runs' AND indexname = 'task_runs_running_checkpoint_idx'
+      `;
+      return rows.length > 0;
+    },
+  },
+  {
     name: 'tasks triggers notify helm_pilot_events',
     run: async (sql) => {
       const rows = await sql<{ trigger_name: string }[]>`

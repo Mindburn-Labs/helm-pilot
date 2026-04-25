@@ -433,14 +433,7 @@ describe('Model Schemas', () => {
     });
 
     it('accepts all valid page types', () => {
-      const types = [
-        'person',
-        'company',
-        'opportunity',
-        'concept',
-        'source',
-        'project',
-      ] as const;
+      const types = ['person', 'company', 'opportunity', 'concept', 'source', 'project'] as const;
       for (const type of types) {
         expect(KnowledgePageSchema.parse({ ...valid(), type })).toBeDefined();
       }
@@ -523,9 +516,7 @@ describe('Input Validators', () => {
     });
 
     it('rejects description exceeding 10000 chars', () => {
-      expect(() =>
-        CreateTaskInput.parse({ ...valid(), description: 'x'.repeat(10001) }),
-      ).toThrow();
+      expect(() => CreateTaskInput.parse({ ...valid(), description: 'x'.repeat(10001) })).toThrow();
     });
 
     it('rejects non-uuid workspaceId', () => {
@@ -606,9 +597,7 @@ describe('Input Validators', () => {
     });
 
     it('rejects tool string exceeding 100 chars', () => {
-      expect(() =>
-        CreateOperatorInput.parse({ ...valid(), tools: ['x'.repeat(101)] }),
-      ).toThrow();
+      expect(() => CreateOperatorInput.parse({ ...valid(), tools: ['x'.repeat(101)] })).toThrow();
     });
   });
 
@@ -638,9 +627,7 @@ describe('Input Validators', () => {
     });
 
     it('rejects source exceeding 200 chars', () => {
-      expect(() =>
-        CreateOpportunityInput.parse({ ...valid(), source: 'x'.repeat(201) }),
-      ).toThrow();
+      expect(() => CreateOpportunityInput.parse({ ...valid(), source: 'x'.repeat(201) })).toThrow();
     });
 
     it('rejects empty title', () => {
@@ -654,9 +641,7 @@ describe('Input Validators', () => {
     });
 
     it('rejects invalid sourceUrl', () => {
-      expect(() =>
-        CreateOpportunityInput.parse({ ...valid(), sourceUrl: 'not-a-url' }),
-      ).toThrow();
+      expect(() => CreateOpportunityInput.parse({ ...valid(), sourceUrl: 'not-a-url' })).toThrow();
     });
 
     it('rejects sourceUrl exceeding 2000 chars', () => {
@@ -695,9 +680,7 @@ describe('Input Validators', () => {
     });
 
     it('rejects type exceeding 50 chars', () => {
-      expect(() =>
-        CreateKnowledgePageInput.parse({ ...valid(), type: 'x'.repeat(51) }),
-      ).toThrow();
+      expect(() => CreateKnowledgePageInput.parse({ ...valid(), type: 'x'.repeat(51) })).toThrow();
     });
 
     it('rejects empty title', () => {
@@ -747,9 +730,7 @@ describe('Input Validators', () => {
     });
 
     it('rejects empty eventType', () => {
-      expect(() =>
-        CreateTimelineEntryInput.parse({ eventType: '', content: 'text' }),
-      ).toThrow();
+      expect(() => CreateTimelineEntryInput.parse({ eventType: '', content: 'text' })).toThrow();
     });
 
     it('rejects eventType exceeding 100 chars', () => {
@@ -759,9 +740,7 @@ describe('Input Validators', () => {
     });
 
     it('rejects empty content', () => {
-      expect(() =>
-        CreateTimelineEntryInput.parse({ eventType: 'note', content: '' }),
-      ).toThrow();
+      expect(() => CreateTimelineEntryInput.parse({ eventType: 'note', content: '' })).toThrow();
     });
 
     it('rejects content exceeding 50000 chars', () => {
@@ -854,9 +833,7 @@ describe('Policy Schemas', () => {
     });
 
     it('rejects invalid budget nested values', () => {
-      expect(() =>
-        PolicyConfigSchema.parse({ budget: { dailyTotalMax: -1 } }),
-      ).toThrow();
+      expect(() => PolicyConfigSchema.parse({ budget: { dailyTotalMax: -1 } })).toThrow();
     });
   });
 
@@ -1482,9 +1459,7 @@ describe('loadConfig()', () => {
 
 describe('createLlmProvider()', () => {
   it('throws when no API keys are provided', () => {
-    expect(() => createLlmProvider({})).toThrow(
-      'No LLM API key configured',
-    );
+    expect(() => createLlmProvider({})).toThrow('No LLM API key configured');
   });
 
   it('throws with explicit undefined keys', () => {
@@ -1578,6 +1553,23 @@ describe('createLlmProvider()', () => {
     fetchSpy.mockRestore();
   });
 
+  it('falls back to Ollama when only Ollama config is set', () => {
+    const provider = createLlmProvider({
+      ollamaBaseUrl: 'http://localhost:11434',
+      ollamaModel: 'llama3.1:8b',
+    });
+    expect(provider).toBeDefined();
+    expect(typeof provider.complete).toBe('function');
+  });
+
+  it('requires an Ollama model when Ollama base URL is set', () => {
+    expect(() =>
+      createLlmProvider({
+        ollamaBaseUrl: 'http://localhost:11434',
+      }),
+    ).toThrow('OLLAMA_MODEL is required');
+  });
+
   it('accepts a custom model override', () => {
     const provider = createLlmProvider({
       openrouterApiKey: 'key',
@@ -1612,18 +1604,18 @@ describe('createLlmProvider()', () => {
     });
 
     it('throws on HTTP error', async () => {
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response('rate limited', { status: 429 }),
-      );
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response('rate limited', { status: 429 }));
       const provider = createLlmProvider({ openrouterApiKey: 'key' });
       await expect(provider.complete('test')).rejects.toThrow('OpenRouter error 429');
       fetchSpy.mockRestore();
     });
 
     it('throws on empty response', async () => {
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(JSON.stringify({ choices: [] })),
-      );
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify({ choices: [] })));
       const provider = createLlmProvider({ openrouterApiKey: 'key' });
       await expect(provider.complete('test')).rejects.toThrow('Empty response from OpenRouter');
       fetchSpy.mockRestore();
@@ -1662,18 +1654,18 @@ describe('createLlmProvider()', () => {
     });
 
     it('throws on HTTP error', async () => {
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response('server error', { status: 500 }),
-      );
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response('server error', { status: 500 }));
       const provider = createLlmProvider({ anthropicApiKey: 'key' });
       await expect(provider.complete('test')).rejects.toThrow('Anthropic error 500');
       fetchSpy.mockRestore();
     });
 
     it('throws on empty response', async () => {
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(JSON.stringify({ content: [] })),
-      );
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify({ content: [] })));
       const provider = createLlmProvider({ anthropicApiKey: 'key' });
       await expect(provider.complete('test')).rejects.toThrow('Empty response from Anthropic');
       fetchSpy.mockRestore();
@@ -1712,18 +1704,18 @@ describe('createLlmProvider()', () => {
     });
 
     it('throws on HTTP error', async () => {
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response('unauthorized', { status: 401 }),
-      );
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response('unauthorized', { status: 401 }));
       const provider = createLlmProvider({ openaiApiKey: 'key' });
       await expect(provider.complete('test')).rejects.toThrow('OpenAI error 401');
       fetchSpy.mockRestore();
     });
 
     it('throws on empty response', async () => {
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(JSON.stringify({ choices: [] })),
-      );
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify({ choices: [] })));
       const provider = createLlmProvider({ openaiApiKey: 'key' });
       await expect(provider.complete('test')).rejects.toThrow('Empty response from OpenAI');
       fetchSpy.mockRestore();

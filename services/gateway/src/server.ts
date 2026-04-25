@@ -59,7 +59,8 @@ async function main() {
   if (redisUrl) {
     try {
       const ioredis = await import('ioredis');
-      const RedisCtor = ioredis.Redis ?? (ioredis as unknown as { default: typeof ioredis.Redis }).default;
+      const RedisCtor =
+        ioredis.Redis ?? (ioredis as unknown as { default: typeof ioredis.Redis }).default;
       redis = new RedisCtor(redisUrl, {
         maxRetriesPerRequest: 3,
         enableOfflineQueue: false,
@@ -130,6 +131,8 @@ async function main() {
         openrouterApiKey: process.env['OPENROUTER_API_KEY'],
         anthropicApiKey: process.env['ANTHROPIC_API_KEY'],
         openaiApiKey: process.env['OPENAI_API_KEY'],
+        ollamaBaseUrl: process.env['OLLAMA_BASE_URL'],
+        ollamaModel: process.env['OLLAMA_MODEL'],
       });
       log.info('LLM provider: direct (no HELM)');
     }
@@ -166,10 +169,7 @@ async function main() {
   // Phase 12 — load governed subagent registry from packs/subagents/*.md.
   // Empty registry is fine; conductor tools just return a clear error.
   const subagentRegistry = SubagentRegistry.loadFromDisk();
-  log.info(
-    { count: subagentRegistry.size() },
-    'Subagent registry loaded',
-  );
+  log.info({ count: subagentRegistry.size() }, 'Subagent registry loaded');
 
   // Phase 14 (Track A) — load MCP server registry. Absent config file
   // → empty registry, subagents with `mcp_servers:` frontmatter boot
@@ -184,7 +184,9 @@ async function main() {
   // initialized AFTER the Orchestrator, but the refresh worker registered
   // inside the Orchestrator needs a notifier now. Use an adapter that
   // delegates to whichever NotificationService is later assigned.
-  let notificationsRef: import('@helm-pilot/telegram-bot/notifications').NotificationService | null = null;
+  let notificationsRef:
+    | import('@helm-pilot/telegram-bot/notifications').NotificationService
+    | null = null;
   const refreshNotifier: RefreshNotifier = {
     async reauthRequired(workspaceId, connectorName) {
       if (!notificationsRef) {
@@ -273,9 +275,8 @@ async function main() {
     // Wire approval push notifications via Telegram
     const notifications = new NotificationService(bot, db);
     notificationsRef = notifications;
-    orchestrator.agentLoop.setApprovalNotifier(
-      (workspaceId, approvalId, action, reason) =>
-        notifications.requestApproval(workspaceId, approvalId, action, reason),
+    orchestrator.agentLoop.setApprovalNotifier((workspaceId, approvalId, action, reason) =>
+      notifications.requestApproval(workspaceId, approvalId, action, reason),
     );
     log.info('Approval + re-auth notifications enabled via Telegram');
 
@@ -310,7 +311,11 @@ async function main() {
     await boss.stop({ graceful: true });
     await eventBus.stop().catch(() => {});
     if (redis) {
-      try { await redis.quit(); } catch { /* ignore */ }
+      try {
+        await redis.quit();
+      } catch {
+        /* ignore */
+      }
     }
     await flushSentry();
     await dbClose();

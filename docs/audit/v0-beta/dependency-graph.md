@@ -105,7 +105,7 @@ strategist/SKILL.md
   ├─▶ dispatches builder-landing/SKILL.md
   │    └─▶ reads state/pain.jsonl (picks opportunity)
   │    └─▶ writes state/experiments.jsonl
-  │    └─▶ external: Fly.io deploy, Stripe API
+  │    └─▶ external: DigitalOcean deploy, Stripe API
   │
   ├─▶ dispatches builder-pdf/SKILL.md
   │    └─▶ reads state/pain.jsonl
@@ -193,7 +193,7 @@ bot.py (read-only consumer)
 | Gmail/Google | oauth_handlers.py, closer, fetch_email | OAuth2 (credentials/*.json) | Inbox monitoring |
 | Stripe | oauth_handlers.py, builder-landing | OAuth2 / API key | Payments, product creation |
 | Gumroad | oauth_handlers.py, builder-pdf | OAuth2 / API key | Digital product sales |
-| Fly.io | builder-landing skill | CLI (fly auth) | Landing page deployment |
+| DigitalOcean | builder-landing skill | CLI/API auth | Landing page deployment |
 | Coinbase | accountant skill | API key | Crypto payment tracking |
 | PayPal | accountant skill | API key | Payment tracking |
 

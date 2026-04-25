@@ -14,6 +14,10 @@ permissions:
   contents: read
   pull-requests: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -45,16 +49,29 @@ jobs:
               packages/helm-client/*|\
               services/orchestrator/*|\
               services/decision-court/*|\
-              services/gateway/src/auth/*|\
-              services/gateway/src/rate-limit/*|\
-              packages/db/schema/*|\
+              services/gateway/src/index.ts|\
+              services/gateway/src/server.ts|\
+              services/gateway/src/routes/auth.ts|\
+              services/gateway/src/routes/governance.ts|\
+              services/gateway/src/middleware/auth.ts|\
+              services/gateway/src/middleware/rate-limit*.ts|\
+              packages/db/src/schema/*|\
               packages/db/migrations/*|\
               pipelines/*|\
               infra/docker/*|\
+              infra/digitalocean/*|\
+              scripts/launch-gate.sh|\
+              scripts/smoke-production-governance.sh|\
+              scripts/verify-schema.ts|\
+              .env.example|\
               README.md|\
               docs/index.md|\
               docs/overview.md|\
               docs/getting-started.md|\
+              docs/self-hosting.md|\
+              docs/env-reference.md|\
+              docs/runbook.md|\
+              docs/degradation-matrix.md|\
               SECURITY.md)
                 touched_protected=true
                 ;;

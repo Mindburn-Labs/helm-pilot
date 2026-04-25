@@ -4,11 +4,12 @@ Grafana dashboards + Prometheus alert rules for HELM Pilot.
 
 ## Sources
 
-HELM Pilot exposes Prometheus metrics on `GET /metrics` (served by the gateway on the same port as the HTTP API, default `3100`). On Fly.io, `fly.toml` also exposes them on port `9091` for the built-in Fly metrics scraper.
+HELM Pilot exposes Prometheus metrics on `GET /metrics` (served by the gateway on the same port as the HTTP API, default `3100`). In DigitalOcean production, Caddy proxies `/metrics` to the gateway and you can scrape the public HTTPS endpoint or an internal Docker-network target.
 
 Metrics prefix: `helm_pilot_*`
 
 Key metrics:
+
 - `helm_pilot_http_requests_total{method, route, status_code}`
 - `helm_pilot_http_request_duration_seconds{method, route, status_code}` (histogram)
 - `helm_pilot_http_errors_total{method, route, status_code}`
@@ -44,15 +45,9 @@ rule_files:
 
 Wire Prometheus Alertmanager to your preferred channel (Slack, PagerDuty, Email).
 
-## Fly.io scrape
+## DigitalOcean scrape
 
-Fly's hosted Prometheus scrapes every Fly machine's `:9091/metrics` automatically. To query:
-
-```
-https://api.fly.io/prometheus/<org>/<api-route>
-```
-
-See `https://fly.io/docs/reference/metrics/`.
+For the Droplet deployment, scrape the gateway service on the Docker network from a colocated Prometheus container or scrape the public Caddy endpoint if your monitoring stack is external.
 
 ## Self-hosted scrape
 

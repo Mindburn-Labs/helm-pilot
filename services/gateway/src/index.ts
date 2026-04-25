@@ -16,7 +16,7 @@ import { metricsMiddleware, metricsEndpoint } from './middleware/metrics.js';
 import { requestId } from './middleware/request-id.js';
 import { bodyLimit } from './middleware/body-limit.js';
 import { captureException } from '@helm-pilot/shared/errors/sentry';
-import { authRoutes } from './routes/auth.js';
+import { authenticatedAuthRoutes, authRoutes } from './routes/auth.js';
 import { founderRoutes } from './routes/founder.js';
 import { opportunityRoutes } from './routes/opportunity.js';
 import { taskRoutes } from './routes/task.js';
@@ -91,8 +91,8 @@ export function createGateway(deps: GatewayDeps) {
   app.use('*', metricsMiddleware());
 
   // ─── Body size limits (defense-in-depth) ───
-  app.use('*', bodyLimit(1_000_000));              // 1MB global default
-  app.use('/api/auth/*', bodyLimit(100_000));      // 100KB on auth endpoints
+  app.use('*', bodyLimit(1_000_000)); // 1MB global default
+  app.use('/api/auth/*', bodyLimit(100_000)); // 100KB on auth endpoints
 
   // ─── Security headers ───
   app.use('*', secureHeaders());
@@ -207,6 +207,7 @@ export function createGateway(deps: GatewayDeps) {
   // ─── Audit logging (after auth, logs mutating requests) ───
   app.use('/api/*', auditMiddleware(deps.db));
 
+  app.route('/api/auth', authenticatedAuthRoutes(deps));
   app.route('/api/founder', founderRoutes(deps));
   app.route('/api/opportunities', opportunityRoutes(deps));
   app.route('/api/tasks', taskRoutes(deps));
