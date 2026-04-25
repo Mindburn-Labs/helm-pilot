@@ -35,6 +35,30 @@ async function main() {
     log.fatal('DATABASE_URL is required');
     process.exit(1);
   }
+  if (process.env['NODE_ENV'] === 'production') {
+    if (!process.env['HELM_GOVERNANCE_URL']) {
+      log.fatal('HELM_GOVERNANCE_URL is required in production');
+      process.exit(1);
+    }
+    const directProviderKeys = [
+      'OPENROUTER_API_KEY',
+      'ANTHROPIC_API_KEY',
+      'OPENAI_API_KEY',
+      'VOYAGE_API_KEY',
+    ].filter((key) => !!process.env[key]);
+    if (directProviderKeys.length > 0) {
+      log.fatal(
+        { keys: directProviderKeys },
+        'Direct provider keys must not be present in Pilot production env; keep them on the HELM sidecar',
+      );
+      process.exit(1);
+    }
+    const origins = process.env['ALLOWED_ORIGINS'];
+    if (!origins || origins.split(',').some((origin) => origin.trim() === '*')) {
+      log.fatal('ALLOWED_ORIGINS must be explicit in production');
+      process.exit(1);
+    }
+  }
 
   // ─── Apply pending migrations (fail-fast) ───
   const runMigrationsEnv = (process.env['RUN_MIGRATIONS_ON_STARTUP'] ?? 'true').toLowerCase();
@@ -164,6 +188,7 @@ async function main() {
     getSecret: (workspaceId, kind) => tenantSecretStore.get(workspaceId, kind as never),
     platformFallback: llm,
     model: process.env['HELM_LLM_MODEL'] ?? 'anthropic/claude-sonnet-4',
+    allowDirectTenantProviders: process.env['NODE_ENV'] !== 'production',
   });
 
   // Phase 12 — load governed subagent registry from packs/subagents/*.md.

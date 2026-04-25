@@ -3,7 +3,6 @@ import {
   HelmClient,
   HelmDeniedError,
   HelmEscalationError,
-  HelmNotImplementedError,
   HelmUnreachableError,
   parseReceiptHeaders,
   normalizeVerdict,
@@ -254,12 +253,61 @@ describe('HelmClient.health', () => {
   });
 });
 
-describe('HelmClient.evaluate (not yet implemented upstream)', () => {
-  it('throws HelmNotImplementedError with a clear message', async () => {
-    const client = new HelmClient({ baseUrl: 'http://helm:8080', fetchImpl: vi.fn() });
+describe('HelmClient.evaluate', () => {
+  it('posts to canonical helm-oss evaluate and returns a synthesized receipt', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      makeResponse({
+        status: 200,
+        body: {
+          allow: true,
+          verdict: 'ALLOW',
+          receipt_id: 'rcpt-1',
+          decision_id: 'dec-1',
+          decision_hash: 'sha256:abc',
+          policy_ref: 'founder-ops-v1',
+          reason_code: 'ALLOW',
+        },
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = new HelmClient({ baseUrl: 'http://helm:8080', fetchImpl: fetchMock });
+    const result = await client.evaluate({
+      principal: 'workspace:ws-1/operator:agent',
+      action: 'TOOL_USE',
+      resource: 'scrapling_fetch',
+      args: { url: 'https://example.com' },
+      effectLevel: 'E2',
+      sessionId: 'task-1',
+    });
+
+    expect(result.receipt.decisionId).toBe('dec-1');
+    expect(result.receipt.receiptId).toBe('rcpt-1');
+    expect(result.receipt.verdict).toBe('ALLOW');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://helm:8080/api/v1/evaluate',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('throws HelmDeniedError when helm-oss returns allow=false', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      makeResponse({
+        status: 200,
+        body: {
+          allow: false,
+          receipt_id: 'rcpt-2',
+          decision_id: 'dec-2',
+          decision_hash: 'sha256:def',
+          policy_ref: 'founder-ops-v1',
+          reason_code: 'TOOL_BLOCKED',
+        },
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = new HelmClient({ baseUrl: 'http://helm:8080', fetchImpl: fetchMock });
     await expect(
-      client.evaluate({ principal: 'p', action: 'tool.use', resource: 'github.commit' }),
-    ).rejects.toBeInstanceOf(HelmNotImplementedError);
+      client.evaluate({ principal: 'p', action: 'TOOL_USE', resource: 'github.commit' }),
+    ).rejects.toBeInstanceOf(HelmDeniedError);
   });
 });
 

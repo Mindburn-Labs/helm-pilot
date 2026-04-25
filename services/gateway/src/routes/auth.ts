@@ -1,12 +1,21 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
-import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
-import { users, sessions, apiKeys, workspaces, workspaceMembers } from '@helm-pilot/db/schema';
+import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import {
+  users,
+  sessions,
+  apiKeys,
+  workspaces,
+  workspaceMembers,
+  auditLog,
+} from '@helm-pilot/db/schema';
 import { generateToken, generateApiKey, hashApiKey } from '../middleware/auth.js';
 import { type GatewayDeps } from '../index.js';
 
 const TELEGRAM_AUTH_MAX_AGE_SECONDS = 24 * 60 * 60;
 const TELEGRAM_AUTH_FUTURE_SKEW_SECONDS = 60;
+const EMAIL_CODE_TTL_MS = 15 * 60 * 1000;
+const EMAIL_CODE_MAX_ATTEMPTS = 5;
 
 export function authRoutes(deps: GatewayDeps) {
   const app = new Hono();
@@ -98,14 +107,15 @@ export function authRoutes(deps: GatewayDeps) {
   // POST /api/auth/email/request — Request magic link
   app.post('/email/request', async (c) => {
     const body = await c.req.json();
-    const { email } = body as { email: string };
+    const rawEmail = (body as { email: string }).email;
+    const email = normalizeEmail(rawEmail);
     if (!email || !email.includes('@')) {
       return c.json({ error: 'Valid email required' }, 400);
     }
 
-    // Generate a magic link token (6-digit code + random token)
-    const magicToken = generateToken();
+    // Generate a crypto-backed 6-digit code and store only an HMAC digest.
     const code = randomInt(100000, 1000000).toString();
+    const magicToken = createMagicCodeSessionToken(email, code);
 
     // Store as a session with 'email_pending' channel (15-min expiry)
     // Find or create user by email
@@ -120,10 +130,10 @@ export function authRoutes(deps: GatewayDeps) {
     if (!user) return c.json({ error: 'Failed to create user' }, 500);
 
     // Store magic link token in sessions
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+    const expiresAt = new Date(Date.now() + EMAIL_CODE_TTL_MS);
     await deps.db.insert(sessions).values({
       userId: user.id,
-      token: `magic:${code}:${magicToken}`,
+      token: magicToken,
       channel: 'email_pending',
       expiresAt,
     });
@@ -137,9 +147,21 @@ export function authRoutes(deps: GatewayDeps) {
       if (deps.emailProvider) {
         await deps.emailProvider.sendMagicLink({ to: email, code, linkUrl });
       }
+      await recordAuthAudit(deps, {
+        action: 'auth.email.request',
+        actor: email,
+        verdict: 'allow',
+        reason: 'magic_code_issued',
+      });
     } catch (err) {
       const log = (await import('@helm-pilot/shared/logger')).createLogger('auth');
       log.error({ err, email }, 'Failed to send magic link email');
+      await recordAuthAudit(deps, {
+        action: 'auth.email.request',
+        actor: email,
+        verdict: 'deny',
+        reason: 'email_delivery_failed',
+      });
       // In production, fail the request — user has no way to get the code.
       // In dev, still return the code so developers can log in.
       if (!isDev) {
@@ -159,7 +181,9 @@ export function authRoutes(deps: GatewayDeps) {
   // POST /api/auth/email/verify — Verify magic link code
   app.post('/email/verify', async (c) => {
     const body = await c.req.json();
-    const { email, code } = body as { email: string; code: string };
+    const rawEmail = (body as { email: string; code: string }).email;
+    const email = normalizeEmail(rawEmail);
+    const { code } = body as { email: string; code: string };
     if (!email || !code) {
       return c.json({ error: 'email and code required' }, 400);
     }
@@ -171,14 +195,21 @@ export function authRoutes(deps: GatewayDeps) {
     // Find the magic session
     const allSessions = await deps.db.select().from(sessions).where(eq(sessions.userId, user.id));
 
-    const magicSession = allSessions.find(
-      (s) =>
-        s.channel === 'email_pending' &&
-        s.token.startsWith(`magic:${code}:`) &&
-        new Date(s.expiresAt) > new Date(),
+    const pendingSessions = allSessions.filter(
+      (s) => s.channel === 'email_pending' && new Date(s.expiresAt) > new Date(),
     );
+    const magicSession = pendingSessions.find((s) => isMagicCodeSessionMatch(email, code, s.token));
 
-    if (!magicSession) return c.json({ error: 'Invalid or expired code' }, 401);
+    if (!magicSession) {
+      await recordFailedMagicCodeAttempt(deps, pendingSessions);
+      await recordAuthAudit(deps, {
+        action: 'auth.email.verify',
+        actor: email,
+        verdict: 'deny',
+        reason: 'invalid_or_expired_code',
+      });
+      return c.json({ error: 'Invalid or expired code' }, 401);
+    }
 
     // Delete the magic session
     await deps.db.delete(sessions).where(eq(sessions.id, magicSession.id));
@@ -212,6 +243,12 @@ export function authRoutes(deps: GatewayDeps) {
       token,
       channel: 'email',
       expiresAt,
+    });
+    await recordAuthAudit(deps, {
+      action: 'auth.email.verify',
+      actor: email,
+      verdict: 'allow',
+      reason: 'magic_code_redeemed',
     });
 
     let workspaceName = 'Workspace';
@@ -335,6 +372,115 @@ export function authenticatedAuthRoutes(deps: GatewayDeps) {
   });
 
   return app;
+}
+
+function normalizeEmail(email: unknown): string {
+  return typeof email === 'string' ? email.trim().toLowerCase() : '';
+}
+
+function createMagicCodeSessionToken(email: string, code: string): string {
+  const salt = randomBytes(16).toString('base64url');
+  const digest = hashMagicCode(email, code, salt);
+  return `magic:v2:${salt}:${digest}:0:${generateToken()}`;
+}
+
+function hashMagicCode(email: string, code: string, salt: string): string {
+  const secret = process.env['SESSION_SECRET'] ?? 'dev-session-secret';
+  return createHmac('sha256', secret)
+    .update('helm-pilot:email-code:v2')
+    .update('\0')
+    .update(email)
+    .update('\0')
+    .update(salt)
+    .update('\0')
+    .update(code)
+    .digest('hex');
+}
+
+function isMagicCodeSessionMatch(email: string, code: string, token: string): boolean {
+  const parsed = parseMagicCodeSessionToken(token);
+  if (!parsed) return false;
+
+  if (parsed.version === 'legacy') {
+    return timingSafeStringEqual(code, parsed.code);
+  }
+
+  if (parsed.attempts >= EMAIL_CODE_MAX_ATTEMPTS) return false;
+  return timingSafeHexEqual(hashMagicCode(email, code, parsed.salt), parsed.digest);
+}
+
+function parseMagicCodeSessionToken(
+  token: string,
+):
+  | { version: 'v2'; salt: string; digest: string; attempts: number; nonce: string }
+  | { version: 'legacy'; code: string }
+  | null {
+  const parts = token.split(':');
+  if (parts[0] !== 'magic') return null;
+
+  if (parts[1] === 'v2') {
+    const [, , salt, digest, attemptsRaw, nonce] = parts;
+    const attempts = Number(attemptsRaw);
+    if (!salt || !digest || !Number.isInteger(attempts) || !nonce) return null;
+    return { version: 'v2', salt, digest, attempts, nonce };
+  }
+
+  if (parts.length >= 3 && /^\d{6}$/.test(parts[1] ?? '')) {
+    return { version: 'legacy', code: parts[1] ?? '' };
+  }
+
+  return null;
+}
+
+async function recordFailedMagicCodeAttempt(
+  deps: GatewayDeps,
+  pendingSessions: Array<{ id: string; token: string }>,
+) {
+  for (const session of pendingSessions) {
+    const parsed = parseMagicCodeSessionToken(session.token);
+    if (!parsed || parsed.version !== 'v2') continue;
+
+    const attempts = parsed.attempts + 1;
+    if (attempts >= EMAIL_CODE_MAX_ATTEMPTS) {
+      await deps.db.delete(sessions).where(eq(sessions.id, session.id));
+      continue;
+    }
+
+    const nextToken = `magic:v2:${parsed.salt}:${parsed.digest}:${attempts}:${parsed.nonce}`;
+    await deps.db.update(sessions).set({ token: nextToken }).where(eq(sessions.id, session.id));
+  }
+}
+
+function timingSafeHexEqual(leftHex: string, rightHex: string): boolean {
+  if (!/^[0-9a-f]{64}$/i.test(leftHex) || !/^[0-9a-f]{64}$/i.test(rightHex)) return false;
+  const left = Buffer.from(leftHex, 'hex');
+  const right = Buffer.from(rightHex, 'hex');
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+function timingSafeStringEqual(left: string, right: string): boolean {
+  const leftBytes = Buffer.from(left);
+  const rightBytes = Buffer.from(right);
+  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
+}
+
+async function recordAuthAudit(
+  deps: GatewayDeps,
+  entry: { action: string; actor: string; verdict: string; reason: string },
+) {
+  try {
+    await deps.db.insert(auditLog).values({
+      workspaceId: null,
+      action: entry.action,
+      actor: entry.actor,
+      target: 'email_login',
+      verdict: entry.verdict,
+      reason: entry.reason,
+      metadata: {},
+    });
+  } catch {
+    // Public auth must not fail closed because an audit insert failed.
+  }
 }
 
 // ─── Telegram Init Data Validation ───

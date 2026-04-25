@@ -1,10 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  MultimodalError,
-  analyzeImage,
-  parsePdf,
-  parsePdfBase64,
-} from '../multimodal/index.js';
+import { MultimodalError, analyzeImage, parsePdf, parsePdfBase64 } from '../multimodal/index.js';
 
 // ─── Multimodal tests (Phase 15 Track K) ───
 //
@@ -20,6 +15,7 @@ const FAKE_ANTHROPIC_KEY = 'sk-ant-FAKE-test-key';
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn());
   delete process.env['ANTHROPIC_API_KEY'];
+  delete process.env['NODE_ENV'];
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -82,6 +78,18 @@ describe('analyzeImage', () => {
         imageBase64: TINY_PNG_BASE64,
         mediaType: 'image/png',
         question: 'what',
+      }),
+    ).rejects.toMatchObject({ name: 'MultimodalError', code: 'not_installed' });
+  });
+
+  it('blocks direct provider calls in production', async () => {
+    process.env['NODE_ENV'] = 'production';
+    await expect(
+      analyzeImage({
+        imageBase64: TINY_PNG_BASE64,
+        mediaType: 'image/png',
+        question: 'what',
+        apiKey: FAKE_ANTHROPIC_KEY,
       }),
     ).rejects.toMatchObject({ name: 'MultimodalError', code: 'not_installed' });
   });

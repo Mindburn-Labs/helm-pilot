@@ -1,9 +1,4 @@
-import {
-  HelmDeniedError,
-  HelmEscalationError,
-  HelmNotImplementedError,
-  HelmUnreachableError,
-} from './errors.js';
+import { HelmDeniedError, HelmEscalationError, HelmUnreachableError } from './errors.js';
 import { parseReceiptHeaders } from './receipts.js';
 import type {
   ChatCompletionRequest,
@@ -45,8 +40,15 @@ const DEFAULT_BASE_BACKOFF_MS = 100;
  */
 export class HelmClient {
   private readonly cfg: Required<
-    Omit<HelmClientConfig, 'healthUrl' | 'defaultPrincipal' | 'adminApiKey' | 'onReceipt' | 'fetchImpl'>
-  > & Pick<HelmClientConfig, 'healthUrl' | 'defaultPrincipal' | 'adminApiKey' | 'onReceipt' | 'fetchImpl'>;
+    Omit<
+      HelmClientConfig,
+      'healthUrl' | 'defaultPrincipal' | 'adminApiKey' | 'onReceipt' | 'fetchImpl'
+    >
+  > &
+    Pick<
+      HelmClientConfig,
+      'healthUrl' | 'defaultPrincipal' | 'adminApiKey' | 'onReceipt' | 'fetchImpl'
+    >;
 
   constructor(cfg: HelmClientConfig) {
     if (!cfg.baseUrl) throw new Error('HelmClient: baseUrl is required');
@@ -59,7 +61,7 @@ export class HelmClient {
       maxRetries: cfg.maxRetries ?? DEFAULT_MAX_RETRIES,
       baseBackoffMs: cfg.baseBackoffMs ?? DEFAULT_BASE_BACKOFF_MS,
       failClosed: cfg.failClosed ?? true,
-      evaluateEnabled: cfg.evaluateEnabled ?? false,
+      evaluateEnabled: cfg.evaluateEnabled ?? true,
       onReceipt: cfg.onReceipt,
       fetchImpl: cfg.fetchImpl ?? globalThis.fetch,
     };
@@ -148,47 +150,33 @@ export class HelmClient {
     }
   }
 
-  /**
-   * Generic governance evaluation — reserved for the upstream `POST
-   * /api/v1/guardian/evaluate` endpoint that helm-oss does not yet expose.
-   *
-   * Until that endpoint ships, tool-call governance is performed by the local
-   * Pilot TrustBoundary while LLM calls are already governed via
-   * {@link chatCompletion}.
-   */
+  /** Generic governance evaluation for tool, deploy, scraping, and external actions. */
   async evaluate(req: EvaluateRequest): Promise<EvaluateResult> {
-    // Phase 13.5 — real implementation. Gated on this.cfg.evaluateEnabled
-    // (or env HELM_EVALUATE_ENABLED=1) so builds against helm-oss v0.3.0
-    // (no endpoint) still fail closed. Flip to true once the upstream
-    // POST /api/v1/guardian/evaluate handler lands in v0.3.1.
-    const enabled =
-      this.cfg.evaluateEnabled === true ||
-      (typeof process !== 'undefined' &&
-        process.env?.['HELM_EVALUATE_ENABLED'] === '1');
-    if (!enabled) {
-      throw new HelmNotImplementedError(
-        'Generic HELM evaluate() is disabled. Set HELM_EVALUATE_ENABLED=1 ' +
-          '(or HelmClientConfig.evaluateEnabled=true) once the upstream ' +
-          'POST /api/v1/guardian/evaluate endpoint is available.',
-      );
-    }
-
     const principal = req.principal || this.cfg.defaultPrincipal || 'anonymous';
-    const url = `${this.cfg.baseUrl}/api/v1/guardian/evaluate`;
+    const url = `${this.cfg.baseUrl}/api/v1/evaluate`;
+    const context = req.context ?? {};
     const response = await this.governedFetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Helm-Principal': principal,
-        ...(this.cfg.adminApiKey
-          ? { Authorization: `Bearer ${this.cfg.adminApiKey}` }
-          : {}),
+        ...(this.cfg.adminApiKey ? { Authorization: `Bearer ${this.cfg.adminApiKey}` } : {}),
       },
       body: JSON.stringify({
-        principal,
-        action: req.action,
-        resource: req.resource,
-        context: req.context ?? {},
+        tool: req.action,
+        args: req.args ?? context,
+        agent_id: principal,
+        effect_level: req.effectLevel ?? stringContextValue(context, 'effectLevel') ?? req.action,
+        session_id:
+          req.sessionId ??
+          stringContextValue(context, 'sessionId') ??
+          `${principal}:${req.action}:${req.resource}`,
+        context: {
+          ...context,
+          principal,
+          action: req.action,
+          resource: req.resource,
+        },
       }),
     });
 
@@ -211,17 +199,26 @@ export class HelmClient {
       );
     }
 
-    if (!receipt) {
-      throw new HelmUnreachableError(
-        'HELM response missing governance receipt headers on a 2xx evaluate',
-      );
+    const body = (await response.json()) as HelmEvaluateBody;
+    const effectiveReceipt = receipt ?? receiptFromEvaluateBody(body, ctx);
+    if (!effectiveReceipt) {
+      throw new HelmUnreachableError('HELM evaluate response missing receipt fields');
     }
 
-    await this.emitReceipt(receipt);
+    await this.emitReceipt(effectiveReceipt);
+
+    const verdict = normalizeEvaluateVerdict(body);
+    const reason = body.reason_code ?? body.reason ?? body.error ?? 'governance denied';
+    if (verdict === 'DENY') throw new HelmDeniedError({ ...effectiveReceipt, reason }, reason);
+    if (verdict === 'ESCALATE') {
+      throw new HelmEscalationError({ ...effectiveReceipt, reason }, reason);
+    }
 
     const evidencePackId =
-      response.headers.get('x-helm-evidence-pack-id') ?? undefined;
-    return { receipt, evidencePackId };
+      response.headers.get('x-helm-evidence-pack-id') ??
+      stringField(body, 'evidence_pack_id') ??
+      stringField(body, 'evidencePackId');
+    return { receipt: effectiveReceipt, evidencePackId };
   }
 
   // ─── Phase 14 Track F — helm-oss endpoint integration ───
@@ -317,9 +314,7 @@ export class HelmClient {
   }
 
   private adminHeaders(): Record<string, string> {
-    return this.cfg.adminApiKey
-      ? { Authorization: `Bearer ${this.cfg.adminApiKey}` }
-      : {};
+    return this.cfg.adminApiKey ? { Authorization: `Bearer ${this.cfg.adminApiKey}` } : {};
   }
 
   // ─── internals ───
@@ -340,13 +335,14 @@ export class HelmClient {
           attempt,
         );
       } catch (err) {
-        lastErr = err instanceof HelmUnreachableError
-          ? err
-          : new HelmUnreachableError(
-              err instanceof Error ? err.message : String(err),
-              err,
-              attempt,
-            );
+        lastErr =
+          err instanceof HelmUnreachableError
+            ? err
+            : new HelmUnreachableError(
+                err instanceof Error ? err.message : String(err),
+                err,
+                attempt,
+              );
       }
       if (attempt < this.cfg.maxRetries) {
         await sleep(this.backoffFor(attempt));
@@ -374,10 +370,7 @@ export class HelmClient {
     return Math.round(base + (Math.random() * 2 - 1) * jitter);
   }
 
-  private async handleForbidden(
-    response: Response,
-    receipt: HelmReceipt | null,
-  ): Promise<never> {
+  private async handleForbidden(response: Response, receipt: HelmReceipt | null): Promise<never> {
     const reason = await readReason(response);
     if (!receipt) {
       throw new HelmUnreachableError(
@@ -436,4 +429,73 @@ function extractVersionFromHealth(text: string): string | null {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+interface HelmEvaluateBody {
+  allow?: boolean;
+  verdict?: string;
+  receipt_id?: string;
+  receiptId?: string;
+  decision_id?: string;
+  decisionId?: string;
+  decision_hash?: string;
+  decisionHash?: string;
+  reason_code?: string;
+  reason?: string;
+  error?: string;
+  policy_ref?: string;
+  policyRef?: string;
+  policy_version?: string;
+  policyVersion?: string;
+  evidence_pack_id?: string;
+  evidencePackId?: string;
+  signature?: unknown;
+  signed_blob?: unknown;
+  signedBlob?: unknown;
+}
+
+function receiptFromEvaluateBody(
+  body: HelmEvaluateBody,
+  ctx: { action: string; resource: string; principal: string },
+): HelmReceipt | null {
+  const decisionId =
+    stringField(body, 'decision_id') ??
+    stringField(body, 'decisionId') ??
+    stringField(body, 'receipt_id') ??
+    stringField(body, 'receiptId');
+  const policyVersion =
+    stringField(body, 'policy_ref') ??
+    stringField(body, 'policyRef') ??
+    stringField(body, 'policy_version') ??
+    stringField(body, 'policyVersion');
+  if (!decisionId || !policyVersion) return null;
+  return {
+    decisionId,
+    receiptId: stringField(body, 'receipt_id') ?? stringField(body, 'receiptId'),
+    verdict: normalizeEvaluateVerdict(body),
+    policyVersion,
+    decisionHash: stringField(body, 'decision_hash') ?? stringField(body, 'decisionHash'),
+    receivedAt: new Date(),
+    action: ctx.action,
+    resource: ctx.resource,
+    principal: ctx.principal,
+    reason: body.reason_code ?? body.reason ?? body.error,
+    signedBlob: body.signed_blob ?? body.signedBlob ?? body.signature,
+  };
+}
+
+function normalizeEvaluateVerdict(body: HelmEvaluateBody): HelmReceipt['verdict'] {
+  const raw = body.verdict?.trim().toUpperCase();
+  if (raw === 'ALLOW' || raw === 'DENY' || raw === 'ESCALATE') return raw;
+  return body.allow === false ? 'DENY' : 'ALLOW';
+}
+
+function stringField<T extends object>(body: T, key: keyof T): string | undefined {
+  const value = body[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function stringContextValue(context: Record<string, unknown>, key: string): string | undefined {
+  const value = context[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }

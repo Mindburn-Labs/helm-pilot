@@ -7,6 +7,13 @@ const mockEngine = {
   getArtifact: vi.fn(async () => null),
   listDeployments: vi.fn(async () => []),
   listDeployTargets: vi.fn(async () => []),
+  getDeployTarget: vi.fn(async () => ({
+    id: 'target-1',
+    workspaceId: 'ws-1',
+    name: 'prod',
+    provider: 'digitalocean',
+    config: { image: 'registry.example.com/app:v1' },
+  })),
   createDeployTarget: vi.fn(async () => ({
     id: 'target-1',
     name: 'prod',
@@ -17,12 +24,41 @@ const mockEngine = {
     targetId: 'target-1',
     status: 'pending',
   })),
+  deployToTarget: vi.fn(async () => ({
+    deployment: {
+      id: 'deploy-1',
+      workspaceId: 'ws-1',
+      targetId: 'target-1',
+      status: 'live',
+      url: 'https://app.ondigitalocean.app',
+    },
+    providerDeployment: {
+      deploymentId: 'do-deploy-1',
+      status: 'live',
+      url: 'https://app.ondigitalocean.app',
+    },
+  })),
+  getDeployment: vi.fn(async () => ({
+    id: 'dep-1',
+    workspaceId: 'ws-1',
+    targetId: 'target-1',
+    metadata: { providerId: 'do-app-1', providerDeploymentId: 'do-deploy-1' },
+  })),
   updateDeploymentStatus: vi.fn(async () => null),
   recordHealthCheck: vi.fn(async () => ({ id: 'hc-1', status: 'healthy' })),
+  runDeploymentHealthCheck: vi.fn(async () => ({
+    check: { id: 'hc-1', status: 'healthy' },
+    result: { healthy: true, status: 200, responseTimeMs: 42 },
+  })),
+  rollbackDeployment: vi.fn(async () => ({
+    deployment: { id: 'dep-1', status: 'rolled_back' },
+    result: { status: 'rolled_back' },
+  })),
 };
 
 vi.mock('@helm-pilot/launch-engine', () => ({
   LaunchEngine: vi.fn().mockImplementation(() => mockEngine),
+  DigitalOceanProvider: vi.fn().mockImplementation(() => ({ name: 'digitalocean' })),
 }));
 
 beforeEach(() => {
@@ -165,15 +201,24 @@ describe('launchRoutes', () => {
       const res = await fetch('POST', '/deployments', {
         workspaceId: 'ws-1',
         targetId: 'target-1',
+        image: 'registry.example.com/app:v1',
       });
       const json = await expectJson(res, 201);
 
-      expect(mockEngine.recordDeployment).toHaveBeenCalledWith('ws-1', {
-        targetId: 'target-1',
-        artifactId: undefined,
-        version: undefined,
-      });
-      expect(json).toEqual({ id: 'deploy-1', targetId: 'target-1', status: 'pending' });
+      expect(mockEngine.deployToTarget).toHaveBeenCalledWith(
+        'ws-1',
+        {
+          targetId: 'target-1',
+          artifactId: undefined,
+          version: undefined,
+          image: 'registry.example.com/app:v1',
+          appName: undefined,
+          region: undefined,
+          envVars: undefined,
+        },
+        expect.objectContaining({ name: 'digitalocean' }),
+      );
+      expect(json.deployment.status).toBe('live');
     });
   });
 
@@ -214,18 +259,14 @@ describe('launchRoutes', () => {
   describe('POST /deployments/:id/health', () => {
     it('returns 201 on success', async () => {
       const { fetch } = testApp(launchRoutes);
-      const res = await fetch('POST', '/deployments/dep-1/health', {
-        status: 'healthy',
-        responseTimeMs: '42',
-      });
+      const res = await fetch('POST', '/deployments/dep-1/health');
       const json = await expectJson(res, 201);
 
-      expect(mockEngine.recordHealthCheck).toHaveBeenCalledWith('dep-1', {
-        status: 'healthy',
-        responseTimeMs: '42',
-        details: undefined,
-      });
-      expect(json).toEqual({ id: 'hc-1', status: 'healthy' });
+      expect(mockEngine.runDeploymentHealthCheck).toHaveBeenCalledWith(
+        'dep-1',
+        expect.objectContaining({ name: 'digitalocean' }),
+      );
+      expect(json.check).toEqual({ id: 'hc-1', status: 'healthy' });
     });
   });
 });

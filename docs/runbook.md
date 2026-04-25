@@ -30,14 +30,14 @@ Symptoms: users report not receiving email magic link, or verify returns 401 des
   ```sql
   SELECT COUNT(*), MAX(created_at) FROM sessions WHERE channel = 'email_pending';
   ```
-- If Resend API is down: temporarily switch to a backup SMTP provider in `.env.production`, redeploy with `bash infra/digitalocean/deploy.sh deploy`, and verify login.
+- If Resend API is down: temporarily switch to a backup SMTP provider in `.env.production.pilot`, redeploy with `bash infra/digitalocean/deploy.sh deploy`, and verify login.
 
 ### 1B. Database down
 
 Symptoms: `/health` returns 503 with `checks.db: false`.
 
-- DigitalOcean Compose Postgres: `docker compose -f infra/digitalocean/docker-compose.yml exec postgres psql -U helm -d helm_pilot -c '\l'`.
-- Check DB logs: `docker compose -f infra/digitalocean/docker-compose.yml logs --tail=200 postgres`.
+- DigitalOcean Compose Postgres: `docker compose --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml exec postgres psql -U helm -d helm_pilot -c '\l'`.
+- Check DB logs: `docker compose --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml logs --tail=200 postgres`.
 - Connection pool exhausted? Query `SELECT count(*) FROM pg_stat_activity`. If >80 increase `DB_POOL_MAX` or investigate slow queries.
 - If the DB is truly down, restore the latest verified backup on a replacement Droplet, then point DNS at the new Droplet IP.
 
@@ -45,9 +45,9 @@ Symptoms: `/health` returns 503 with `checks.db: false`.
 
 Symptoms: `/health` returns degraded with `checks.helm: "unreachable"`, or agent tasks fail with HELM unreachability / upstream provider errors.
 
-- Check HELM first: `docker compose -f infra/digitalocean/docker-compose.yml logs --tail=200 helm` and `docker compose -f infra/digitalocean/docker-compose.yml exec helm wget -qO- http://localhost:8081/healthz`.
+- Check HELM first: `docker compose --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml logs --tail=200 helm` and `docker compose --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml exec helm wget -qO- http://localhost:8081/healthz`.
 - Check provider status pages for the upstream configured on HELM (`HELM_UPSTREAM_URL`). In production, provider keys belong on the HELM sidecar, not on the Pilot app.
-- If HELM is healthy but the upstream is down, rotate the sidecar upstream/key in `.env.production` and redeploy.
+- If HELM is healthy but the upstream is down, rotate the sidecar upstream/key in `.env.production.helm` and redeploy.
 - Enable kill switch temporarily: set `policy.killSwitch=true` via a workspace-settings update. Tasks will be blocked rather than retry-storming.
 
 ### 1D. Rate-limiting users unexpectedly
@@ -154,10 +154,9 @@ ls -la ${PATCHRIGHT_BROWSERS_PATH:-./.cache/ms-patchright}
    ```bash
    git log --oneline -20
    ```
-2. Roll back from the workstation checkout:
+2. Roll back to the previous release:
    ```bash
-   git checkout <known-good-sha>
-   ENV_FILE=.env.production DO_DROPLET_IP=<ip> bash infra/digitalocean/deploy.sh deploy
+   DO_DROPLET_IP=<ip> bash infra/digitalocean/deploy.sh rollback
    ```
 3. Watch health:
    ```bash
@@ -170,7 +169,7 @@ ls -la ${PATCHRIGHT_BROWSERS_PATH:-./.cache/ms-patchright}
 2. Take a snapshot of current DB state.
 3. Restore from last known-good backup:
    ```bash
-   bash scripts/backup.sh restore <backup-file.sql.gz>
+   bash scripts/backup.sh restore <backup-file.sql.gz.gpg>
    ```
 4. Start gateway: `docker compose -f infra/digitalocean/docker-compose.yml up -d helm-pilot`.
 5. **Warning:** connector tokens encrypted with a since-rotated ENCRYPTION_KEY will be unreadable. Plan carefully.

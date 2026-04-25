@@ -5,36 +5,62 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 ACTION="${1:-deploy}"
+ACTION_ARG="${2:-}"
 DROPLET_NAME="${DO_DROPLET_NAME:-helm-pilot-prod}"
-DO_REGION="${DO_REGION:-nyc3}"
+DO_REGION="${DO_REGION:-fra1}"
 DO_SIZE="${DO_SIZE:-s-2vcpu-4gb}"
 DO_IMAGE="${DO_IMAGE:-ubuntu-24-04-x64}"
 DO_SSH_KEYS="${DO_SSH_KEYS:-}"
 DO_TAGS="${DO_TAGS:-helm-pilot,production}"
+DO_FIREWALL_NAME="${DO_FIREWALL_NAME:-helm-pilot-prod-fw}"
+DO_FIREWALL_TAGS="${DO_FIREWALL_TAGS:-helm-pilot}"
+DO_SSH_CIDR="${DO_SSH_CIDR:-95.43.154.83/32}"
 REMOTE_USER="${DO_REMOTE_USER:-root}"
-REMOTE_DIR="${DO_REMOTE_DIR:-/opt/helm-pilot/current}"
+REMOTE_BASE_DIR="${DO_REMOTE_BASE_DIR:-/opt/helm-pilot}"
+REMOTE_DIR="${DO_REMOTE_DIR:-$REMOTE_BASE_DIR/current}"
+REMOTE_RELEASES_DIR="${DO_REMOTE_RELEASES_DIR:-$REMOTE_BASE_DIR/releases}"
+RELEASE_ID="${DEPLOY_RELEASE_ID:-$(git rev-parse --short=12 HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S)}"
 SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10)
-ENV_FILE="${ENV_FILE:-}"
+ENV_DIR="${ENV_DIR:-.}"
+ENV_SHARED_FILE="${ENV_SHARED_FILE:-$ENV_DIR/.env.production.shared}"
+ENV_HELM_FILE="${ENV_HELM_FILE:-$ENV_DIR/.env.production.helm}"
+ENV_PILOT_FILE="${ENV_PILOT_FILE:-$ENV_DIR/.env.production.pilot}"
+COMPOSE=(docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml)
+HELM_OSS_DIR="${HELM_OSS_DIR:-$ROOT_DIR/../helm-oss}"
+HELM_DOCKERFILE="${HELM_DOCKERFILE:-Dockerfile.slim}"
+HELM_DOCKER_PLATFORM="${HELM_DOCKER_PLATFORM:-linux/amd64}"
+HELM_IMAGE_ARCHIVE="${HELM_IMAGE_ARCHIVE:-}"
+HELM_PRELOAD_MODE="${HELM_PRELOAD_MODE:-binary}"
 
 usage() {
   cat <<'USAGE'
 Usage:
-  ENV_FILE=.env.production DO_SSH_KEYS=<fingerprint-or-id> bash infra/digitalocean/deploy.sh create
-  ENV_FILE=.env.production DO_DROPLET_IP=<ip> bash infra/digitalocean/deploy.sh deploy
+  ENV_DIR=. DO_SSH_KEYS=<fingerprint-or-id> bash infra/digitalocean/deploy.sh create
+  ENV_DIR=. DO_DROPLET_IP=<ip> bash infra/digitalocean/deploy.sh preload-helm
+  ENV_DIR=. DO_DROPLET_IP=<ip> bash infra/digitalocean/deploy.sh deploy
+  DO_DROPLET_IP=<ip> bash infra/digitalocean/deploy.sh rollback [release-id-or-path]
+  ENV_DIR=. bash infra/digitalocean/deploy.sh doctor
   DO_DROPLET_IP=<ip> bash infra/digitalocean/deploy.sh status
+  DO_DROPLET_IP=<ip> bash infra/digitalocean/deploy.sh smoke
 
-Actions:
-  create  Create a DigitalOcean Droplet with cloud-init, then deploy.
-  deploy  Rsync this checkout to the Droplet and run docker compose.
-  status  Show remote compose status.
+Required env files:
+  .env.production.shared  shared non-provider configuration
+  .env.production.helm    HELM sidecar provider keys and evidence settings
+  .env.production.pilot   Pilot secrets and email settings, no direct LLM keys
 
-Required for create:
-  doctl authenticated with `doctl auth init`
-  DO_SSH_KEYS set to an SSH key ID or fingerprint known to DigitalOcean
+Legacy ENV_FILE is intentionally unsupported because one shared env leaks
+sidecar provider keys into Pilot.
 
-Required for deploy:
-  ENV_FILE points to a filled production env file
-  DO_DROPLET_IP or an existing droplet named DO_DROPLET_NAME
+Create provisions the Droplet and reconciles DO_FIREWALL_NAME for DO_FIREWALL_TAGS.
+It does not deploy automatically, so preload-helm can load a local HELM image first.
+Firewall defaults allow 80/443 from the public internet and 22 only from DO_SSH_CIDR.
+
+HELM preload:
+  preload-helm builds HELM_IMAGE from .env.production.shared, copies it to the
+  Droplet, and runs docker load. By default HELM_PRELOAD_MODE=binary cross-compiles
+  the HELM binary locally and packages it into a runtime image. Set
+  HELM_PRELOAD_MODE=docker to build HELM_OSS_DIR with HELM_DOCKERFILE, or set
+  HELM_IMAGE_ARCHIVE to upload an existing docker save tar.
 USAGE
 }
 
@@ -47,6 +73,171 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "$1 is required"
 }
 
+env_value() {
+  local file="$1"
+  local key="$2"
+  local line
+  line="$(grep -E "^${key}=" "$file" | tail -n1 || true)"
+  printf '%s' "${line#*=}"
+}
+
+require_file() {
+  [[ -f "$1" ]] || die "required env file not found: $1"
+}
+
+require_value() {
+  local file="$1"
+  local key="$2"
+  local value
+  value="$(env_value "$file" "$key")"
+  [[ -n "$value" ]] || die "$key must be set in $file"
+  case "$value" in
+    change-me*|changeme*|example|example.com|helm|password)
+      die "$key in $file still looks like a placeholder"
+      ;;
+  esac
+}
+
+forbid_value() {
+  local file="$1"
+  local key="$2"
+  local value
+  value="$(env_value "$file" "$key")"
+  [[ -z "$value" ]] || die "$key must not be set in $file; provider keys belong in .env.production.helm"
+}
+
+validate_env_files() {
+  [[ -z "${ENV_FILE:-}" ]] || die "ENV_FILE is no longer supported; use split .env.production.{shared,helm,pilot} files"
+
+  require_file "$ENV_SHARED_FILE"
+  require_file "$ENV_HELM_FILE"
+  require_file "$ENV_PILOT_FILE"
+
+  require_value "$ENV_SHARED_FILE" DOMAIN
+  require_value "$ENV_SHARED_FILE" APP_URL
+  require_value "$ENV_SHARED_FILE" ALLOWED_ORIGINS
+  require_value "$ENV_SHARED_FILE" POSTGRES_PASSWORD
+  require_value "$ENV_SHARED_FILE" POSTGRES_DB
+  require_value "$ENV_SHARED_FILE" HELM_POSTGRES_DB
+  require_value "$ENV_SHARED_FILE" HELM_IMAGE
+
+  [[ "$(env_value "$ENV_SHARED_FILE" APP_URL)" == https://* ]] || die "APP_URL must be HTTPS"
+  [[ "$(env_value "$ENV_SHARED_FILE" ALLOWED_ORIGINS)" != "*" ]] || die "ALLOWED_ORIGINS cannot be '*' in production"
+
+  require_value "$ENV_HELM_FILE" HELM_UPSTREAM_URL
+  require_value "$ENV_HELM_FILE" EVIDENCE_SIGNING_KEY
+  if [[ -z "$(env_value "$ENV_HELM_FILE" OPENROUTER_API_KEY)$(env_value "$ENV_HELM_FILE" ANTHROPIC_API_KEY)$(env_value "$ENV_HELM_FILE" OPENAI_API_KEY)" ]]; then
+    die "set at least one upstream provider key in $ENV_HELM_FILE"
+  fi
+
+  require_value "$ENV_PILOT_FILE" SESSION_SECRET
+  require_value "$ENV_PILOT_FILE" ENCRYPTION_KEY
+  require_value "$ENV_PILOT_FILE" TELEGRAM_WEBHOOK_SECRET
+  [[ "$(env_value "$ENV_PILOT_FILE" HELM_FAIL_CLOSED)" == "1" ]] || die "HELM_FAIL_CLOSED=1 is required in $ENV_PILOT_FILE"
+  forbid_value "$ENV_PILOT_FILE" OPENROUTER_API_KEY
+  forbid_value "$ENV_PILOT_FILE" ANTHROPIC_API_KEY
+  forbid_value "$ENV_PILOT_FILE" OPENAI_API_KEY
+  forbid_value "$ENV_PILOT_FILE" VOYAGE_API_KEY
+  require_value "$ENV_SHARED_FILE" S3_ENDPOINT
+  require_value "$ENV_SHARED_FILE" S3_BUCKET
+  require_value "$ENV_PILOT_FILE" S3_ACCESS_KEY
+  require_value "$ENV_PILOT_FILE" S3_SECRET_KEY
+  require_value "$ENV_PILOT_FILE" BACKUP_ENCRYPTION_PASSPHRASE
+
+  local email_provider
+  email_provider="$(env_value "$ENV_PILOT_FILE" EMAIL_PROVIDER)"
+  case "$email_provider" in
+    resend)
+      require_value "$ENV_PILOT_FILE" RESEND_API_KEY
+      ;;
+    smtp)
+      require_value "$ENV_PILOT_FILE" SMTP_HOST
+      require_value "$ENV_PILOT_FILE" SMTP_USER
+      require_value "$ENV_PILOT_FILE" SMTP_PASS
+      ;;
+    *)
+      die "EMAIL_PROVIDER must be resend or smtp in production"
+      ;;
+  esac
+  require_value "$ENV_PILOT_FILE" EMAIL_FROM
+}
+
+compose_doctor() {
+  validate_env_files
+  require_cmd docker
+  cp "$ENV_SHARED_FILE" .env.production.shared
+  cp "$ENV_HELM_FILE" .env.production.helm
+  cp "$ENV_PILOT_FILE" .env.production.pilot
+  "${COMPOSE[@]}" config >/dev/null
+  echo "DigitalOcean production doctor passed."
+}
+
+preload_helm_image() {
+  local ip image archive cleanup_archive=0 build_dir target_os target_arch
+  validate_env_files
+  require_cmd docker
+  require_cmd scp
+  require_cmd ssh
+
+  ip="$(droplet_ip)"
+  [[ -n "$ip" ]] || die "set DO_DROPLET_IP or create a droplet named $DROPLET_NAME"
+  image="$(env_value "$ENV_SHARED_FILE" HELM_IMAGE)"
+  [[ -n "$image" ]] || die "HELM_IMAGE must be set in $ENV_SHARED_FILE"
+
+  if [[ -n "$HELM_IMAGE_ARCHIVE" ]]; then
+    archive="$HELM_IMAGE_ARCHIVE"
+    [[ -f "$archive" ]] || die "HELM_IMAGE_ARCHIVE not found: $archive"
+  else
+    [[ -d "$HELM_OSS_DIR" ]] || die "HELM_OSS_DIR not found: $HELM_OSS_DIR"
+    [[ -f "$HELM_OSS_DIR/$HELM_DOCKERFILE" ]] || die "HELM_DOCKERFILE not found: $HELM_OSS_DIR/$HELM_DOCKERFILE"
+    archive="$(mktemp "${TMPDIR:-/tmp}/helm-sidecar-image.XXXXXX.tar")"
+    cleanup_archive=1
+    case "$HELM_PRELOAD_MODE" in
+      binary)
+        require_cmd go
+        build_dir="$(mktemp -d "${TMPDIR:-/tmp}/helm-sidecar-build.XXXXXX")"
+        target_os="${HELM_DOCKER_PLATFORM%%/*}"
+        target_arch="${HELM_DOCKER_PLATFORM##*/}"
+        echo "Cross-compiling HELM sidecar binary for $target_os/$target_arch ..."
+        (cd "$HELM_OSS_DIR/core" && CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" go build -ldflags="-s -w" -trimpath -o "$build_dir/helm" ./cmd/helm/)
+        cat >"$build_dir/Dockerfile" <<'DOCKERFILE'
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates tzdata && \
+    adduser -D -h /home/helm helm
+COPY helm /usr/local/bin/helm
+RUN mkdir -p /home/helm/data && chown helm:helm /home/helm/data
+USER helm
+WORKDIR /home/helm
+ENTRYPOINT ["helm"]
+CMD ["server"]
+DOCKERFILE
+        echo "Packaging HELM sidecar image $image for $HELM_DOCKER_PLATFORM ..."
+        docker build --platform "$HELM_DOCKER_PLATFORM" -t "$image" "$build_dir"
+        rm -rf "$build_dir"
+        ;;
+      docker)
+        echo "Building HELM sidecar image $image from $HELM_OSS_DIR/$HELM_DOCKERFILE ..."
+        docker build --platform "$HELM_DOCKER_PLATFORM" -f "$HELM_OSS_DIR/$HELM_DOCKERFILE" -t "$image" "$HELM_OSS_DIR"
+        ;;
+      *)
+        die "HELM_PRELOAD_MODE must be binary or docker"
+        ;;
+    esac
+    docker save "$image" -o "$archive"
+  fi
+
+  echo "Uploading HELM sidecar image $image to $REMOTE_USER@$ip ..."
+  scp "${SSH_OPTS[@]}" "$archive" "$REMOTE_USER@$ip:/tmp/helm-sidecar-image.tar"
+  ssh "${SSH_OPTS[@]}" "$REMOTE_USER@$ip" "
+    set -euo pipefail
+    docker load -i /tmp/helm-sidecar-image.tar
+    rm -f /tmp/helm-sidecar-image.tar
+    docker image inspect '$image' >/dev/null
+  "
+  [[ "$cleanup_archive" -eq 0 ]] || rm -f "$archive"
+  echo "HELM sidecar image preloaded: $image"
+}
+
 droplet_ip() {
   if [[ -n "${DO_DROPLET_IP:-}" ]]; then
     printf '%s\n' "$DO_DROPLET_IP"
@@ -54,6 +245,41 @@ droplet_ip() {
   fi
   require_cmd doctl
   doctl compute droplet get "$DROPLET_NAME" --format PublicIPv4 --no-header 2>/dev/null | tr -d '[:space:]'
+}
+
+firewall_id() {
+  require_cmd doctl
+  doctl compute firewall list --format ID,Name --no-header |
+    awk -v name="$DO_FIREWALL_NAME" '$2 == name { print $1; exit }'
+}
+
+ensure_firewall() {
+  local id inbound_rules outbound_rules
+  require_cmd doctl
+  [[ -n "$DO_SSH_CIDR" ]] || die "DO_SSH_CIDR is required for firewall SSH access"
+  [[ -n "$DO_FIREWALL_TAGS" ]] || die "DO_FIREWALL_TAGS is required for firewall attachment"
+
+  inbound_rules="protocol:tcp,ports:22,address:$DO_SSH_CIDR protocol:tcp,ports:80,address:0.0.0.0/0 protocol:tcp,ports:443,address:0.0.0.0/0"
+  outbound_rules="protocol:tcp,ports:all,address:0.0.0.0/0 protocol:udp,ports:all,address:0.0.0.0/0 protocol:icmp,ports:all,address:0.0.0.0/0"
+
+  id="$(firewall_id)"
+  if [[ -n "$id" ]]; then
+    echo "Reconciling DigitalOcean firewall $DO_FIREWALL_NAME ($id) ..."
+    doctl compute firewall update "$id" \
+      --name "$DO_FIREWALL_NAME" \
+      --tag-names "$DO_FIREWALL_TAGS" \
+      --inbound-rules "$inbound_rules" \
+      --outbound-rules "$outbound_rules" \
+      >/dev/null
+  else
+    echo "Creating DigitalOcean firewall $DO_FIREWALL_NAME ..."
+    doctl compute firewall create \
+      --name "$DO_FIREWALL_NAME" \
+      --tag-names "$DO_FIREWALL_TAGS" \
+      --inbound-rules "$inbound_rules" \
+      --outbound-rules "$outbound_rules" \
+      >/dev/null
+  fi
 }
 
 wait_for_cloud_init() {
@@ -68,22 +294,16 @@ wait_for_cloud_init() {
   die "cloud-init did not finish in time; inspect /var/log/cloud-init-output.log on $ip"
 }
 
-validate_env_file() {
-  [[ -n "$ENV_FILE" ]] || die "ENV_FILE must point to the production env file"
-  [[ -f "$ENV_FILE" ]] || die "ENV_FILE not found: $ENV_FILE"
-  grep -Eq '^DOMAIN=.+' "$ENV_FILE" || die "DOMAIN must be set in $ENV_FILE"
-  grep -Eq '^APP_URL=https://.+' "$ENV_FILE" || die "APP_URL must be an HTTPS URL in $ENV_FILE"
-  grep -Eq '^HELM_IMAGE=.+' "$ENV_FILE" || die "HELM_IMAGE must be set in $ENV_FILE"
-}
-
 create_droplet() {
+  validate_env_files
   require_cmd doctl
   [[ -n "$DO_SSH_KEYS" ]] || die "DO_SSH_KEYS is required for droplet creation"
 
   if ip="$(droplet_ip)" && [[ -n "$ip" ]]; then
     echo "Droplet $DROPLET_NAME already exists at $ip"
+    ensure_firewall
     wait_for_cloud_init "$ip"
-    deploy_to "$ip"
+    echo "Droplet is ready. Next: DO_DROPLET_IP=$ip ENV_DIR=$ENV_DIR bash infra/digitalocean/deploy.sh preload-helm"
     return
   fi
 
@@ -105,18 +325,20 @@ create_droplet() {
   ip="$(printf '%s' "$ip" | tr -d '[:space:]')"
   [[ -n "$ip" ]] || die "DigitalOcean did not return a public IPv4"
   echo "Droplet created: $ip"
+  ensure_firewall
   wait_for_cloud_init "$ip"
-  deploy_to "$ip"
+  echo "Droplet is ready. Next: DO_DROPLET_IP=$ip ENV_DIR=$ENV_DIR bash infra/digitalocean/deploy.sh preload-helm"
 }
 
 deploy_to() {
   local ip="$1"
-  validate_env_file
+  local release_dir="$REMOTE_RELEASES_DIR/$RELEASE_ID"
+  validate_env_files
   require_cmd rsync
   require_cmd ssh
 
-  echo "Deploying checkout to $REMOTE_USER@$ip:$REMOTE_DIR ..."
-  ssh "${SSH_OPTS[@]}" "$REMOTE_USER@$ip" "mkdir -p '$REMOTE_DIR'"
+  echo "Deploying checkout to $REMOTE_USER@$ip:$release_dir ..."
+  ssh "${SSH_OPTS[@]}" "$REMOTE_USER@$ip" "mkdir -p '$REMOTE_RELEASES_DIR' '$release_dir'"
   rsync -az --delete \
     --exclude '.git' \
     --exclude '.turbo' \
@@ -127,32 +349,85 @@ deploy_to() {
     --exclude 'backups' \
     --exclude 'data' \
     --exclude '.venv-pipelines' \
-    --exclude '.env' \
-    ./ "$REMOTE_USER@$ip:$REMOTE_DIR/"
+    --exclude '.env*' \
+    ./ "$REMOTE_USER@$ip:$release_dir/"
 
-  scp "${SSH_OPTS[@]}" "$ENV_FILE" "$REMOTE_USER@$ip:$REMOTE_DIR/.env"
+  scp "${SSH_OPTS[@]}" "$ENV_SHARED_FILE" "$REMOTE_USER@$ip:$release_dir/.env.production.shared"
+  scp "${SSH_OPTS[@]}" "$ENV_HELM_FILE" "$REMOTE_USER@$ip:$release_dir/.env.production.helm"
+  scp "${SSH_OPTS[@]}" "$ENV_PILOT_FILE" "$REMOTE_USER@$ip:$release_dir/.env.production.pilot"
 
   echo "Starting HELM Pilot on DigitalOcean ..."
   ssh "${SSH_OPTS[@]}" "$REMOTE_USER@$ip" "
     set -euo pipefail
-    cd '$REMOTE_DIR'
+    cd '$release_dir'
     find packages services apps -type d \( -name dist -o -name .next \) -prune -exec rm -rf {} +
-    docker compose -f infra/digitalocean/docker-compose.yml up -d --build
-    docker compose -f infra/digitalocean/docker-compose.yml ps
+    docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml config >/dev/null
+    docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml up -d --build
+    ln -sfnT '$release_dir' '$REMOTE_DIR'
+    ls -1dt '$REMOTE_RELEASES_DIR'/* 2>/dev/null | tail -n +4 | xargs -r rm -rf
+    docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml ps
   "
 
   echo "Deployed. Verify with:"
-  echo "  HELM_FAIL_CLOSED=1 BASE_URL=https://$(grep -E '^DOMAIN=' "$ENV_FILE" | cut -d= -f2-) bash scripts/smoke-production-governance.sh"
+  echo "  HELM_FAIL_CLOSED=1 API_URL=https://$(env_value "$ENV_SHARED_FILE" DOMAIN) bash scripts/smoke-production-governance.sh"
 }
 
 status_remote() {
   local ip
   ip="$(droplet_ip)"
   [[ -n "$ip" ]] || die "set DO_DROPLET_IP or create a droplet named $DROPLET_NAME"
-  ssh "${SSH_OPTS[@]}" "$REMOTE_USER@$ip" "cd '$REMOTE_DIR' && docker compose -f infra/digitalocean/docker-compose.yml ps"
+  ssh "${SSH_OPTS[@]}" "$REMOTE_USER@$ip" "cd '$REMOTE_DIR' && docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml ps"
+}
+
+rollback_remote() {
+  local ip target
+  ip="$(droplet_ip)"
+  [[ -n "$ip" ]] || die "set DO_DROPLET_IP or create a droplet named $DROPLET_NAME"
+  target="$ACTION_ARG"
+
+  ssh "${SSH_OPTS[@]}" "$REMOTE_USER@$ip" \
+    "REMOTE_DIR='$REMOTE_DIR' REMOTE_RELEASES_DIR='$REMOTE_RELEASES_DIR' TARGET_RELEASE='$target' bash -s" <<'REMOTE'
+set -euo pipefail
+target="$TARGET_RELEASE"
+if [[ -z "$target" ]]; then
+  current="$(readlink -f "$REMOTE_DIR" 2>/dev/null || true)"
+  while IFS= read -r candidate; do
+    if [[ "$candidate" != "$current" ]]; then
+      target="$candidate"
+      break
+    fi
+  done < <(ls -1dt "$REMOTE_RELEASES_DIR"/* 2>/dev/null || true)
+else
+  case "$target" in
+    /*) ;;
+    *) target="$REMOTE_RELEASES_DIR/$target" ;;
+  esac
+fi
+[[ -n "$target" && -d "$target" ]] || {
+  echo "No rollback release found under $REMOTE_RELEASES_DIR" >&2
+  exit 1
+}
+cd "$target"
+docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml config >/dev/null
+docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml up -d --build
+ln -sfnT "$target" "$REMOTE_DIR"
+docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml ps
+echo "Rolled back to $target"
+REMOTE
+}
+
+smoke_remote() {
+  local ip domain
+  validate_env_files
+  ip="$(droplet_ip)"
+  [[ -n "$ip" ]] || die "set DO_DROPLET_IP or create a droplet named $DROPLET_NAME"
+  domain="$(env_value "$ENV_SHARED_FILE" DOMAIN)"
+  HELM_FAIL_CLOSED=1 API_URL="https://$domain" bash scripts/smoke-production-governance.sh
 }
 
 case "$ACTION" in
+  doctor) compose_doctor ;;
+  preload-helm) preload_helm_image ;;
   create) create_droplet ;;
   deploy)
     ip="$(droplet_ip)"
@@ -161,6 +436,8 @@ case "$ACTION" in
     deploy_to "$ip"
     ;;
   status) status_remote ;;
+  rollback) rollback_remote ;;
+  smoke) smoke_remote ;;
   -h|--help|help) usage ;;
   *) usage; die "unknown action: $ACTION" ;;
 esac

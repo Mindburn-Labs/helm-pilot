@@ -6,9 +6,7 @@
  *   - GET  /healthz               → health
  *   - GET  /api/v1/version        → version
  *
- * When helm-oss grows a generic `POST /api/v1/guardian/evaluate` endpoint, the
- * `evaluate()` method in `HelmClient` will use it. Until then `evaluate()` is
- * only wired for LLM inference via the chat completion path.
+ * Generic tool/deploy governance uses `POST /api/v1/evaluate`.
  */
 
 /** CPI verdict — matches helm-oss `core/pkg/contracts/verdict.go`. */
@@ -25,6 +23,8 @@ export type HelmVerdict = 'ALLOW' | 'DENY' | 'ESCALATE';
  */
 export interface HelmReceipt {
   decisionId: string;
+  /** HELM receipt identifier when the endpoint returns one separately. */
+  receiptId?: string;
   verdict: HelmVerdict;
   policyVersion: string;
   decisionHash?: string;
@@ -38,6 +38,8 @@ export interface HelmReceipt {
   principal: string;
   /** Optional human-readable reason populated on DENY/ESCALATE. */
   reason?: string;
+  /** Raw signed receipt blob/signature when HELM returns one. */
+  signedBlob?: unknown;
 }
 
 export interface HealthSnapshot {
@@ -92,14 +94,13 @@ export interface ChatCompletionBody {
   };
 }
 
-/**
- * Generic governance evaluation request. Not yet callable against helm-oss
- * v0.3.0 — reserved for the upstream `POST /api/v1/guardian/evaluate` endpoint.
- */
 export interface EvaluateRequest {
   principal: string;
   action: string;
   resource: string;
+  args?: Record<string, unknown>;
+  effectLevel?: string;
+  sessionId?: string;
   context?: Record<string, unknown>;
 }
 
@@ -122,11 +123,7 @@ export interface HelmClientConfig {
   timeoutMs?: number;
   /** Max attempts per governed call (including the first). Defaults to 3. */
   maxRetries?: number;
-  /**
-   * Phase 13.5 — opt in to the real `POST /api/v1/guardian/evaluate`
-   * endpoint once helm-oss v0.3.1+ ships it. When false/undefined the
-   * client's `evaluate()` method fails closed with HelmNotImplementedError.
-   */
+  /** Deprecated: generic evaluate is always enabled for production callers. */
   evaluateEnabled?: boolean;
   /** Base backoff in ms for exponential retry. Defaults to 100. */
   baseBackoffMs?: number;

@@ -49,9 +49,8 @@ ENCRYPTION_KEY_NEW=$NEW_KEY \
 DATABASE_URL=$PROD_DATABASE_URL \
   tsx scripts/rotate-encryption-key.ts
 
-# 4. Swap the env var in production
-scp .env.production root@$DO_DROPLET_IP:/opt/helm-pilot/current/.env
-ssh root@$DO_DROPLET_IP 'cd /opt/helm-pilot/current && docker compose -f infra/digitalocean/docker-compose.yml up -d helm-pilot'
+# 4. Update .env.production.pilot, then redeploy through the DO script
+DO_DROPLET_IP=<ip> bash infra/digitalocean/deploy.sh deploy
 
 # 5. Verify — a subsequent agent run that uses a connector token should succeed
 ```
@@ -99,6 +98,14 @@ Admins may execute the same deletion on behalf of a user via a direct DB query; 
 - 30-day expiry, stored in database
 - Transmitted via `Authorization: Bearer <token>` header
 - Session can be revoked via `DELETE /api/auth/session`
+
+### Email Magic Codes
+
+- 15-minute expiry, stored as `SESSION_SECRET`-keyed HMAC digests rather than plaintext codes
+- Timing-safe comparison during verification
+- One-time use: successful verification deletes the pending code before creating the session
+- Failed verification increments the pending-code attempt counter and deletes the code after 5 attempts
+- Request and verification outcomes write best-effort audit entries
 
 ### API Keys
 
@@ -255,17 +262,18 @@ DATABASE_URL=postgresql://helm:STRONG_PASSWORD@db-host:5432/helm_pilot?sslmode=r
 
 ### Backup Encryption
 
-Backups created by `scripts/backup.sh` are compressed but **not encrypted**. For sensitive deployments:
+Production backup uploads are encrypted before leaving the Droplet. Set `BACKUP_ENCRYPTION_PASSPHRASE` and DO Spaces `S3_*` settings, then use:
 
 ```bash
-# Encrypt backup with GPG
-bash scripts/backup.sh create
-gpg --symmetric --cipher-algo AES256 backups/helm_pilot_*.sql.gz
+# Create, GPG-encrypt, checksum, and upload
+bash scripts/backup.sh create-and-upload
 
-# Decrypt before restore
-gpg --decrypt backup.sql.gz.gpg > backup.sql.gz
-bash scripts/backup.sh restore backup.sql.gz
+# Verify or restore an encrypted backup
+bash scripts/backup.sh verify backups/helm_pilot_YYYY...sql.gz.gpg
+bash scripts/backup.sh restore backups/helm_pilot_YYYY...sql.gz.gpg
 ```
+
+Remote plaintext upload is blocked unless `BACKUP_ALLOW_PLAINTEXT_UPLOAD=1` is explicitly set for a non-production drill.
 
 ## Audit Trail
 

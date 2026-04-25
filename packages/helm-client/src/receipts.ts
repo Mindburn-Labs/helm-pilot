@@ -14,6 +14,7 @@ export function parseReceiptHeaders(
   const verdictRaw = headers.get('x-helm-verdict');
   const policyVersion = headers.get('x-helm-policy-version');
   const decisionHash = headers.get('x-helm-decision-hash') ?? undefined;
+  const receiptId = headers.get('x-helm-receipt-id') ?? undefined;
 
   if (!decisionId || !verdictRaw || !policyVersion) {
     return null;
@@ -24,6 +25,7 @@ export function parseReceiptHeaders(
 
   return {
     decisionId,
+    receiptId,
     verdict,
     policyVersion,
     decisionHash,

@@ -124,15 +124,17 @@ app.your-domain.com {
 HELM Pilot ships on DigitalOcean as a Docker Compose stack on one Droplet. The HELM sidecar stays private on the Docker network, Pilot talks to `http://helm:8080`, and production remains fail-closed with `HELM_FAIL_CLOSED=1`.
 
 ```bash
-cp infra/digitalocean/env.production.example .env.production
-# Fill DOMAIN, APP_URL, POSTGRES_PASSWORD, SESSION_SECRET, ENCRYPTION_KEY,
-# HELM_IMAGE, EVIDENCE_SIGNING_KEY, and a sidecar upstream provider key.
+cp infra/digitalocean/env.production.shared.example .env.production.shared
+cp infra/digitalocean/env.production.helm.example .env.production.helm
+cp infra/digitalocean/env.production.pilot.example .env.production.pilot
+# Fill domain, database, Pilot secrets, email, DO Spaces backup settings,
+# evidence signing, and sidecar provider key.
 
 export DO_SSH_KEYS=<digitalocean-ssh-key-id-or-fingerprint>
-export DO_REGION=nyc3
+export DO_REGION=fra1
 export DO_SIZE=s-2vcpu-4gb
-export ENV_FILE=.env.production
 
+bash infra/digitalocean/deploy.sh doctor
 bash infra/digitalocean/deploy.sh create
 ```
 
@@ -168,20 +170,20 @@ pgAdmin will be available at http://localhost:5050 (admin@helm-pilot.local / adm
 Use the included backup tooling to manage your PostgreSQL data.
 
 ```bash
-# Create a backup
-bash scripts/backup.sh create
+# Create, encrypt, and upload a backup when S3_* and BACKUP_ENCRYPTION_PASSPHRASE are set
+bash scripts/backup.sh create-and-upload
 
 # List available backups
 bash scripts/backup.sh list
 
 # Verify a backup
-bash scripts/backup.sh verify backups/helm_pilot_YYYY...sql.gz
+bash scripts/backup.sh verify backups/helm_pilot_YYYY...sql.gz.gpg
 
 # Restore from a backup
-bash scripts/backup.sh restore backups/helm_pilot_YYYY...sql.gz
+bash scripts/backup.sh restore backups/helm_pilot_YYYY...sql.gz.gpg
 ```
 
-For configured S3 uploads, use `bash scripts/backup.sh upload <file>`.
+Production uploads must be encrypted. The deploy doctor requires DO Spaces settings and `BACKUP_ENCRYPTION_PASSPHRASE`.
 
 In addition to the database backup, preserve local storage when using the default filesystem backend:
 

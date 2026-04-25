@@ -9,10 +9,10 @@ import { createLlmProvider, type LlmConfig, type LlmProvider } from './index.js'
  * platform's.
  *
  * Lookup priority (first match wins):
- *   1. tenantSecrets `llm_openrouter_key`  → OpenRouter
- *   2. tenantSecrets `llm_anthropic_key`   → Anthropic
- *   3. tenantSecrets `llm_openai_key`      → OpenAI
- *   4. Platform fallback (process.env keys)
+ *   1. tenantSecrets `llm_openrouter_key`  → OpenRouter (dev/self-host direct mode only)
+ *   2. tenantSecrets `llm_anthropic_key`   → Anthropic (dev/self-host direct mode only)
+ *   3. tenantSecrets `llm_openai_key`      → OpenAI (dev/self-host direct mode only)
+ *   4. Platform fallback (HELM-governed in production)
  *
  * The fallback at (4) is deliberately optional — a production deployment
  * can disable it by not setting the platform env keys, forcing BYO-only.
@@ -34,6 +34,8 @@ export interface TenantLlmResolverOptions {
   platformFallback?: LlmProvider;
   /** Default model for the constructed provider. */
   model?: string;
+  /** Production should leave direct tenant providers disabled and use HELM fallback. */
+  allowDirectTenantProviders?: boolean;
 }
 
 export function createTenantLlmResolver(opts: TenantLlmResolverOptions): TenantLlmResolver {
@@ -48,11 +50,14 @@ export function createTenantLlmResolver(opts: TenantLlmResolverOptions): TenantL
       if (hit && Date.now() - hit.at < TTL_MS) return hit.provider;
 
       const byoConfig: LlmConfig = {};
-      const [openrouter, anthropic, openai] = await Promise.all([
-        opts.getSecret(workspaceId, 'llm_openrouter_key'),
-        opts.getSecret(workspaceId, 'llm_anthropic_key'),
-        opts.getSecret(workspaceId, 'llm_openai_key'),
-      ]);
+      const allowDirectTenantProviders = opts.allowDirectTenantProviders !== false;
+      const [openrouter, anthropic, openai] = allowDirectTenantProviders
+        ? await Promise.all([
+            opts.getSecret(workspaceId, 'llm_openrouter_key'),
+            opts.getSecret(workspaceId, 'llm_anthropic_key'),
+            opts.getSecret(workspaceId, 'llm_openai_key'),
+          ])
+        : [null, null, null];
       if (openrouter) byoConfig.openrouterApiKey = openrouter;
       if (anthropic) byoConfig.anthropicApiKey = anthropic;
       if (openai) byoConfig.openaiApiKey = openai;

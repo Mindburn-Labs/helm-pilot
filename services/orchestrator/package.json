@@ -15,6 +15,7 @@
     "test:coverage": "vitest run --coverage --passWithNoTests"
   },
   "dependencies": {
+    "@helm-pilot/connectors": "*",
     "@helm-pilot/db": "*",
     "@helm-pilot/helm-client": "*",
     "@helm-pilot/shared": "*",

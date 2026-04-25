@@ -41,7 +41,7 @@ Snapshot as of the v1.0.0-rc cut. Items marked (🟢) ship in v1.0.0;
 
 ## Upstream dependencies
 
-- `helm-oss v0.3.1` — `POST /api/v1/guardian/evaluate` endpoint. Client-side already wired behind `HELM_EVALUATE_ENABLED=1`; migration `0012_reverify_spawn_receipts.sql` re-signs Path-A rows automatically after cutover.
+- `helm-oss` governance parity — keep `POST /api/v1/evaluate` and the `/api/v1/guardian/evaluate` compatibility alias covered by contract tests; migration `0012_reverify_spawn_receipts.sql` remains available for re-signing older Path-A rows.
 
 ## How to propose changes
 

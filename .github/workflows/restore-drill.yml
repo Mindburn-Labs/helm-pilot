@@ -39,65 +39,72 @@ jobs:
       DATABASE_URL: postgresql://drill:drill@localhost:5432/drill_restore
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION || 'eu-central-1' }}
+      AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION || 'fra1' }}
+      S3_ENDPOINT: ${{ vars.S3_ENDPOINT }}
       BACKUP_BUCKET: ${{ vars.BACKUP_BUCKET }}
+      BACKUP_ENCRYPTION_PASSPHRASE: ${{ secrets.BACKUP_ENCRYPTION_PASSPHRASE }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fail fast if backup bucket is not configured
+      - name: Fail fast if backup restore config is incomplete
         run: |
-          if [ -z "$BACKUP_BUCKET" ]; then
-            echo "::warning::BACKUP_BUCKET not set; skipping drill"
-            echo "drill_skipped=true" >> "$GITHUB_ENV"
-            exit 0
+          missing=0
+          for name in BACKUP_BUCKET S3_ENDPOINT AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY BACKUP_ENCRYPTION_PASSPHRASE; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is required for restore drills"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
           fi
 
-      - name: Install awscli
-        if: env.drill_skipped != 'true'
+      - name: Install restore tooling
         run: |
-          if ! command -v aws >/dev/null 2>&1; then
-            sudo apt-get update -y
-            sudo apt-get install -y awscli
-          fi
+          sudo apt-get update -y
+          sudo apt-get install -y awscli postgresql-client gnupg
 
       - name: Locate latest backup
-        if: env.drill_skipped != 'true'
         id: backup
         run: |
           if [ -n "${{ inputs.backup_key }}" ]; then
             key="${{ inputs.backup_key }}"
           else
-            key=$(aws s3 ls "s3://$BACKUP_BUCKET/" --recursive | sort | tail -n 1 | awk '{print $4}')
+            key=$(aws s3 ls "s3://$BACKUP_BUCKET/backups/" --recursive --endpoint-url "$S3_ENDPOINT" | awk '{print $4}' | grep '\.sql\.gz\.gpg$' | sort | tail -n 1)
+          fi
+          if [ -z "$key" ]; then
+            echo "::error::No encrypted production backup found in s3://$BACKUP_BUCKET/backups/"
+            exit 1
           fi
           echo "key=$key" >> "$GITHUB_OUTPUT"
           echo "Selected backup key: $key"
 
       - name: Download backup
-        if: env.drill_skipped != 'true'
         run: |
-          aws s3 cp "s3://$BACKUP_BUCKET/${{ steps.backup.outputs.key }}" /tmp/backup.sql.gz
-          ls -lh /tmp/backup.sql.gz
+          aws s3 cp "s3://$BACKUP_BUCKET/${{ steps.backup.outputs.key }}" /tmp/backup.sql.gz.gpg --endpoint-url "$S3_ENDPOINT"
+          aws s3 cp "s3://$BACKUP_BUCKET/${{ steps.backup.outputs.key }}.sha256" /tmp/backup.sql.gz.gpg.sha256 --endpoint-url "$S3_ENDPOINT"
+          expected=$(awk '{print $1}' /tmp/backup.sql.gz.gpg.sha256)
+          actual=$(sha256sum /tmp/backup.sql.gz.gpg | awk '{print $1}')
+          test "$expected" = "$actual"
+          printf '%s' "$BACKUP_ENCRYPTION_PASSPHRASE" | gpg --batch --yes --passphrase-fd 0 --pinentry-mode loopback --decrypt --output /tmp/backup.sql.gz /tmp/backup.sql.gz.gpg
+          ls -lh /tmp/backup.sql.gz /tmp/backup.sql.gz.gpg
 
       - name: Restore into ephemeral DB
-        if: env.drill_skipped != 'true'
         run: |
           gunzip -c /tmp/backup.sql.gz | psql "$DATABASE_URL"
 
       - uses: actions/setup-node@v4
-        if: env.drill_skipped != 'true'
         with:
           node-version: 22
           cache: npm
 
       - run: npm ci
-        if: env.drill_skipped != 'true'
 
       - name: Verify schema integrity
-        if: env.drill_skipped != 'true'
         run: npx tsx scripts/verify-schema.ts
 
       - name: Record drill summary
-        if: always() && env.drill_skipped != 'true'
+        if: always()
         run: |
           {
             echo "## Restore Drill Results"
@@ -114,7 +121,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Notify Slack on failure
-        if: failure() && env.drill_skipped != 'true' && vars.SLACK_WEBHOOK_URL != ''
+        if: failure() && vars.SLACK_WEBHOOK_URL != ''
         run: |
           curl -X POST -H 'Content-Type: application/json' \
             --data "{\"text\": \"🚨 HELM Pilot restore drill FAILED for backup ${{ steps.backup.outputs.key }} on $(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" \

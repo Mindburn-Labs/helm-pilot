@@ -35,6 +35,8 @@ export interface AnalyzeImageParams {
   model?: string;
   /** Override API key (otherwise reads `ANTHROPIC_API_KEY`). */
   apiKey?: string;
+  /** Explicit dev/test escape hatch. Production tool calls must be HELM-governed. */
+  allowDirectProvider?: boolean;
   /** Soft cap on output tokens. Default 1024. */
   maxTokens?: number;
 }
@@ -45,6 +47,12 @@ export async function analyzeImage(params: AnalyzeImageParams): Promise<ImageAna
   }
   if (!params.question || params.question.trim().length === 0) {
     throw new MultimodalError('question required', 'invalid_input');
+  }
+  if (process.env['NODE_ENV'] === 'production' && !params.allowDirectProvider) {
+    throw new MultimodalError(
+      'Direct vision provider calls are disabled in production. Route image analysis through HELM or disable this tool.',
+      'not_installed',
+    );
   }
   const apiKey = params.apiKey ?? process.env['ANTHROPIC_API_KEY'];
   if (!apiKey) {
@@ -93,10 +101,7 @@ export async function analyzeImage(params: AnalyzeImageParams): Promise<ImageAna
     );
   }
   if (!response.ok) {
-    throw new MultimodalError(
-      `Vision API HTTP ${response.status}`,
-      'vision_failed',
-    );
+    throw new MultimodalError(`Vision API HTTP ${response.status}`, 'vision_failed');
   }
   const json = (await response.json()) as {
     content?: Array<{ type: string; text?: string }>;

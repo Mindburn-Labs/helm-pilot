@@ -37,9 +37,11 @@ RUN apt-get update \
     python3 \
     python3-pip \
     python3-venv \
+    awscli \
     ca-certificates \
     curl \
     git \
+    gnupg \
     libasound2 \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
@@ -60,6 +62,7 @@ RUN apt-get update \
     libxfixes3 \
     libxkbcommon0 \
     libxrandr2 \
+    postgresql-client \
     fonts-liberation \
   && rm -rf /var/lib/apt/lists/* \
   && groupadd --system helm \

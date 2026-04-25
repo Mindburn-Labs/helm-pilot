@@ -87,14 +87,17 @@ This starts PostgreSQL, the gateway on port `3100`, and the web app on port `300
 HELM Pilot deploys to DigitalOcean as one Docker Compose stack on a Droplet: PostgreSQL, the private HELM governance sidecar, the Pilot gateway, the web app, Caddy TLS, and optional backup scheduling. See [`infra/digitalocean/README.md`](infra/digitalocean/README.md) for the full runbook.
 
 ```bash
-cp infra/digitalocean/env.production.example .env.production
-# Fill DOMAIN, APP_URL, secrets, HELM_IMAGE, and the sidecar's upstream provider key.
+cp infra/digitalocean/env.production.shared.example .env.production.shared
+cp infra/digitalocean/env.production.helm.example .env.production.helm
+cp infra/digitalocean/env.production.pilot.example .env.production.pilot
+# Fill DOMAIN, APP_URL, secrets, Resend email, DO Spaces backup settings,
+# HELM_IMAGE, and the sidecar's upstream provider key.
 
 export DO_SSH_KEYS=<digitalocean-ssh-key-id-or-fingerprint>
-export DO_REGION=nyc3
+export DO_REGION=fra1
 export DO_SIZE=s-2vcpu-4gb
-export ENV_FILE=.env.production
 
+bash infra/digitalocean/deploy.sh doctor
 bash infra/digitalocean/deploy.sh create
 
 # Set Telegram webhook once DNS resolves.
@@ -155,24 +158,24 @@ All API routes require authentication except `/health`, `/metrics`, and the publ
 
 ## Environment Variables
 
-| Variable                   | Required   | Default                 | Description                                                                                                   |
-| -------------------------- | ---------- | ----------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`             | Yes        | -                       | PostgreSQL connection string                                                                                  |
-| `APP_URL`                  | Yes        | `http://localhost:3100` | Public gateway base URL used for OAuth callbacks                                                              |
-| `TELEGRAM_BOT_TOKEN`       | No         | -                       | Telegram bot token (enables bot)                                                                              |
-| `TELEGRAM_WEBHOOK_SECRET`  | No         | -                       | Webhook HMAC secret (production)                                                                              |
-| `HELM_GOVERNANCE_URL`      | Prod       | -                       | HELM sidecar URL. Production Pilot routes LLM calls through this.                                             |
-| `HELM_FAIL_CLOSED`         | Prod       | `1`                     | Keep `1` in production so HELM unreachability blocks governed calls.                                          |
-| `OPENROUTER_API_KEY`       | Direct dev | -                       | Direct Pilot LLM key only when HELM sidecar is not configured. In production this key belongs on the sidecar. |
-| `SESSION_SECRET`           | Yes        | -                       | Session token signing secret                                                                                  |
-| `ENCRYPTION_KEY`           | Yes        | -                       | Connector token encryption key                                                                                |
-| `PYTHON_BIN`               | No         | `python3`               | Python executable used by background ingestion jobs                                                           |
-| `PLAYWRIGHT_BROWSERS_PATH` | No         | repo-local cache        | Browser cache for Scrapling dynamic fetchers                                                                  |
-| `PATCHRIGHT_BROWSERS_PATH` | No         | repo-local cache        | Browser cache for Scrapling stealth sessions                                                                  |
-| `PORT`                     | No         | 3100                    | HTTP server port                                                                                              |
-| `NODE_ENV`                 | No         | development             | Environment (development/production)                                                                          |
-| `LOG_LEVEL`                | No         | info                    | Pino log level                                                                                                |
-| `ALLOWED_ORIGINS`          | No         | -                       | CORS allowed origins (comma-separated)                                                                        |
+| Variable                   | Required   | Default                 | Description                                                                                                              |
+| -------------------------- | ---------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`             | Yes        | -                       | PostgreSQL connection string                                                                                             |
+| `APP_URL`                  | Yes        | `http://localhost:3100` | Public gateway base URL used for OAuth callbacks                                                                         |
+| `TELEGRAM_BOT_TOKEN`       | No         | -                       | Telegram bot token (enables bot)                                                                                         |
+| `TELEGRAM_WEBHOOK_SECRET`  | No         | -                       | Webhook HMAC secret (production)                                                                                         |
+| `HELM_GOVERNANCE_URL`      | Prod       | -                       | HELM sidecar URL. Production Pilot routes LLM and tool governance through this.                                          |
+| `HELM_FAIL_CLOSED`         | Prod       | `1`                     | Keep `1` in production so HELM unreachability blocks governed calls.                                                     |
+| `OPENROUTER_API_KEY`       | Direct dev | -                       | Direct Pilot LLM key only when HELM sidecar is not configured. In production this key belongs in `.env.production.helm`. |
+| `SESSION_SECRET`           | Yes        | -                       | Session token signing secret                                                                                             |
+| `ENCRYPTION_KEY`           | Yes        | -                       | Connector token encryption key                                                                                           |
+| `PYTHON_BIN`               | No         | `python3`               | Python executable used by background ingestion jobs                                                                      |
+| `PLAYWRIGHT_BROWSERS_PATH` | No         | repo-local cache        | Browser cache for Scrapling dynamic fetchers                                                                             |
+| `PATCHRIGHT_BROWSERS_PATH` | No         | repo-local cache        | Browser cache for Scrapling stealth sessions                                                                             |
+| `PORT`                     | No         | 3100                    | HTTP server port                                                                                                         |
+| `NODE_ENV`                 | No         | development             | Environment (development/production)                                                                                     |
+| `LOG_LEVEL`                | No         | info                    | Pino log level                                                                                                           |
+| `ALLOWED_ORIGINS`          | No         | -                       | CORS allowed origins (comma-separated)                                                                                   |
 
 See `.env.example` for the full list including optional providers and connectors.
 

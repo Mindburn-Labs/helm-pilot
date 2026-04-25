@@ -1,13 +1,16 @@
 import { type Db } from '@helm-pilot/db/client';
 import { type LlmGovernance, type LlmProvider, type LlmUsage } from '@helm-pilot/shared/llm';
+import {
+  HelmDeniedError,
+  HelmEscalationError,
+  HelmUnreachableError,
+  type HelmClient,
+  type HelmReceipt,
+} from '@helm-pilot/helm-client';
 import { computeCostUsd } from '@helm-pilot/shared/llm/pricing';
 import { captureException } from '@helm-pilot/shared/errors/sentry';
 import { MAX_ITERATION_BUDGET } from '@helm-pilot/shared/schemas';
-import {
-  withAgentSpan,
-  setLlmUsageAttributes,
-  setHelmAttributes,
-} from '@helm-pilot/shared/otel';
+import { withAgentSpan, setLlmUsageAttributes, setHelmAttributes } from '@helm-pilot/shared/otel';
 import { type TrustBoundary } from './trust.js';
 import { type ToolRegistry } from './tools.js';
 import { emitConductEvent } from './conduct-stream.js';
@@ -33,7 +36,12 @@ const l1InferenceLog = createLogger('agent-loop-l1');
  * 4. Approval required (pauses, resumes after user approves)
  */
 /** Callback invoked when an approval is created — for sending push notifications. */
-export type ApprovalNotifyFn = (workspaceId: string, approvalId: string, action: string, reason: string) => Promise<void>;
+export type ApprovalNotifyFn = (
+  workspaceId: string,
+  approvalId: string,
+  action: string,
+  reason: string,
+) => Promise<void>;
 
 export class AgentLoop {
   private llm: LlmProvider | null = null;
@@ -43,7 +51,12 @@ export class AgentLoop {
   constructor(
     readonly db: Db,
     private readonly trust: TrustBoundary,
+    private helmClient?: HelmClient,
   ) {}
+
+  setHelmClient(helmClient: HelmClient | undefined): void {
+    this.helmClient = helmClient;
+  }
 
   /** Set a callback for approval notifications (e.g., Telegram push). */
   setApprovalNotifier(fn: ApprovalNotifyFn) {
@@ -124,7 +137,12 @@ export class AgentLoop {
       if (verdict.verdict === 'deny') {
         actions.push({ ...action, output: null, verdict: 'deny', iteration });
         // Persist denied action for audit trail
-        await this.persistAction(params.taskId, { ...action, output: null, verdict: 'deny', iteration });
+        await this.persistAction(params.taskId, {
+          ...action,
+          output: null,
+          verdict: 'deny',
+          iteration,
+        });
         emitConductEvent({
           type: 'action.denied',
           taskId: params.taskId,
@@ -145,7 +163,12 @@ export class AgentLoop {
       if (verdict.verdict === 'require_approval') {
         actions.push({ ...action, output: null, verdict: 'require_approval', iteration });
         // Persist the pending action so resume can pick it up
-        await this.persistAction(params.taskId, { ...action, output: null, verdict: 'require_approval', iteration });
+        await this.persistAction(params.taskId, {
+          ...action,
+          output: null,
+          verdict: 'require_approval',
+          iteration,
+        });
         // Create approval record
         await this.createApprovalRecord(params, action, verdict.reason ?? 'Approval required');
         emitConductEvent({
@@ -165,6 +188,67 @@ export class AgentLoop {
         return this.result('awaiting_approval', iteration, maxIterations, actions, verdict.reason);
       }
 
+      const helmVerdict = await this.evaluateToolGovernance(params, action);
+      if (helmVerdict.verdict === 'deny') {
+        actions.push({ ...action, output: null, verdict: 'deny', iteration });
+        await this.persistAction(params.taskId, {
+          ...action,
+          output: null,
+          verdict: 'deny',
+          iteration,
+        });
+        emitConductEvent({
+          type: 'action.denied',
+          taskId: params.taskId,
+          iteration,
+          tool: action.tool,
+          verdict: 'deny',
+          payload: { reason: helmVerdict.reason },
+        });
+        emitConductEvent({
+          type: 'task.verdict',
+          taskId: params.taskId,
+          iteration,
+          payload: { status: 'blocked', reason: helmVerdict.reason },
+        });
+        return this.result('blocked', iteration, maxIterations, actions, helmVerdict.reason);
+      }
+      if (helmVerdict.verdict === 'require_approval') {
+        actions.push({ ...action, output: null, verdict: 'require_approval', iteration });
+        await this.persistAction(params.taskId, {
+          ...action,
+          output: null,
+          verdict: 'require_approval',
+          iteration,
+        });
+        await this.createApprovalRecord(
+          params,
+          action,
+          helmVerdict.reason ?? 'HELM approval required',
+        );
+        emitConductEvent({
+          type: 'action.approval_required',
+          taskId: params.taskId,
+          iteration,
+          tool: action.tool,
+          verdict: 'require_approval',
+          payload: { reason: helmVerdict.reason },
+        });
+        emitConductEvent({
+          type: 'task.verdict',
+          taskId: params.taskId,
+          iteration,
+          payload: { status: 'awaiting_approval', reason: helmVerdict.reason },
+        });
+        return this.result(
+          'awaiting_approval',
+          iteration,
+          maxIterations,
+          actions,
+          helmVerdict.reason,
+        );
+      }
+
       // 3. Execute action
       const output = await this.executeAction(action);
       actions.push({ ...action, output, verdict: 'allow', iteration });
@@ -182,10 +266,7 @@ export class AgentLoop {
 
       // Phase 16 Track N — snapshot every N iterations so a crashed
       // orchestrator can rehydrate at boot from the latest checkpoint.
-      if (
-        iteration % CHECKPOINT_EVERY_N_ITERATIONS === 0 &&
-        this.lastTaskRunId
-      ) {
+      if (iteration % CHECKPOINT_EVERY_N_ITERATIONS === 0 && this.lastTaskRunId) {
         await writeCheckpoint(this.db, this.lastTaskRunId, {
           iteration,
           actions,
@@ -261,15 +342,59 @@ export class AgentLoop {
 
       if (verdict.verdict === 'deny') {
         actions.push({ ...action, output: null, verdict: 'deny', iteration });
-        await this.persistAction(params.taskId, { ...action, output: null, verdict: 'deny', iteration });
+        await this.persistAction(params.taskId, {
+          ...action,
+          output: null,
+          verdict: 'deny',
+          iteration,
+        });
         return this.result('blocked', iteration, maxIterations, actions, verdict.reason);
       }
 
       if (verdict.verdict === 'require_approval') {
         actions.push({ ...action, output: null, verdict: 'require_approval', iteration });
-        await this.persistAction(params.taskId, { ...action, output: null, verdict: 'require_approval', iteration });
+        await this.persistAction(params.taskId, {
+          ...action,
+          output: null,
+          verdict: 'require_approval',
+          iteration,
+        });
         await this.createApprovalRecord(params, action, verdict.reason ?? 'Approval required');
         return this.result('awaiting_approval', iteration, maxIterations, actions, verdict.reason);
+      }
+
+      const helmVerdict = await this.evaluateToolGovernance(params, action);
+      if (helmVerdict.verdict === 'deny') {
+        actions.push({ ...action, output: null, verdict: 'deny', iteration });
+        await this.persistAction(params.taskId, {
+          ...action,
+          output: null,
+          verdict: 'deny',
+          iteration,
+        });
+        return this.result('blocked', iteration, maxIterations, actions, helmVerdict.reason);
+      }
+
+      if (helmVerdict.verdict === 'require_approval') {
+        actions.push({ ...action, output: null, verdict: 'require_approval', iteration });
+        await this.persistAction(params.taskId, {
+          ...action,
+          output: null,
+          verdict: 'require_approval',
+          iteration,
+        });
+        await this.createApprovalRecord(
+          params,
+          action,
+          helmVerdict.reason ?? 'HELM approval required',
+        );
+        return this.result(
+          'awaiting_approval',
+          iteration,
+          maxIterations,
+          actions,
+          helmVerdict.reason,
+        );
       }
 
       const output = await this.executeAction(action);
@@ -297,6 +422,8 @@ export class AgentLoop {
    */
   private lastGovernance: LlmGovernance | null = null;
 
+  private lastToolGovernance: HelmReceipt | null = null;
+
   /**
    * Workspace of the currently-executing run. Populated at the top of
    * executeLoop / resume so persistAction can mirror receipts into
@@ -322,9 +449,10 @@ export class AgentLoop {
     if (!this.llm) return null;
 
     // Use mode-aware tool filtering if mode is set
-    const availableTools = params.mode && this.tools
-      ? this.tools.listToolsForMode(params.mode)
-      : this.tools?.listTools() ?? [];
+    const availableTools =
+      params.mode && this.tools
+        ? this.tools.listToolsForMode(params.mode)
+        : (this.tools?.listTools() ?? []);
 
     const prompt = buildPlanPrompt(params, history, availableTools);
     const frame = this.currentSubagentFrame;
@@ -413,9 +541,7 @@ export class AgentLoop {
     );
   }
 
-  private async executeAction(
-    action: Pick<ActionRecord, 'tool' | 'input'>,
-  ): Promise<unknown> {
+  private async executeAction(action: Pick<ActionRecord, 'tool' | 'input'>): Promise<unknown> {
     if (!this.tools) return { error: 'No tool registry configured' };
     try {
       return await this.tools.execute(action.tool, action.input);
@@ -426,6 +552,60 @@ export class AgentLoop {
       });
       // Re-throw so the loop can surface the error to the caller
       throw err;
+    }
+  }
+
+  private async evaluateToolGovernance(
+    params: AgentRunParams,
+    action: Pick<ActionRecord, 'tool' | 'input'>,
+  ): Promise<{ verdict: 'allow' | 'deny' | 'require_approval'; reason?: string }> {
+    this.lastToolGovernance = null;
+    if (action.tool === 'finish') return { verdict: 'allow' };
+
+    if (!this.helmClient) {
+      const requireHelm =
+        process.env['NODE_ENV'] === 'production' && process.env['HELM_FAIL_CLOSED'] !== '0';
+      return requireHelm
+        ? {
+            verdict: 'deny',
+            reason: 'HELM governance client is required for production tool execution',
+          }
+        : { verdict: 'allow' };
+    }
+
+    try {
+      const result = await this.helmClient.evaluate({
+        principal: `workspace:${params.workspaceId}/operator:${params.operatorId ?? 'agent'}`,
+        action: 'TOOL_USE',
+        resource: action.tool,
+        args: toolArgs(action.input),
+        effectLevel: inferEffectLevel(action.tool),
+        sessionId: params.taskId,
+        context: {
+          taskId: params.taskId,
+          workspaceId: params.workspaceId,
+          operatorId: params.operatorId,
+          tool: action.tool,
+        },
+      });
+      this.lastToolGovernance = result.receipt;
+      return { verdict: 'allow' };
+    } catch (err) {
+      if (err instanceof HelmDeniedError) {
+        this.lastToolGovernance = err.receipt;
+        return { verdict: 'deny', reason: err.reason };
+      }
+      if (err instanceof HelmEscalationError) {
+        this.lastToolGovernance = err.receipt;
+        return { verdict: 'require_approval', reason: err.reason };
+      }
+      if (err instanceof HelmUnreachableError) {
+        return { verdict: 'deny', reason: err.message };
+      }
+      return {
+        verdict: 'deny',
+        reason: err instanceof Error ? err.message : 'HELM governance evaluation failed',
+      };
     }
   }
 
@@ -440,7 +620,10 @@ export class AgentLoop {
    * because the audit layer degraded.
    */
   private async persistAction(taskId: string, action: ActionRecord): Promise<void> {
-    const gov = this.lastGovernance;
+    const toolGov = this.lastToolGovernance;
+    const gov = toolGov ?? this.lastGovernance;
+    const govAction = toolGov ? 'TOOL_USE' : 'LLM_INFERENCE';
+    const govResource = toolGov ? action.tool : this.runUsage.model || 'agent-loop';
     const workspaceId = this.currentWorkspaceId;
     const frame = this.currentSubagentFrame;
     let taskRunId: string | undefined;
@@ -495,8 +678,8 @@ export class AgentLoop {
           reasonCode: gov.reason ?? null,
           policyVersion: gov.policyVersion,
           decisionHash: gov.decisionHash ?? null,
-          action: 'LLM_INFERENCE',
-          resource: this.runUsage.model || 'agent-loop',
+          action: govAction,
+          resource: govResource,
           principal: gov.principal,
           signedBlob: gov.signedBlob ?? null,
           // Phase 12 — anchor child's receipt to parent's SUBAGENT_SPAWN pack.
@@ -509,8 +692,8 @@ export class AgentLoop {
             decisionId: gov.decisionId,
             verdict: gov.verdict,
             policyVersion: gov.policyVersion,
-            action: 'LLM_INFERENCE',
-            resource: this.runUsage.model || 'agent-loop',
+            action: govAction,
+            resource: govResource,
             principal: gov.principal,
             receivedAt: new Date(),
             decisionHash: gov.decisionHash ?? null,
@@ -544,15 +727,18 @@ export class AgentLoop {
     let approvalId: string | undefined;
     try {
       const { approvals } = await import('@helm-pilot/db/schema');
-      const [record] = await this.db.insert(approvals).values({
-        workspaceId: params.workspaceId,
-        taskId: params.taskId,
-        action: action.tool,
-        reason,
-        status: 'pending',
-        requestedBy: params.operatorId ?? 'system',
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24h expiry
-      }).returning();
+      const [record] = await this.db
+        .insert(approvals)
+        .values({
+          workspaceId: params.workspaceId,
+          taskId: params.taskId,
+          action: action.tool,
+          reason,
+          status: 'pending',
+          requestedBy: params.operatorId ?? 'system',
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24h expiry
+        })
+        .returning();
       approvalId = record?.id;
     } catch {
       // Non-critical — don't crash the loop if persistence fails
@@ -565,7 +751,11 @@ export class AgentLoop {
   }
 
   /** Save operator memory at end of a run (for context in future runs) */
-  private async saveOperatorMemory(params: AgentRunParams, actions: ActionRecord[], status: string): Promise<void> {
+  private async saveOperatorMemory(
+    params: AgentRunParams,
+    actions: ActionRecord[],
+    status: string,
+  ): Promise<void> {
     if (!params.operatorId) return;
     try {
       const { operatorMemory } = await import('@helm-pilot/db/schema');
@@ -622,19 +812,19 @@ function buildPlanPrompt(
   history: ActionRecord[],
   availableTools: ToolDef[],
 ): string {
-  const toolList = availableTools
-    .map((t) => `- ${t.name}: ${t.description}`)
-    .join('\n');
+  const toolList = availableTools.map((t) => `- ${t.name}: ${t.description}`).join('\n');
 
   // History entries are serialized as JSON to neutralize any embedded
   // instructions in tool outputs that might attempt prompt injection.
-  const historyText = history.length > 0
-    ? history
-        .map((a) =>
-          `[${a.iteration}] tool=${JSON.stringify(a.tool)} input=${encodeContext(a.input, 2000)} output=${encodeContext(a.output, 2000)}`,
-        )
-        .join('\n')
-    : '(no actions yet)';
+  const historyText =
+    history.length > 0
+      ? history
+          .map(
+            (a) =>
+              `[${a.iteration}] tool=${JSON.stringify(a.tool)} input=${encodeContext(a.input, 2000)} output=${encodeContext(a.output, 2000)}`,
+          )
+          .join('\n')
+      : '(no actions yet)';
 
   const encodedContext = encodeContext(params.context, 5000);
   const encodedRole = params.systemPrompt ? encodeContext(params.systemPrompt, 2000) : '';
@@ -704,7 +894,10 @@ function splitPlanPrompt(prompt: string): { system: string; user: string } {
 }
 
 function parsePlanResponse(response: string): Pick<ActionRecord, 'tool' | 'input'> | null {
-  const cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  const cleaned = response
+    .replace(/```json\n?/g, '')
+    .replace(/```\n?/g, '')
+    .trim();
   try {
     const parsed = JSON.parse(cleaned);
     if (!parsed.tool) return null;
@@ -714,7 +907,6 @@ function parsePlanResponse(response: string): Pick<ActionRecord, 'tool' | 'input
     return null;
   }
 }
-
 
 // ─── Types ───
 
@@ -787,6 +979,30 @@ function toJsonValue(value: unknown) {
   } catch {
     return String(value);
   }
+}
+
+function toolArgs(input: unknown): Record<string, unknown> {
+  const value = toJsonValue(input);
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return { value };
+}
+
+function inferEffectLevel(tool: string): string {
+  if (
+    tool.includes('deploy') ||
+    tool.includes('rollback') ||
+    tool.includes('stripe') ||
+    tool.includes('send') ||
+    tool.includes('write') ||
+    tool.includes('delete') ||
+    tool.includes('subagent.')
+  ) {
+    return 'E3';
+  }
+  if (tool.includes('scrapling') || tool.includes('mcp.') || tool.includes('fetch')) return 'E2';
+  return 'E1';
 }
 
 function stringifyError(value: unknown) {

@@ -81,4 +81,3 @@ export function sanitizeScrapingOutput(input: string): SanitizeResult {
 export function sanitize(input: string): string {
   return sanitizeScrapingOutput(input).cleaned;
 }
-
