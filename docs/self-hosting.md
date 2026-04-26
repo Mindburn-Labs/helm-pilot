@@ -136,6 +136,9 @@ export DO_SIZE=s-2vcpu-4gb
 
 bash infra/digitalocean/deploy.sh doctor
 bash infra/digitalocean/deploy.sh create
+export DO_DROPLET_IP=<new-droplet-ip>
+bash infra/digitalocean/deploy.sh preload-helm
+bash infra/digitalocean/deploy.sh deploy
 ```
 
 See [infra/digitalocean/README.md](../infra/digitalocean/README.md) for the full runbook.

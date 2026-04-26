@@ -99,6 +99,9 @@ export DO_SIZE=s-2vcpu-4gb
 
 bash infra/digitalocean/deploy.sh doctor
 bash infra/digitalocean/deploy.sh create
+export DO_DROPLET_IP=<new-droplet-ip>
+bash infra/digitalocean/deploy.sh preload-helm
+bash infra/digitalocean/deploy.sh deploy
 
 # Set Telegram webhook once DNS resolves.
 TELEGRAM_BOT_TOKEN=... APP_URL=https://pilot.example.com bash infra/scripts/set-telegram-webhook.sh

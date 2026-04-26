@@ -16,7 +16,7 @@ This keeps the HELM sidecar private on the Docker network and keeps production f
 - `doctl` authenticated with `doctl auth init`
 - an SSH key registered in DigitalOcean
 - a DNS `A` record for your production domain pointed at the Droplet IP
-- a published HELM sidecar image in `HELM_IMAGE`
+- a HELM sidecar image in `HELM_IMAGE`; the deploy script can preload a local build before the stack starts
 - a DO Spaces bucket and access key for encrypted production backups
 
 DigitalOcean's `doctl compute droplet create` supports `--user-data-file`, which this runbook uses for `cloud-init` bootstrapping. The provision script enables DigitalOcean monitoring and backups at Droplet creation time.
@@ -54,18 +54,23 @@ bash infra/digitalocean/deploy.sh doctor
 bash infra/digitalocean/deploy.sh create
 ```
 
-The script creates the Droplet with `cloud-init`, waits for Docker to be ready, copies this checkout to `/opt/helm-pilot/releases/<git-sha>`, writes the split production env files, starts the stack, and points `/opt/helm-pilot/current` at the successful release:
+`create` provisions the Droplet with `cloud-init`, waits for Docker to be ready, and reconciles the launch firewall. It does not deploy automatically because the patched HELM sidecar image may need to be preloaded first.
 
 ```bash
-docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml up -d --build
-```
-
-For an existing Droplet:
-
-```bash
-export DO_DROPLET_IP=<ip>
+export DO_DROPLET_IP=<new-droplet-ip>
+bash infra/digitalocean/deploy.sh preload-helm
 bash infra/digitalocean/deploy.sh deploy
 ```
+
+`preload-helm` defaults to `HELM_PRELOAD_MODE=binary`: it cross-compiles the local `../helm-oss` sidecar for Linux amd64, packages it as `HELM_IMAGE`, copies it to the Droplet, and runs `docker load`. Set `HELM_PRELOAD_MODE=docker` to build from the HELM Dockerfile instead, or set `HELM_IMAGE_ARCHIVE` to upload an existing `docker save` tar.
+
+`deploy` copies this checkout to `/opt/helm-pilot/releases/<git-sha>`, writes the split production env files, starts the stack, and points `/opt/helm-pilot/current` at the successful release. It starts `COMPOSE_PROFILES=backup` by default so encrypted scheduled backups run in production:
+
+```bash
+COMPOSE_PROFILES=backup docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml up -d --build
+```
+
+Set `COMPOSE_PROFILES=` only for a controlled non-production smoke that intentionally disables scheduled backups.
 
 ## Verify
 
@@ -100,7 +105,7 @@ ssh root@$DO_DROPLET_IP 'cd /opt/helm-pilot/current && docker compose --env-file
 ssh root@$DO_DROPLET_IP 'cd /opt/helm-pilot/current && docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml exec helm-pilot bash /app/scripts/backup.sh create-and-upload'
 ```
 
-Enable daily backups by adding the profile when starting the stack:
+Daily encrypted backup uploads are enabled by default through the `backup` Compose profile in `deploy.sh`. To start the profile manually:
 
 ```bash
 docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml --profile backup up -d

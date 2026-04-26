@@ -25,6 +25,7 @@ ENV_DIR="${ENV_DIR:-.}"
 ENV_SHARED_FILE="${ENV_SHARED_FILE:-$ENV_DIR/.env.production.shared}"
 ENV_HELM_FILE="${ENV_HELM_FILE:-$ENV_DIR/.env.production.helm}"
 ENV_PILOT_FILE="${ENV_PILOT_FILE:-$ENV_DIR/.env.production.pilot}"
+COMPOSE_PROFILES="${COMPOSE_PROFILES:-backup}"
 COMPOSE=(docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml)
 HELM_OSS_DIR="${HELM_OSS_DIR:-$ROOT_DIR/../helm-oss}"
 HELM_DOCKERFILE="${HELM_DOCKERFILE:-Dockerfile.slim}"
@@ -54,6 +55,8 @@ sidecar provider keys into Pilot.
 Create provisions the Droplet and reconciles DO_FIREWALL_NAME for DO_FIREWALL_TAGS.
 It does not deploy automatically, so preload-helm can load a local HELM image first.
 Firewall defaults allow 80/443 from the public internet and 22 only from DO_SSH_CIDR.
+Deploy and rollback start COMPOSE_PROFILES=backup by default so encrypted backup
+uploads run on the production schedule. Set COMPOSE_PROFILES= to disable profiles.
 
 HELM preload:
   preload-helm builds HELM_IMAGE from .env.production.shared, copies it to the
@@ -168,7 +171,7 @@ compose_doctor() {
   cp "$ENV_SHARED_FILE" .env.production.shared
   cp "$ENV_HELM_FILE" .env.production.helm
   cp "$ENV_PILOT_FILE" .env.production.pilot
-  "${COMPOSE[@]}" config >/dev/null
+  COMPOSE_PROFILES="$COMPOSE_PROFILES" "${COMPOSE[@]}" config >/dev/null
   echo "DigitalOcean production doctor passed."
 }
 
@@ -361,11 +364,11 @@ deploy_to() {
     set -euo pipefail
     cd '$release_dir'
     find packages services apps -type d \( -name dist -o -name .next \) -prune -exec rm -rf {} +
-    docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml config >/dev/null
-    docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml up -d --build
+    COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml config >/dev/null
+    COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml up -d --build
     ln -sfnT '$release_dir' '$REMOTE_DIR'
     ls -1dt '$REMOTE_RELEASES_DIR'/* 2>/dev/null | tail -n +4 | xargs -r rm -rf
-    docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml ps
+    COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml ps
   "
 
   echo "Deployed. Verify with:"
@@ -376,7 +379,7 @@ status_remote() {
   local ip
   ip="$(droplet_ip)"
   [[ -n "$ip" ]] || die "set DO_DROPLET_IP or create a droplet named $DROPLET_NAME"
-  ssh "${SSH_OPTS[@]}" "$REMOTE_USER@$ip" "cd '$REMOTE_DIR' && docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml ps"
+  ssh "${SSH_OPTS[@]}" "$REMOTE_USER@$ip" "cd '$REMOTE_DIR' && COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml ps"
 }
 
 rollback_remote() {
@@ -386,7 +389,7 @@ rollback_remote() {
   target="$ACTION_ARG"
 
   ssh "${SSH_OPTS[@]}" "$REMOTE_USER@$ip" \
-    "REMOTE_DIR='$REMOTE_DIR' REMOTE_RELEASES_DIR='$REMOTE_RELEASES_DIR' TARGET_RELEASE='$target' bash -s" <<'REMOTE'
+    "REMOTE_DIR='$REMOTE_DIR' REMOTE_RELEASES_DIR='$REMOTE_RELEASES_DIR' TARGET_RELEASE='$target' COMPOSE_PROFILES='$COMPOSE_PROFILES' bash -s" <<'REMOTE'
 set -euo pipefail
 target="$TARGET_RELEASE"
 if [[ -z "$target" ]]; then
@@ -408,10 +411,10 @@ fi
   exit 1
 }
 cd "$target"
-docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml config >/dev/null
-docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml up -d --build
+COMPOSE_PROFILES="$COMPOSE_PROFILES" docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml config >/dev/null
+COMPOSE_PROFILES="$COMPOSE_PROFILES" docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml up -d --build
 ln -sfnT "$target" "$REMOTE_DIR"
-docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml ps
+COMPOSE_PROFILES="$COMPOSE_PROFILES" docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml ps
 echo "Rolled back to $target"
 REMOTE
 }
