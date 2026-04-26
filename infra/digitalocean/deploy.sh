@@ -123,6 +123,10 @@ validate_env_files() {
   require_value "$ENV_SHARED_FILE" POSTGRES_DB
   require_value "$ENV_SHARED_FILE" HELM_POSTGRES_DB
   require_value "$ENV_SHARED_FILE" HELM_IMAGE
+  forbid_value "$ENV_SHARED_FILE" OPENROUTER_API_KEY
+  forbid_value "$ENV_SHARED_FILE" ANTHROPIC_API_KEY
+  forbid_value "$ENV_SHARED_FILE" OPENAI_API_KEY
+  forbid_value "$ENV_SHARED_FILE" VOYAGE_API_KEY
 
   [[ "$(env_value "$ENV_SHARED_FILE" APP_URL)" == https://* ]] || die "APP_URL must be HTTPS"
   [[ "$(env_value "$ENV_SHARED_FILE" ALLOWED_ORIGINS)" != "*" ]] || die "ALLOWED_ORIGINS cannot be '*' in production"
