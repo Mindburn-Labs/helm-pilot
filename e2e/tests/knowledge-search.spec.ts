@@ -1,10 +1,13 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 
+let ipCounter = 40;
 async function authenticate(request: APIRequestContext): Promise<string> {
   const email = `e2e-kb-${Math.random().toString(36).slice(2, 10)}@helm-pilot.test`;
-  const requestResp = await request.post('/api/auth/email/request', { data: { email } });
+  const headers = { 'x-forwarded-for': `198.51.100.${ipCounter++}` };
+  const requestResp = await request.post('/api/auth/email/request', { headers, data: { email } });
   const requestBody = await requestResp.json();
   const verifyResp = await request.post('/api/auth/email/verify', {
+    headers,
     data: { email, code: requestBody.code },
   });
   const verifyBody = await verifyResp.json();

@@ -47,7 +47,7 @@ export class DigitalOceanProvider implements DeployProvider {
       options.token ?? process.env['DIGITALOCEAN_TOKEN'] ?? process.env['DIGITALOCEAN_API_TOKEN'];
     this.apiBaseUrl = options.apiBaseUrl ?? 'https://api.digitalocean.com';
     this.fetchImpl = options.fetchImpl ?? fetch;
-    this.mock = options.mock ?? !this.token;
+    this.mock = options.mock ?? (!this.token && process.env['NODE_ENV'] !== 'production');
   }
 
   async provision(params: ProvisionParams): Promise<ProvisionResult> {

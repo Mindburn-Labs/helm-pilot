@@ -15,6 +15,104 @@
       "when": 1776093414766,
       "tag": "0001_omniscient_gorgon",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776251820208,
+      "tag": "0002_pgvector_embeddings",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1776219415096,
+      "tag": "0003_event_triggers",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1776249202961,
+      "tag": "0004_task_cost_usd",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1776272896232,
+      "tag": "0005_governance_and_connector_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1776279933804,
+      "tag": "0006_tenant_secrets",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1776281553013,
+      "tag": "0007_rate_limit_buckets",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1776282515289,
+      "tag": "0008_workspace_deletions",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1776286614555,
+      "tag": "0009_opportunity_clusters",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1776430238617,
+      "tag": "0010_governed_subagents",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1776518817998,
+      "tag": "0011_connector_refresh_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1776552808594,
+      "tag": "0012_reverify_spawn_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1776614425486,
+      "tag": "0013_compliance_frameworks",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1777048615343,
+      "tag": "0014_long_running_checkpoints",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1777126436400,
+      "tag": "0014_pgvector_082_floor",
+      "breakpoints": true
     }
   ]
 }

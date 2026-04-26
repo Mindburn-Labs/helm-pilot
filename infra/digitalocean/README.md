@@ -45,6 +45,12 @@ Do not set direct Pilot LLM keys in `.env.production.pilot`. Provider keys live 
 
 ## Create And Deploy
 
+Run the release gate before creating or updating a production Droplet. It builds the workspace, runs unit/static checks, validates the DigitalOcean Compose file, then starts a local pgvector Postgres plus gateway and runs the Playwright API E2E suite:
+
+```bash
+npm run test:release
+```
+
 ```bash
 export DO_SSH_KEYS=<digitalocean-ssh-key-id-or-fingerprint>
 export DO_REGION=fra1

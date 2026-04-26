@@ -5,13 +5,19 @@ import { test, expect, type APIRequestContext } from '@playwright/test';
  *   Create task → list tasks → update task status → get task runs.
  */
 
-async function authenticate(request: APIRequestContext): Promise<{ token: string; workspaceId: string }> {
+let ipCounter = 80;
+
+async function authenticate(
+  request: APIRequestContext,
+): Promise<{ token: string; workspaceId: string }> {
   const email = `e2e-task-${Math.random().toString(36).slice(2, 10)}@helm-pilot.test`;
-  await request.post('/api/auth/email/request', { data: { email } });
-  const requestResp = await request.post('/api/auth/email/request', { data: { email } });
+  const headers = { 'x-forwarded-for': `198.51.100.${ipCounter++}` };
+  await request.post('/api/auth/email/request', { headers, data: { email } });
+  const requestResp = await request.post('/api/auth/email/request', { headers, data: { email } });
   const requestBody = await requestResp.json();
 
   const verifyResp = await request.post('/api/auth/email/verify', {
+    headers,
     data: { email, code: requestBody.code },
   });
   const verifyBody = await verifyResp.json();

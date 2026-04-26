@@ -114,6 +114,7 @@ npm run dev          # Start all services (Turbo)
 npm run build        # Build all workspaces
 npm run typecheck    # TypeScript check all workspaces
 npm test             # Run all tests (Vitest)
+npm run test:release # Full release gate: static checks, compose config, local API E2E
 npm run db:generate  # Regenerate Drizzle migrations
 npm run db:migrate   # Apply migrations
 npm run db:studio    # Open Drizzle Studio (DB browser)

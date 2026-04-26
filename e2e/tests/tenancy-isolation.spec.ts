@@ -26,10 +26,9 @@ test.describe('Tenancy isolation', () => {
       const response = await request.get(`${route}?workspaceId=${BOGUS}`, {
         headers: { 'X-Workspace-Id': BOGUS },
       });
-      expect(
-        [401, 403, 404],
-        `${route} must not leak 200 data for bogus workspace`,
-      ).toContain(response.status());
+      expect([401, 403, 404], `${route} must not leak 200 data for bogus workspace`).toContain(
+        response.status(),
+      );
     });
   }
 

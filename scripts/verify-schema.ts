@@ -76,6 +76,36 @@ const checks: Check[] = [
     },
   },
   {
+    name: 'workspace compliance frameworks column exists',
+    run: async (sql) => {
+      const rows = await sql<{ column_name: string }[]>`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'workspaces' AND column_name = 'compliance_frameworks'
+      `;
+      return rows.length > 0;
+    },
+  },
+  {
+    name: 'rate-limit buckets table exists',
+    run: async (sql) => {
+      const rows = await sql<{ table_name: string }[]>`
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'ratelimit_buckets'
+      `;
+      return rows.length > 0;
+    },
+  },
+  {
+    name: 'rate-limit buckets updated index exists',
+    run: async (sql) => {
+      const rows = await sql<{ indexname: string }[]>`
+        SELECT indexname FROM pg_indexes
+        WHERE tablename = 'ratelimit_buckets' AND indexname = 'ratelimit_buckets_updated_idx'
+      `;
+      return rows.length > 0;
+    },
+  },
+  {
     name: 'tasks triggers notify helm_pilot_events',
     run: async (sql) => {
       const rows = await sql<{ trigger_name: string }[]>`

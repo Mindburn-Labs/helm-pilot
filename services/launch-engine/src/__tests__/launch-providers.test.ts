@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { LaunchChecklist } from '../checklist.js';
 import { DistributionPlanner } from '../distribution.js';
 import { DigitalOceanProvider } from '../providers/digitalocean.js';
@@ -31,6 +31,12 @@ describe('LaunchChecklist', () => {
 
 describe('DigitalOceanProvider', () => {
   const digitalocean = new DigitalOceanProvider({ mock: true });
+  const originalNodeEnv = process.env['NODE_ENV'];
+
+  afterEach(() => {
+    if (originalNodeEnv === undefined) delete process.env['NODE_ENV'];
+    else process.env['NODE_ENV'] = originalNodeEnv;
+  });
 
   it('provision returns a valid structure', async () => {
     const result = await digitalocean.provision({ appName: 'my-app', region: 'nyc3' });
@@ -59,6 +65,19 @@ describe('DigitalOceanProvider', () => {
     await expect(realProvider.provision({ appName: 'my-app', region: 'nyc3' })).rejects.toThrow(
       /config\.appSpec/,
     );
+  });
+
+  it('does not silently mock deployments in production without a token', async () => {
+    process.env['NODE_ENV'] = 'production';
+    const provider = new DigitalOceanProvider();
+
+    await expect(
+      provider.deploy({
+        providerId: '12345678-1234-1234-1234-123456789abc',
+        image: 'registry.digitalocean.com/helm-pilot/my-app',
+        tag: 'v1.0.0',
+      }),
+    ).rejects.toThrow(/DigitalOcean token is required/);
   });
 });
 

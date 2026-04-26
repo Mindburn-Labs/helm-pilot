@@ -14,8 +14,19 @@ function uniqueEmail(): string {
   return `e2e-${rand}@helm-pilot.test`;
 }
 
-async function magicAuth(request: APIRequestContext, email: string): Promise<string> {
+let ipCounter = 1;
+function uniqueClientIp(): string {
+  return `198.51.100.${ipCounter++}`;
+}
+
+async function magicAuth(
+  request: APIRequestContext,
+  email: string,
+  clientIp = uniqueClientIp(),
+): Promise<string> {
+  const headers = { 'x-forwarded-for': clientIp };
   const requestResp = await request.post('/api/auth/email/request', {
+    headers,
     data: { email },
   });
   expect(requestResp.status()).toBe(200);
@@ -23,6 +34,7 @@ async function magicAuth(request: APIRequestContext, email: string): Promise<str
   expect(requestBody).toHaveProperty('code');
 
   const verifyResp = await request.post('/api/auth/email/verify', {
+    headers,
     data: { email, code: requestBody.code },
   });
   expect(verifyResp.status()).toBe(200);
@@ -68,6 +80,7 @@ test.describe('Magic Link Authentication', () => {
 
   test('invalid email returns 400', async ({ request }) => {
     const response = await request.post('/api/auth/email/request', {
+      headers: { 'x-forwarded-for': uniqueClientIp() },
       data: { email: 'not-an-email' },
     });
     expect(response.status()).toBe(400);
@@ -75,8 +88,10 @@ test.describe('Magic Link Authentication', () => {
 
   test('wrong verification code returns 401', async ({ request }) => {
     const email = uniqueEmail();
-    await request.post('/api/auth/email/request', { data: { email } });
+    const headers = { 'x-forwarded-for': uniqueClientIp() };
+    await request.post('/api/auth/email/request', { headers, data: { email } });
     const response = await request.post('/api/auth/email/verify', {
+      headers,
       data: { email, code: '999999' },
     });
     expect(response.status()).toBe(401);
@@ -84,6 +99,7 @@ test.describe('Magic Link Authentication', () => {
 
   test('missing fields on verify returns 400', async ({ request }) => {
     const response = await request.post('/api/auth/email/verify', {
+      headers: { 'x-forwarded-for': uniqueClientIp() },
       data: { email: 'only@email.com' }, // no code
     });
     expect(response.status()).toBe(400);
@@ -93,8 +109,9 @@ test.describe('Magic Link Authentication', () => {
     // /api/auth/* has max 5 req/min
     const email = 'rate-limit-test@helm-pilot.test';
     const results: number[] = [];
+    const headers = { 'x-forwarded-for': '198.51.100.250' };
     for (let i = 0; i < 8; i++) {
-      const resp = await request.post('/api/auth/email/request', { data: { email } });
+      const resp = await request.post('/api/auth/email/request', { headers, data: { email } });
       results.push(resp.status());
     }
     // At least one request should hit 429

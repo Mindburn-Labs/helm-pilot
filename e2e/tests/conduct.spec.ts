@@ -29,9 +29,7 @@ test.describe('Conductor (Phase 12 subagents)', () => {
     }
   });
 
-  test('POST /api/orchestrator/conduct requires taskId + context', async ({
-    request,
-  }) => {
+  test('POST /api/orchestrator/conduct requires taskId + context', async ({ request }) => {
     const response = await request.post('/api/orchestrator/conduct', {
       data: {},
       headers: { 'X-Workspace-Id': '00000000-0000-0000-0000-000000000000' },
@@ -40,9 +38,7 @@ test.describe('Conductor (Phase 12 subagents)', () => {
     expect([400, 401, 403]).toContain(response.status());
   });
 
-  test('POST /api/orchestrator/conduct rejects unknown task in workspace', async ({
-    request,
-  }) => {
+  test('POST /api/orchestrator/conduct rejects unknown task in workspace', async ({ request }) => {
     const response = await request.post('/api/orchestrator/conduct', {
       data: {
         taskId: '00000000-0000-0000-0000-000000000000',

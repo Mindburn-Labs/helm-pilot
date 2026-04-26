@@ -32,9 +32,7 @@ test.describe('Governance DAG + receipts', () => {
     expect(Array.isArray(body.receipts)).toBe(true);
   });
 
-  test('GET /api/governance/proofgraph/:taskId returns {nodes, edges}', async ({
-    request,
-  }) => {
+  test('GET /api/governance/proofgraph/:taskId returns {nodes, edges}', async ({ request }) => {
     const response = await request.get(
       '/api/governance/proofgraph/00000000-0000-0000-0000-000000000000',
       { headers: { 'X-Workspace-Id': '00000000-0000-0000-0000-000000000000' } },
