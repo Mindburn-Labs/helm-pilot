@@ -62,3 +62,24 @@ export {
   BudgetLimitsSchema,
   TrustBoundaryResultSchema,
 } from './policy.js';
+
+export {
+  type ManagedTelegramBotResponseMode,
+  type ManagedTelegramBotStatus,
+  type ManagedTelegramBotSettings,
+  type ManagedTelegramProvisioningResponse,
+  type ManagedTelegramBotSummary,
+  type ManagedTelegramLead,
+  type ManagedTelegramMessage,
+  type ManagedTelegramState,
+  type ManagedTelegramReply,
+  ManagedTelegramBotResponseModeSchema,
+  ManagedTelegramBotStatusSchema,
+  ManagedTelegramBotSettingsInput,
+  ManagedTelegramProvisioningResponseSchema,
+  ManagedTelegramBotSummarySchema,
+  ManagedTelegramLeadSchema,
+  ManagedTelegramMessageSchema,
+  ManagedTelegramStateSchema,
+  ManagedTelegramReplyInput,
+} from './managed-telegram.js';

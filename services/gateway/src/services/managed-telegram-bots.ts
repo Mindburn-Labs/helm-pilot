@@ -1,0 +1,1082 @@
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { Bot, InlineKeyboard, type Context } from 'grammy';
+import { and, desc, eq, gt, lt } from 'drizzle-orm';
+import { TenantSecretStore } from '@helm-pilot/db/tenant-secret-store';
+import {
+  approvals,
+  managedTelegramBotLeads,
+  managedTelegramBotMessages,
+  managedTelegramBotProvisioningRequests,
+  managedTelegramBots,
+  workspaces,
+  workspaceMembers,
+} from '@helm-pilot/db/schema';
+import { type Db } from '@helm-pilot/db/client';
+import {
+  HelmDeniedError,
+  HelmEscalationError,
+  HelmUnreachableError,
+  type HelmClient,
+  type EvaluateResult,
+} from '@helm-pilot/helm-client';
+import {
+  type ManagedTelegramBotResponseMode,
+  ManagedTelegramBotSettingsInput,
+} from '@helm-pilot/shared/schemas';
+import { type LlmProvider } from '@helm-pilot/shared/llm';
+import { type SecretKind } from '@helm-pilot/shared/secrets';
+
+const DEFAULT_WELCOME = 'Welcome. Join the launch list or send a support message.';
+const DEFAULT_SUPPORT_PROMPT = 'Send your question and we will follow up.';
+const PROVISIONING_TTL_MS = 15 * 60 * 1000;
+const CHILD_BOT_CACHE_TTL_MS = 5 * 60 * 1000;
+
+export const TELEGRAM_MANAGED_ACTIONS = {
+  CLAIM: 'TELEGRAM_MANAGED_BOT_CLAIM',
+  SET_WEBHOOK: 'TELEGRAM_CHILD_SET_WEBHOOK',
+  SEND_MESSAGE: 'TELEGRAM_CHILD_SEND_MESSAGE',
+  ROTATE_TOKEN: 'TELEGRAM_CHILD_ROTATE_TOKEN',
+  DISABLE: 'TELEGRAM_CHILD_DISABLE',
+} as const;
+
+type ManagedBotRow = typeof managedTelegramBots.$inferSelect;
+type ManagedMessageRow = typeof managedTelegramBotMessages.$inferSelect;
+
+export class ManagedTelegramBotError extends Error {
+  constructor(
+    message: string,
+    readonly status = 400,
+    readonly receipt?: unknown,
+  ) {
+    super(message);
+  }
+}
+
+export interface ManagedTelegramBotServiceOptions {
+  db: Db;
+  helmClient?: HelmClient;
+  managerBotToken?: string;
+  managerBotUsername?: string;
+  appUrl?: string;
+  llm?: LlmProvider;
+}
+
+export interface LaunchBotProvisioningInput {
+  workspaceId: string;
+  userId: string;
+  creatorTelegramId: string;
+}
+
+export interface ManagedBotClaimInput {
+  creatorTelegramId: string;
+  bot: {
+    id: number | string;
+    username?: string;
+    firstName?: string;
+  };
+}
+
+export class ManagedTelegramBotService {
+  private readonly secrets: TenantSecretStore;
+  private readonly childBotCache = new Map<string, { bot: Bot; token: string; cachedAt: number }>();
+  private approvalNotifier:
+    | ((workspaceId: string, approvalId: string, action: string, reason: string) => Promise<void>)
+    | undefined;
+  private supportNotifier:
+    | ((workspaceId: string, messageId: string, managedBotUsername: string) => Promise<void>)
+    | undefined;
+
+  constructor(private readonly opts: ManagedTelegramBotServiceOptions) {
+    this.secrets = new TenantSecretStore(opts.db);
+  }
+
+  setApprovalNotifier(
+    notifier:
+      | ((workspaceId: string, approvalId: string, action: string, reason: string) => Promise<void>)
+      | undefined,
+  ) {
+    this.approvalNotifier = notifier;
+  }
+
+  setSupportNotifier(
+    notifier:
+      | ((workspaceId: string, messageId: string, managedBotUsername: string) => Promise<void>)
+      | undefined,
+  ) {
+    this.supportNotifier = notifier;
+  }
+
+  setManagerBotUsername(username: string | undefined) {
+    this.opts.managerBotUsername = username;
+  }
+
+  async createProvisioningRequest(input: LaunchBotProvisioningInput) {
+    await this.ensureOwner(input.workspaceId, input.userId);
+    if (!this.opts.managerBotToken) {
+      throw new ManagedTelegramBotError('TELEGRAM_BOT_TOKEN is required', 503);
+    }
+    const managerBotUsername = await this.resolveManagerBotUsername();
+
+    const [active] = await this.opts.db
+      .select()
+      .from(managedTelegramBots)
+      .where(
+        and(
+          eq(managedTelegramBots.workspaceId, input.workspaceId),
+          eq(managedTelegramBots.purpose, 'launch_support'),
+          eq(managedTelegramBots.status, 'active'),
+        ),
+      )
+      .limit(1);
+    if (active) {
+      throw new ManagedTelegramBotError('Workspace already has an active launch/support bot', 409);
+    }
+
+    await this.opts.db
+      .update(managedTelegramBotProvisioningRequests)
+      .set({ status: 'expired', updatedAt: new Date() })
+      .where(
+        and(
+          eq(managedTelegramBotProvisioningRequests.workspaceId, input.workspaceId),
+          eq(managedTelegramBotProvisioningRequests.status, 'pending'),
+          lt(managedTelegramBotProvisioningRequests.expiresAt, new Date()),
+        ),
+      );
+
+    const [workspace] = await this.opts.db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, input.workspaceId))
+      .limit(1);
+    if (!workspace) throw new ManagedTelegramBotError('Workspace not found', 404);
+
+    const suggestedName = `${workspace.name} Launch Support`.slice(0, 64);
+    const suggestedUsername = buildSuggestedBotUsername(workspace.name);
+    const creationUrl = buildCreationUrl(managerBotUsername, suggestedUsername, suggestedName);
+    const expiresAt = new Date(Date.now() + PROVISIONING_TTL_MS);
+
+    const [request] = await this.opts.db
+      .insert(managedTelegramBotProvisioningRequests)
+      .values({
+        workspaceId: input.workspaceId,
+        requestedByUserId: input.userId,
+        creatorTelegramId: input.creatorTelegramId,
+        suggestedName,
+        suggestedUsername,
+        managerBotUsername,
+        creationUrl,
+        status: 'pending',
+        expiresAt,
+      })
+      .returning();
+
+    if (!request) throw new ManagedTelegramBotError('Failed to create provisioning request', 500);
+    return serializeProvisioningRequest(request);
+  }
+
+  async claimManagedBot(input: ManagedBotClaimInput) {
+    const telegramBotId = String(input.bot.id);
+    const telegramBotUsername = normalizeTelegramUsername(input.bot.username);
+    if (!telegramBotUsername) {
+      throw new ManagedTelegramBotError('Telegram did not provide a managed bot username', 400);
+    }
+
+    // lint-tenancy: ok — telegram_bot_id is globally unique in Telegram and
+    // in managed_telegram_bots; this is an idempotency check before request
+    // matching claims the workspace-scoped row.
+    const [existing] = await this.opts.db
+      .select()
+      .from(managedTelegramBots)
+      .where(eq(managedTelegramBots.telegramBotId, telegramBotId))
+      .limit(1);
+    if (existing) {
+      if (existing.status === 'error') return this.retryExistingBotActivation(existing);
+      return serializeBot(existing);
+    }
+
+    const [request] = await this.opts.db
+      .select()
+      .from(managedTelegramBotProvisioningRequests)
+      .where(
+        and(
+          eq(managedTelegramBotProvisioningRequests.creatorTelegramId, input.creatorTelegramId),
+          eq(managedTelegramBotProvisioningRequests.status, 'pending'),
+          gt(managedTelegramBotProvisioningRequests.expiresAt, new Date()),
+        ),
+      )
+      .orderBy(desc(managedTelegramBotProvisioningRequests.createdAt))
+      .limit(1);
+    if (!request) {
+      throw new ManagedTelegramBotError(
+        'No pending launch bot request matched this Telegram user',
+        404,
+      );
+    }
+
+    await this.evaluateAction({
+      workspaceId: request.workspaceId,
+      action: TELEGRAM_MANAGED_ACTIONS.CLAIM,
+      resource: `telegram:${telegramBotId}`,
+      context: { telegramBotId, telegramBotUsername, requestId: request.id },
+    });
+
+    const managerBotToken = this.opts.managerBotToken;
+    if (!managerBotToken) throw new ManagedTelegramBotError('TELEGRAM_BOT_TOKEN is required', 503);
+    const token = await getManagedBotToken(managerBotToken, telegramBotId);
+
+    const managedBotId = randomUUID();
+    const tokenSecretRef = tokenSecretRefFor(managedBotId);
+    const webhookSecret = randomBytes(32).toString('hex');
+    const webhookSecretHash = hashSecret(webhookSecret);
+
+    const [row] = await this.opts.db
+      .insert(managedTelegramBots)
+      .values({
+        id: managedBotId,
+        workspaceId: request.workspaceId,
+        creatorUserId: request.requestedByUserId,
+        creatorTelegramId: input.creatorTelegramId,
+        telegramBotId,
+        telegramBotUsername,
+        telegramBotName: input.bot.firstName ?? telegramBotUsername,
+        purpose: 'launch_support',
+        status: 'error',
+        responseMode: 'approval_required',
+        tokenSecretRef,
+        webhookSecretHash,
+        welcomeCopy: DEFAULT_WELCOME,
+        supportPrompt: DEFAULT_SUPPORT_PROMPT,
+      })
+      .returning();
+    if (!row) throw new ManagedTelegramBotError('Failed to persist managed Telegram bot', 500);
+
+    try {
+      await this.secrets.set(request.workspaceId, tokenSecretRef, token);
+      await this.configureChildWebhook(row, token, webhookSecret);
+      const [updated] = await this.opts.db
+        .update(managedTelegramBots)
+        .set({ status: 'active', lastError: null, updatedAt: new Date() })
+        .where(
+          and(
+            eq(managedTelegramBots.id, row.id),
+            eq(managedTelegramBots.workspaceId, row.workspaceId),
+          ),
+        )
+        .returning();
+
+      await this.opts.db
+        .update(managedTelegramBotProvisioningRequests)
+        .set({ status: 'claimed', managedBotId: row.id, updatedAt: new Date() })
+        .where(
+          and(
+            eq(managedTelegramBotProvisioningRequests.id, request.id),
+            eq(managedTelegramBotProvisioningRequests.workspaceId, request.workspaceId),
+          ),
+        );
+
+      return serializeBot(updated ?? { ...row, status: 'active', lastError: null });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Webhook setup failed';
+      await this.opts.db
+        .update(managedTelegramBots)
+        .set({ status: 'error', lastError: message, updatedAt: new Date() })
+        .where(
+          and(
+            eq(managedTelegramBots.id, row.id),
+            eq(managedTelegramBots.workspaceId, row.workspaceId),
+          ),
+        );
+      throw err;
+    }
+  }
+
+  async getState(workspaceId: string) {
+    const bots = await this.opts.db
+      .select()
+      .from(managedTelegramBots)
+      .where(eq(managedTelegramBots.workspaceId, workspaceId))
+      .orderBy(desc(managedTelegramBots.createdAt))
+      .limit(5);
+    const bot = bots.find((row) => row.status !== 'disabled') ?? null;
+
+    const [pending] = await this.opts.db
+      .select()
+      .from(managedTelegramBotProvisioningRequests)
+      .where(
+        and(
+          eq(managedTelegramBotProvisioningRequests.workspaceId, workspaceId),
+          eq(managedTelegramBotProvisioningRequests.status, 'pending'),
+          gt(managedTelegramBotProvisioningRequests.expiresAt, new Date()),
+        ),
+      )
+      .orderBy(desc(managedTelegramBotProvisioningRequests.createdAt))
+      .limit(1);
+
+    const leads = bot
+      ? await this.opts.db
+          .select()
+          .from(managedTelegramBotLeads)
+          .where(eq(managedTelegramBotLeads.managedBotId, bot.id))
+          .orderBy(desc(managedTelegramBotLeads.createdAt))
+          .limit(10)
+      : [];
+    const messages = bot
+      ? await this.listMessages(workspaceId, { managedBotId: bot.id, limit: 20 })
+      : [];
+
+    return {
+      bot: bot ? serializeBot(bot) : null,
+      pendingRequest: pending ? serializeProvisioningRequest(pending) : null,
+      leads: leads.map(serializeLead),
+      messages: messages.map(serializeMessage),
+    };
+  }
+
+  async updateSettings(workspaceId: string, userId: string, raw: unknown) {
+    await this.ensureOwner(workspaceId, userId);
+    const input = ManagedTelegramBotSettingsInput.parse(raw);
+    const bot = await this.getActiveBot(workspaceId);
+    if (!bot) throw new ManagedTelegramBotError('Launch/support bot not found', 404);
+
+    const updates: Partial<typeof managedTelegramBots.$inferInsert> = {
+      updatedAt: new Date(),
+    };
+    if (input.responseMode !== undefined) updates.responseMode = input.responseMode;
+    if (input.welcomeCopy !== undefined) updates.welcomeCopy = input.welcomeCopy;
+    if (input.launchUrl !== undefined) updates.launchUrl = input.launchUrl;
+    if (input.supportPrompt !== undefined) updates.supportPrompt = input.supportPrompt;
+
+    const [updated] = await this.opts.db
+      .update(managedTelegramBots)
+      .set(updates)
+      .where(
+        and(eq(managedTelegramBots.id, bot.id), eq(managedTelegramBots.workspaceId, workspaceId)),
+      )
+      .returning();
+    return serializeBot(updated ?? bot);
+  }
+
+  async listMessages(
+    workspaceId: string,
+    opts: { managedBotId?: string; limit?: number } = {},
+  ): Promise<ManagedMessageRow[]> {
+    const conditions = [eq(managedTelegramBotMessages.workspaceId, workspaceId)];
+    if (opts.managedBotId) {
+      conditions.push(eq(managedTelegramBotMessages.managedBotId, opts.managedBotId));
+    }
+    return this.opts.db
+      .select()
+      .from(managedTelegramBotMessages)
+      .where(and(...conditions))
+      .orderBy(desc(managedTelegramBotMessages.createdAt))
+      .limit(Math.min(opts.limit ?? 50, 100));
+  }
+
+  async sendManualReply(workspaceId: string, userId: string, messageId: string, text: string) {
+    await this.ensureWorkspaceMember(workspaceId, userId);
+    // lint-tenancy: ok — approval ids are globally unique and are produced by
+    // the workspace-scoped approvals table before this send hook runs.
+    const [message] = await this.opts.db
+      .select()
+      .from(managedTelegramBotMessages)
+      .where(
+        and(
+          eq(managedTelegramBotMessages.id, messageId),
+          eq(managedTelegramBotMessages.workspaceId, workspaceId),
+        ),
+      )
+      .limit(1);
+    if (!message) throw new ManagedTelegramBotError('Message not found', 404);
+
+    await this.evaluateAction({
+      workspaceId,
+      action: TELEGRAM_MANAGED_ACTIONS.SEND_MESSAGE,
+      resource: `telegram-managed-message:${message.id}`,
+      context: { managedBotId: message.managedBotId, messageId, manual: true },
+    });
+
+    return this.sendMessageRow(message, text);
+  }
+
+  async sendApprovedMessage(approvalId: string) {
+    const [message] = await this.opts.db
+      .select()
+      .from(managedTelegramBotMessages)
+      .where(eq(managedTelegramBotMessages.approvalId, approvalId))
+      .limit(1);
+    if (!message || message.replyStatus === 'sent') return false;
+    const text = message.replyText ?? message.aiDraft;
+    if (!text) return false;
+
+    await this.evaluateAction({
+      workspaceId: message.workspaceId,
+      action: TELEGRAM_MANAGED_ACTIONS.SEND_MESSAGE,
+      resource: `telegram-managed-message:${message.id}`,
+      context: { managedBotId: message.managedBotId, messageId: message.id, approvalId },
+    });
+    await this.sendMessageRow(message, text);
+    return true;
+  }
+
+  async rotateToken(workspaceId: string, userId: string) {
+    await this.ensureOwner(workspaceId, userId);
+    const bot = await this.getActiveBot(workspaceId);
+    if (!bot) throw new ManagedTelegramBotError('Launch/support bot not found', 404);
+    const managerBotToken = this.opts.managerBotToken;
+    if (!managerBotToken) throw new ManagedTelegramBotError('TELEGRAM_BOT_TOKEN is required', 503);
+
+    await this.evaluateAction({
+      workspaceId,
+      action: TELEGRAM_MANAGED_ACTIONS.ROTATE_TOKEN,
+      resource: `telegram:${bot.telegramBotId}`,
+      context: { managedBotId: bot.id },
+    });
+    const newToken = await replaceManagedBotToken(managerBotToken, bot.telegramBotId);
+    await this.secrets.set(workspaceId, asSecretKind(bot.tokenSecretRef), newToken);
+
+    const webhookSecret = randomBytes(32).toString('hex');
+    await this.configureChildWebhook(bot, newToken, webhookSecret);
+    this.childBotCache.delete(bot.id);
+
+    const [updated] = await this.opts.db
+      .update(managedTelegramBots)
+      .set({
+        webhookSecretHash: hashSecret(webhookSecret),
+        lastError: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(eq(managedTelegramBots.id, bot.id), eq(managedTelegramBots.workspaceId, workspaceId)),
+      )
+      .returning();
+    return serializeBot(updated ?? bot);
+  }
+
+  async disable(workspaceId: string, userId: string) {
+    await this.ensureOwner(workspaceId, userId);
+    const bot = await this.getActiveBot(workspaceId);
+    if (!bot) throw new ManagedTelegramBotError('Launch/support bot not found', 404);
+
+    await this.evaluateAction({
+      workspaceId,
+      action: TELEGRAM_MANAGED_ACTIONS.DISABLE,
+      resource: `telegram:${bot.telegramBotId}`,
+      context: { managedBotId: bot.id },
+    });
+
+    const token = await this.secrets.get(workspaceId, asSecretKind(bot.tokenSecretRef));
+    if (token) {
+      await deleteWebhook(token).catch(() => {});
+      await this.secrets.delete(workspaceId, asSecretKind(bot.tokenSecretRef));
+    }
+    this.childBotCache.delete(bot.id);
+
+    const [updated] = await this.opts.db
+      .update(managedTelegramBots)
+      .set({
+        status: 'disabled',
+        webhookSecretHash: null,
+        disabledAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(eq(managedTelegramBots.id, bot.id), eq(managedTelegramBots.workspaceId, workspaceId)),
+      )
+      .returning();
+    return serializeBot(updated ?? { ...bot, status: 'disabled', disabledAt: new Date() });
+  }
+
+  async getBotForWebhook(managedBotId: string) {
+    // lint-tenancy: ok — this lookup happens only after Telegram's per-child
+    // webhook secret is checked by the route; workspaceId is not in the URL.
+    const [bot] = await this.opts.db
+      .select()
+      .from(managedTelegramBots)
+      .where(eq(managedTelegramBots.id, managedBotId))
+      .limit(1);
+    if (!bot || bot.status !== 'active') return null;
+    return bot;
+  }
+
+  verifyWebhookSecret(bot: ManagedBotRow, secret: string | undefined) {
+    if (!bot.webhookSecretHash || !secret) return false;
+    return timingSafeStringEqual(hashSecret(secret), bot.webhookSecretHash);
+  }
+
+  async handleChildWebhook(managedBotId: string, update: unknown) {
+    const bot = await this.getBotForWebhook(managedBotId);
+    if (!bot) throw new ManagedTelegramBotError('Managed bot not found', 404);
+    const token = await this.secrets.get(bot.workspaceId, asSecretKind(bot.tokenSecretRef));
+    if (!token) throw new ManagedTelegramBotError('Managed bot token not configured', 503);
+    const child = await this.getCachedChildBot(bot.id, token);
+    await child.handleUpdate(update as never);
+  }
+
+  private async getCachedChildBot(managedBotId: string, token: string) {
+    const cached = this.childBotCache.get(managedBotId);
+    if (cached && cached.token === token && Date.now() - cached.cachedAt < CHILD_BOT_CACHE_TTL_MS) {
+      return cached.bot;
+    }
+
+    const bot = new Bot(token);
+    this.registerChildHandlers(managedBotId, bot);
+    await bot.init();
+    this.childBotCache.set(managedBotId, { bot, token, cachedAt: Date.now() });
+    return bot;
+  }
+
+  private registerChildHandlers(managedBotId: string, bot: Bot) {
+    bot.command('start', async (ctx) => {
+      const row = await this.getBotForWebhook(managedBotId);
+      if (!row) return;
+      const keyboard = new InlineKeyboard()
+        .text('Join launch list', 'lead:join')
+        .row()
+        .text('Get support', 'support:start');
+      if (row.launchUrl) keyboard.row().url('Open launch page', row.launchUrl);
+      await ctx.reply(row.welcomeCopy || DEFAULT_WELCOME, { reply_markup: keyboard });
+    });
+
+    bot.command('help', async (ctx) => {
+      const row = await this.getBotForWebhook(managedBotId);
+      await ctx.reply(row?.supportPrompt || DEFAULT_SUPPORT_PROMPT);
+    });
+
+    bot.callbackQuery('lead:join', async (ctx) => {
+      await this.captureLead(managedBotId, ctx);
+      await ctx.answerCallbackQuery({ text: 'You are on the list.' });
+      await ctx.editMessageReplyMarkup();
+      await ctx.reply('You are on the launch list. We will follow up here.');
+    });
+
+    bot.callbackQuery('support:start', async (ctx) => {
+      const row = await this.getBotForWebhook(managedBotId);
+      await ctx.answerCallbackQuery();
+      await ctx.reply(row?.supportPrompt || DEFAULT_SUPPORT_PROMPT);
+    });
+
+    bot.on('message:text', async (ctx) => {
+      if (ctx.message.text.startsWith('/')) return;
+      await this.captureSupportMessage(managedBotId, ctx);
+    });
+  }
+
+  private async captureLead(managedBotId: string, ctx: Context) {
+    const row = await this.getBotForWebhook(managedBotId);
+    const from = ctx.from;
+    const chat = ctx.chat;
+    if (!row || !from || !chat) return;
+
+    const [existing] = await this.opts.db
+      .select()
+      .from(managedTelegramBotLeads)
+      .where(
+        and(
+          eq(managedTelegramBotLeads.managedBotId, row.id),
+          eq(managedTelegramBotLeads.telegramUserId, String(from.id)),
+        ),
+      )
+      .limit(1);
+    if (existing) {
+      await this.opts.db
+        .update(managedTelegramBotLeads)
+        .set({ status: 'captured', updatedAt: new Date() })
+        .where(
+          and(
+            eq(managedTelegramBotLeads.id, existing.id),
+            eq(managedTelegramBotLeads.workspaceId, row.workspaceId),
+          ),
+        );
+      return;
+    }
+
+    await this.opts.db.insert(managedTelegramBotLeads).values({
+      managedBotId: row.id,
+      workspaceId: row.workspaceId,
+      telegramChatId: String(chat.id),
+      telegramUserId: String(from.id),
+      telegramUsername: from.username ?? null,
+      name: [from.first_name, from.last_name].filter(Boolean).join(' ') || null,
+    });
+  }
+
+  private async captureSupportMessage(managedBotId: string, ctx: Context) {
+    const row = await this.getBotForWebhook(managedBotId);
+    const from = ctx.from;
+    const chat = ctx.chat;
+    const inbound = ctx.message && 'text' in ctx.message ? ctx.message : undefined;
+    const text = inbound?.text;
+    if (!row || !from || !chat || !inbound || !text) return;
+
+    const draft =
+      row.responseMode === 'intake_only' ? null : await this.buildSupportDraft(row, text);
+    const [message] = await this.opts.db
+      .insert(managedTelegramBotMessages)
+      .values({
+        managedBotId: row.id,
+        workspaceId: row.workspaceId,
+        telegramChatId: String(chat.id),
+        telegramUserId: String(from.id),
+        telegramUsername: from.username ?? null,
+        telegramFirstName: from.first_name ?? null,
+        inboundText: text,
+        inboundMessageId: inbound.message_id,
+        aiDraft: draft,
+        replyStatus: row.responseMode === 'intake_only' ? 'none' : 'drafted',
+      })
+      .returning();
+
+    await ctx.reply('Thanks. Your message reached the founder team.');
+    if (!message) return;
+    if (!draft) {
+      await this.notifySupportMessage(row, message).catch(() => {});
+      return;
+    }
+
+    if (row.responseMode === 'autonomous_helm') {
+      try {
+        await this.evaluateAction({
+          workspaceId: row.workspaceId,
+          action: TELEGRAM_MANAGED_ACTIONS.SEND_MESSAGE,
+          resource: `telegram-managed-message:${message.id}`,
+          context: { managedBotId: row.id, messageId: message.id, autonomous: true },
+        });
+        const sent = await ctx.reply(draft);
+        await this.markMessageSent(message, draft, String(sent.message_id));
+        return;
+      } catch {
+        // Fall back to approval below.
+      }
+    }
+
+    await this.requestReplyApproval(message, draft);
+  }
+
+  private async retryExistingBotActivation(row: ManagedBotRow) {
+    const token = await this.secrets.get(row.workspaceId, asSecretKind(row.tokenSecretRef));
+    if (!token) {
+      throw new ManagedTelegramBotError('Managed bot token not configured', 503);
+    }
+    const webhookSecret = randomBytes(32).toString('hex');
+    try {
+      await this.configureChildWebhook(row, token, webhookSecret);
+      const [updated] = await this.opts.db
+        .update(managedTelegramBots)
+        .set({
+          status: 'active',
+          webhookSecretHash: hashSecret(webhookSecret),
+          lastError: null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(managedTelegramBots.id, row.id),
+            eq(managedTelegramBots.workspaceId, row.workspaceId),
+          ),
+        )
+        .returning();
+      return serializeBot(updated ?? { ...row, status: 'active', lastError: null });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Webhook setup failed';
+      await this.opts.db
+        .update(managedTelegramBots)
+        .set({ lastError: message, updatedAt: new Date() })
+        .where(
+          and(
+            eq(managedTelegramBots.id, row.id),
+            eq(managedTelegramBots.workspaceId, row.workspaceId),
+          ),
+        );
+      throw err;
+    }
+  }
+
+  private async notifySupportMessage(row: ManagedBotRow, message: ManagedMessageRow) {
+    if (!this.supportNotifier) return;
+    await this.supportNotifier(row.workspaceId, message.id, row.telegramBotUsername);
+  }
+
+  private async buildSupportDraft(row: ManagedBotRow, inboundText: string) {
+    if (!this.opts.llm) {
+      return 'Thanks for reaching out. I am looking into this and will follow up shortly.';
+    }
+    try {
+      const prompt =
+        `Draft a concise Telegram support reply for ${row.telegramBotName}.\n` +
+        `Do not promise timelines or make unsupported claims.\n\nCustomer message:\n${inboundText}`;
+      const result = await this.opts.llm.complete(prompt);
+      return result.trim().slice(0, 4096);
+    } catch {
+      return 'Thanks for reaching out. I am looking into this and will follow up shortly.';
+    }
+  }
+
+  private async requestReplyApproval(message: ManagedMessageRow, draft: string) {
+    const reason = `Support reply draft for Telegram user ${message.telegramUserId}`;
+    const [approval] = await this.opts.db
+      .insert(approvals)
+      .values({
+        workspaceId: message.workspaceId,
+        action: TELEGRAM_MANAGED_ACTIONS.SEND_MESSAGE,
+        reason,
+        status: 'pending',
+        requestedBy: `managed_telegram_bot:${message.managedBotId}`,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      })
+      .returning();
+
+    await this.opts.db
+      .update(managedTelegramBotMessages)
+      .set({
+        approvalId: approval?.id,
+        replyText: draft,
+        replyStatus: 'awaiting_approval',
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(managedTelegramBotMessages.id, message.id),
+          eq(managedTelegramBotMessages.workspaceId, message.workspaceId),
+        ),
+      );
+
+    if (approval?.id && this.approvalNotifier) {
+      await this.approvalNotifier(
+        message.workspaceId,
+        approval.id,
+        TELEGRAM_MANAGED_ACTIONS.SEND_MESSAGE,
+        reason,
+      ).catch(() => {});
+    }
+  }
+
+  private async sendMessageRow(message: ManagedMessageRow, text: string) {
+    // lint-tenancy: ok — caller has already loaded the workspace-scoped
+    // message row; managedBotId is a FK from that row.
+    const bot = await this.getManagedBot(message.managedBotId);
+    if (!bot) throw new ManagedTelegramBotError('Managed bot not found', 404);
+    const token = await this.secrets.get(bot.workspaceId, asSecretKind(bot.tokenSecretRef));
+    if (!token) throw new ManagedTelegramBotError('Managed bot token not configured', 503);
+    const sent = await sendTelegramMessage(token, message.telegramChatId, text);
+    await this.markMessageSent(message, text, String(sent.message_id ?? ''));
+    return serializeMessage({
+      ...message,
+      replyText: text,
+      replyStatus: 'sent',
+      sentMessageId: String(sent.message_id ?? ''),
+      repliedAt: new Date(),
+      updatedAt: new Date(),
+    });
+  }
+
+  private async markMessageSent(message: ManagedMessageRow, text: string, sentMessageId: string) {
+    await this.opts.db
+      .update(managedTelegramBotMessages)
+      .set({
+        replyText: text,
+        replyStatus: 'sent',
+        sentMessageId,
+        error: null,
+        repliedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(managedTelegramBotMessages.id, message.id),
+          eq(managedTelegramBotMessages.workspaceId, message.workspaceId),
+        ),
+      );
+  }
+
+  private async configureChildWebhook(row: ManagedBotRow, token: string, secret: string) {
+    const appUrl = stripTrailingSlash(this.opts.appUrl ?? process.env['APP_URL']);
+    if (!appUrl)
+      throw new ManagedTelegramBotError('APP_URL is required for child bot webhook setup', 503);
+
+    await this.evaluateAction({
+      workspaceId: row.workspaceId,
+      action: TELEGRAM_MANAGED_ACTIONS.SET_WEBHOOK,
+      resource: `telegram:${row.telegramBotId}`,
+      context: { managedBotId: row.id },
+    });
+
+    const url = `${appUrl}/api/telegram/managed/${row.id}/webhook`;
+    await setWebhook(token, url, secret);
+    await setCommands(token);
+  }
+
+  private async getActiveBot(workspaceId: string) {
+    const [bot] = await this.opts.db
+      .select()
+      .from(managedTelegramBots)
+      .where(
+        and(
+          eq(managedTelegramBots.workspaceId, workspaceId),
+          eq(managedTelegramBots.purpose, 'launch_support'),
+          eq(managedTelegramBots.status, 'active'),
+        ),
+      )
+      .limit(1);
+    return bot ?? null;
+  }
+
+  private async getManagedBot(managedBotId: string) {
+    const [bot] = await this.opts.db
+      .select()
+      .from(managedTelegramBots)
+      .where(eq(managedTelegramBots.id, managedBotId))
+      .limit(1);
+    return bot ?? null;
+  }
+
+  private async ensureOwner(workspaceId: string, userId: string) {
+    const [workspace] = await this.opts.db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId))
+      .limit(1);
+    if (!workspace) throw new ManagedTelegramBotError('Workspace not found', 404);
+    if (workspace.ownerId === userId) return workspace;
+
+    const [membership] = await this.opts.db
+      .select()
+      .from(workspaceMembers)
+      .where(
+        and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId)),
+      )
+      .limit(1);
+    if (membership?.role === 'owner') return workspace;
+    throw new ManagedTelegramBotError('Workspace owner required', 403);
+  }
+
+  private async ensureWorkspaceMember(workspaceId: string, userId: string) {
+    const [membership] = await this.opts.db
+      .select()
+      .from(workspaceMembers)
+      .where(
+        and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, userId)),
+      )
+      .limit(1);
+    if (!membership) throw new ManagedTelegramBotError('Workspace membership required', 403);
+  }
+
+  private async resolveManagerBotUsername() {
+    const configured = normalizeTelegramUsername(
+      this.opts.managerBotUsername ??
+        process.env['TELEGRAM_MANAGER_BOT_USERNAME'] ??
+        process.env['TELEGRAM_BOT_USERNAME'],
+    );
+    if (configured) return configured;
+    if (!this.opts.managerBotToken) {
+      throw new ManagedTelegramBotError('TELEGRAM_MANAGER_BOT_USERNAME is required', 503);
+    }
+    const me = await telegramApi<{ username?: string }>(this.opts.managerBotToken, 'getMe', {});
+    const username = normalizeTelegramUsername(me.username);
+    if (!username) throw new ManagedTelegramBotError('Manager bot username is unavailable', 503);
+    this.opts.managerBotUsername = username;
+    return username;
+  }
+
+  private async evaluateAction(input: {
+    workspaceId: string;
+    action: string;
+    resource: string;
+    context?: Record<string, unknown>;
+  }): Promise<EvaluateResult | null> {
+    if (!this.opts.helmClient) {
+      if (process.env['NODE_ENV'] === 'production' && process.env['HELM_FAIL_CLOSED'] !== '0') {
+        throw new ManagedTelegramBotError(
+          'HELM governance client is required for Telegram managed bot actions',
+          503,
+        );
+      }
+      return null;
+    }
+    try {
+      return await this.opts.helmClient.evaluate({
+        principal: `workspace:${input.workspaceId}/operator:launch`,
+        action: input.action,
+        resource: input.resource,
+        context: { ...input.context, workspaceId: input.workspaceId },
+      });
+    } catch (err) {
+      if (err instanceof HelmDeniedError) {
+        throw new ManagedTelegramBotError(err.reason, 403, err.receipt);
+      }
+      if (err instanceof HelmEscalationError) {
+        throw new ManagedTelegramBotError(err.reason, 409, err.receipt);
+      }
+      if (err instanceof HelmUnreachableError) {
+        throw new ManagedTelegramBotError(err.message, 503);
+      }
+      throw err;
+    }
+  }
+}
+
+async function getManagedBotToken(managerToken: string, userId: string) {
+  return telegramApi<string>(managerToken, 'getManagedBotToken', { user_id: Number(userId) });
+}
+
+async function replaceManagedBotToken(managerToken: string, userId: string) {
+  return telegramApi<string>(managerToken, 'replaceManagedBotToken', { user_id: Number(userId) });
+}
+
+async function setWebhook(token: string, url: string, secret: string) {
+  await telegramApi<boolean>(token, 'setWebhook', {
+    url,
+    secret_token: secret,
+    allowed_updates: ['message', 'callback_query'],
+  });
+}
+
+async function deleteWebhook(token: string) {
+  await telegramApi<boolean>(token, 'deleteWebhook', { drop_pending_updates: true });
+}
+
+async function setCommands(token: string) {
+  await telegramApi<boolean>(token, 'setMyCommands', {
+    commands: [
+      { command: 'start', description: 'Open launch and support options' },
+      { command: 'help', description: 'Get help' },
+    ],
+  }).catch(() => {});
+}
+
+async function sendTelegramMessage(token: string, chatId: string, text: string) {
+  return telegramApi<{ message_id?: number }>(token, 'sendMessage', {
+    chat_id: chatId,
+    text,
+  });
+}
+
+async function telegramApi<T>(
+  token: string,
+  method: string,
+  body: Record<string, unknown>,
+): Promise<T> {
+  const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = (await response.json().catch(() => null)) as {
+    ok: boolean;
+    result?: T;
+    description?: string;
+  } | null;
+  if (!response.ok || !data?.ok) {
+    throw new ManagedTelegramBotError(
+      data?.description ?? `Telegram ${method} failed`,
+      response.ok ? 502 : response.status,
+    );
+  }
+  return data.result as T;
+}
+
+function serializeBot(row: ManagedBotRow) {
+  return {
+    id: row.id,
+    workspaceId: row.workspaceId,
+    telegramBotId: row.telegramBotId,
+    telegramBotUsername: row.telegramBotUsername,
+    telegramBotName: row.telegramBotName,
+    purpose: 'launch_support' as const,
+    status: row.status as 'active' | 'disabled' | 'error',
+    responseMode: row.responseMode as ManagedTelegramBotResponseMode,
+    welcomeCopy: row.welcomeCopy,
+    launchUrl: row.launchUrl,
+    supportPrompt: row.supportPrompt,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    disabledAt: row.disabledAt?.toISOString() ?? null,
+  };
+}
+
+function serializeProvisioningRequest(
+  row: typeof managedTelegramBotProvisioningRequests.$inferSelect,
+) {
+  return {
+    id: row.id,
+    creationUrl: row.creationUrl,
+    suggestedUsername: row.suggestedUsername,
+    suggestedName: row.suggestedName,
+    managerBotUsername: row.managerBotUsername,
+    expiresAt: row.expiresAt.toISOString(),
+  };
+}
+
+function serializeLead(row: typeof managedTelegramBotLeads.$inferSelect) {
+  return {
+    id: row.id,
+    managedBotId: row.managedBotId,
+    telegramUserId: row.telegramUserId,
+    telegramUsername: row.telegramUsername,
+    name: row.name,
+    status: row.status,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function serializeMessage(row: ManagedMessageRow) {
+  return {
+    id: row.id,
+    managedBotId: row.managedBotId,
+    telegramUserId: row.telegramUserId,
+    telegramUsername: row.telegramUsername,
+    telegramFirstName: row.telegramFirstName,
+    inboundText: row.inboundText,
+    aiDraft: row.aiDraft,
+    replyText: row.replyText,
+    replyStatus: row.replyStatus,
+    approvalId: row.approvalId,
+    createdAt: row.createdAt.toISOString(),
+    repliedAt: row.repliedAt?.toISOString() ?? null,
+  };
+}
+
+function tokenSecretRefFor(managedBotId: string): `custom_${string}` {
+  return `custom_telegram_managed_bot_token_${managedBotId}`;
+}
+
+function asSecretKind(value: string): SecretKind {
+  return value as SecretKind;
+}
+
+function hashSecret(secret: string) {
+  return createHash('sha256').update(secret).digest('hex');
+}
+
+function timingSafeStringEqual(a: string, b: string) {
+  const aBuffer = Buffer.from(a);
+  const bBuffer = Buffer.from(b);
+  return aBuffer.length === bBuffer.length && timingSafeEqual(aBuffer, bBuffer);
+}
+
+function normalizeTelegramUsername(value: string | undefined) {
+  return value?.replace(/^@/, '').trim() || undefined;
+}
+
+function buildSuggestedBotUsername(workspaceName: string) {
+  const base = workspaceName
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 18);
+  const safe = /^[a-z]/.test(base) ? base : `hp_${base || 'pilot'}`;
+  return `${safe}_launch_bot`.slice(0, 32);
+}
+
+function buildCreationUrl(
+  managerBotUsername: string,
+  suggestedUsername: string,
+  suggestedName: string,
+) {
+  return `https://t.me/newbot/${managerBotUsername}/${suggestedUsername}?name=${encodeURIComponent(
+    suggestedName,
+  )}`;
+}
+
+function stripTrailingSlash(value: string | undefined) {
+  return value?.replace(/\/+$/, '');
+}

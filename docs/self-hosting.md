@@ -82,9 +82,20 @@ PYTHON_BIN=./.venv-pipelines/bin/python ./scripts/launch-gate.sh
    ```bash
    curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
      -H "Content-Type: application/json" \
-     -d '{"url": "https://your-domain.com/api/telegram/webhook", "secret_token": "your-secret"}'
+     -d '{"url": "https://your-domain.com/api/telegram/webhook", "secret_token": "your-secret", "allowed_updates": ["message", "callback_query", "managed_bot"]}'
    ```
 4. Set `TELEGRAM_WEBHOOK_SECRET` to match the `secret_token` above
+
+### Founder-Owned Launch/Support Bot
+
+HELM Pilot can provision one founder-owned child bot through Telegram Managed Bots.
+
+1. Open the main bot in BotFather's Mini App and enable **Bot Management Mode**.
+2. Ensure `APP_URL` is the public HTTPS gateway URL.
+3. Optionally set `TELEGRAM_MANAGER_BOT_USERNAME` to the main bot username without `@`.
+4. From the main bot, run `/launchbot`, or use the Launch page / Mini App settings to create the native Telegram setup link.
+
+Child bot tokens are encrypted in `tenant_secrets`. Child webhook secrets are stored only as hashes, and outbound support replies cross the HELM governance path before being sent.
 
 ## Telegram Mini App
 

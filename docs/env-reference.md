@@ -13,13 +13,16 @@ Complete reference for all HELM Pilot configuration variables.
 
 ## Telegram
 
-| Variable                  | Required | Default | Description                                                                            |
-| ------------------------- | -------- | ------- | -------------------------------------------------------------------------------------- |
-| `TELEGRAM_BOT_TOKEN`      | No       | —       | Bot token from [@BotFather](https://t.me/BotFather). Enables the Telegram bot.         |
-| `TELEGRAM_WEBHOOK_SECRET` | Prod     | —       | HMAC secret for webhook validation. Generate: `openssl rand -hex 32`                   |
-| `TELEGRAM_OWNER_CHAT_ID`  | No       | —       | Telegram chat ID of the bot owner. Enables admin commands and proactive notifications. |
+| Variable                        | Required | Default | Description                                                                            |
+| ------------------------------- | -------- | ------- | -------------------------------------------------------------------------------------- |
+| `TELEGRAM_BOT_TOKEN`            | No       | —       | Bot token from [@BotFather](https://t.me/BotFather). Enables the Telegram bot.         |
+| `TELEGRAM_WEBHOOK_SECRET`       | Prod     | —       | HMAC secret for webhook validation. Generate: `openssl rand -hex 32`                   |
+| `TELEGRAM_OWNER_CHAT_ID`        | No       | —       | Telegram chat ID of the bot owner. Enables admin commands and proactive notifications. |
+| `TELEGRAM_MANAGER_BOT_USERNAME` | No       | `getMe` | Optional manager bot username override for Telegram Managed Bots setup links.          |
 
 > **Finding your chat ID:** Send `/start` to [@userinfobot](https://t.me/userinfobot) on Telegram.
+
+Managed launch/support bots require enabling **Bot Management Mode** for the main bot in BotFather's Mini App. `APP_URL` must be publicly reachable because child bot webhooks are configured as `{APP_URL}/api/telegram/managed/:managedBotId/webhook`.
 
 ## LLM Providers
 

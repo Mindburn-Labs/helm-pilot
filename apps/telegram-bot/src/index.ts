@@ -19,6 +19,43 @@ export function createBot(token: string, db: Db, deps?: Partial<BotDeps>) {
     }),
   );
 
+  bot.use(async (ctx, next) => {
+    const update = ctx.update as {
+      managed_bot?: {
+        user?: { id?: number };
+        bot?: { id?: number; username?: string; first_name?: string };
+      };
+    };
+    const managed = update.managed_bot;
+    if (managed?.user?.id && managed.bot?.id && deps?.claimLaunchBot) {
+      try {
+        const result = await deps.claimLaunchBot({
+          creatorTelegramId: String(managed.user.id),
+          bot: {
+            id: managed.bot.id,
+            username: managed.bot.username,
+            firstName: managed.bot.first_name,
+          },
+        });
+        await ctx.api
+          .sendMessage(
+            managed.user.id,
+            `Launch/support bot @${result.telegramBotUsername} is connected and ${result.status}.`,
+          )
+          .catch(() => {});
+      } catch (err) {
+        await ctx.api
+          .sendMessage(
+            managed.user.id,
+            `Could not connect the launch/support bot: ${err instanceof Error ? err.message : 'unknown error'}`,
+          )
+          .catch(() => {});
+      }
+      return;
+    }
+    await next();
+  });
+
   // Clear awaiting flags when any command is invoked
   bot.use(async (ctx, next) => {
     if (ctx.message?.text?.startsWith('/')) {
@@ -92,6 +129,38 @@ export function createBot(token: string, db: Db, deps?: Partial<BotDeps>) {
     );
   });
 
+  bot.command('launchbot', async (ctx) => {
+    const wsId = ctx.session.workspaceId;
+    const userId = ctx.session.userId;
+    const telegramId = ctx.from?.id?.toString();
+    if (!wsId || !userId || !telegramId) return ctx.reply('Use /start first.');
+    if (!deps?.createLaunchBotProvisioning) {
+      return ctx.reply('Launch/support bot provisioning is not configured on this deployment.');
+    }
+
+    try {
+      const request = await deps.createLaunchBotProvisioning({
+        workspaceId: wsId,
+        userId,
+        creatorTelegramId: telegramId,
+      });
+      await ctx.reply(
+        `Create your founder-owned launch/support bot here:\n\n${request.creationUrl}\n\n` +
+          `Suggested bot: @${request.suggestedUsername}\n` +
+          `This setup link expires at ${new Date(request.expiresAt).toLocaleString()}.`,
+        {
+          reply_markup: {
+            inline_keyboard: [[{ text: 'Create bot in Telegram', url: request.creationUrl }]],
+          },
+        },
+      );
+    } catch (err) {
+      await ctx.reply(
+        `Could not create launch bot setup link: ${err instanceof Error ? err.message : 'unknown error'}`,
+      );
+    }
+  });
+
   bot.command('operators', async (ctx) => {
     const wsId = ctx.session.workspaceId;
     if (!wsId) return ctx.reply('Use /start first.');
@@ -136,6 +205,8 @@ export function createBot(token: string, db: Db, deps?: Partial<BotDeps>) {
         '/build — Execute plan\n' +
         '/launch — Ship product\n' +
         '/apply — Prepare applications\n\n' +
+        '*Launch Bot*\n' +
+        '/launchbot — Create a founder-owned launch/support bot\n\n' +
         '*Work & Chat*\n' +
         '/operators — List operators\n' +
         '/chat — Talk to an operator\n' +

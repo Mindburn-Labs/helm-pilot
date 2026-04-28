@@ -1,15 +1,129 @@
 import { Hono } from 'hono';
+import { type Context } from 'hono';
 import { DigitalOceanProvider, LaunchEngine, type DeployProvider } from '@helm-pilot/launch-engine';
 import {
   HelmDeniedError,
   HelmEscalationError,
   HelmUnreachableError,
 } from '@helm-pilot/helm-client';
+import { eq } from 'drizzle-orm';
+import { users } from '@helm-pilot/db/schema';
+import { ManagedTelegramReplyInput } from '@helm-pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
+import { getWorkspaceId } from '../lib/workspace.js';
+import { ManagedTelegramBotError } from '../services/managed-telegram-bots.js';
 
 export function launchRoutes(deps: GatewayDeps) {
   const engine = new LaunchEngine(deps.db);
   const app = new Hono();
+
+  // GET /api/launch/telegram-bot — Managed Telegram launch/support bot state
+  app.get('/telegram-bot', async (c) => {
+    if (!deps.managedTelegram) return c.json({ error: 'Managed Telegram bots unavailable' }, 503);
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    return c.json(await deps.managedTelegram.getState(workspaceId));
+  });
+
+  // POST /api/launch/telegram-bot/provisioning-request
+  app.post('/telegram-bot/provisioning-request', async (c) => {
+    if (!deps.managedTelegram) return c.json({ error: 'Managed Telegram bots unavailable' }, 503);
+    const workspaceId = getWorkspaceId(c);
+    const userId = c.get('userId');
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    if (!userId) return c.json({ error: 'userId required' }, 400);
+
+    const [user] = await deps.db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!user?.telegramId) {
+      return c.json({ error: 'Telegram-authenticated owner required to create a launch bot' }, 400);
+    }
+
+    try {
+      const request = await deps.managedTelegram.createProvisioningRequest({
+        workspaceId,
+        userId,
+        creatorTelegramId: user.telegramId,
+      });
+      return c.json(request, 201);
+    } catch (err) {
+      return managedTelegramError(c, err);
+    }
+  });
+
+  // PATCH /api/launch/telegram-bot/settings
+  app.patch('/telegram-bot/settings', async (c) => {
+    if (!deps.managedTelegram) return c.json({ error: 'Managed Telegram bots unavailable' }, 503);
+    const workspaceId = getWorkspaceId(c);
+    const userId = c.get('userId');
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    if (!userId) return c.json({ error: 'userId required' }, 400);
+    const body = await c.req.json().catch(() => null);
+    try {
+      const bot = await deps.managedTelegram.updateSettings(workspaceId, userId, body);
+      return c.json(bot);
+    } catch (err) {
+      return managedTelegramError(c, err);
+    }
+  });
+
+  // GET /api/launch/telegram-bot/messages
+  app.get('/telegram-bot/messages', async (c) => {
+    if (!deps.managedTelegram) return c.json({ error: 'Managed Telegram bots unavailable' }, 503);
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const messages = await deps.managedTelegram.listMessages(workspaceId);
+    return c.json(messages);
+  });
+
+  // POST /api/launch/telegram-bot/messages/:id/reply
+  app.post('/telegram-bot/messages/:id/reply', async (c) => {
+    if (!deps.managedTelegram) return c.json({ error: 'Managed Telegram bots unavailable' }, 503);
+    const workspaceId = getWorkspaceId(c);
+    const userId = c.get('userId');
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    if (!userId) return c.json({ error: 'userId required' }, 400);
+    const parsed = ManagedTelegramReplyInput.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    try {
+      const message = await deps.managedTelegram.sendManualReply(
+        workspaceId,
+        userId,
+        c.req.param('id'),
+        parsed.data.text,
+      );
+      return c.json(message);
+    } catch (err) {
+      return managedTelegramError(c, err);
+    }
+  });
+
+  // POST /api/launch/telegram-bot/rotate-token
+  app.post('/telegram-bot/rotate-token', async (c) => {
+    if (!deps.managedTelegram) return c.json({ error: 'Managed Telegram bots unavailable' }, 503);
+    const workspaceId = getWorkspaceId(c);
+    const userId = c.get('userId');
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    if (!userId) return c.json({ error: 'userId required' }, 400);
+    try {
+      return c.json(await deps.managedTelegram.rotateToken(workspaceId, userId));
+    } catch (err) {
+      return managedTelegramError(c, err);
+    }
+  });
+
+  // POST /api/launch/telegram-bot/disable
+  app.post('/telegram-bot/disable', async (c) => {
+    if (!deps.managedTelegram) return c.json({ error: 'Managed Telegram bots unavailable' }, 503);
+    const workspaceId = getWorkspaceId(c);
+    const userId = c.get('userId');
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    if (!userId) return c.json({ error: 'userId required' }, 400);
+    try {
+      return c.json(await deps.managedTelegram.disable(workspaceId, userId));
+    } catch (err) {
+      return managedTelegramError(c, err);
+    }
+  });
 
   // GET /api/launch/artifacts?workspaceId=...
   app.get('/artifacts', async (c) => {
@@ -203,6 +317,13 @@ export function launchRoutes(deps: GatewayDeps) {
 function providerFor(name: string): DeployProvider | null {
   if (name === 'digitalocean') return new DigitalOceanProvider();
   return null;
+}
+
+function managedTelegramError(c: Context, err: unknown) {
+  if (err instanceof ManagedTelegramBotError) {
+    return c.json({ error: err.message, receipt: err.receipt }, err.status as never);
+  }
+  throw err;
 }
 
 async function evaluateLaunchAction(

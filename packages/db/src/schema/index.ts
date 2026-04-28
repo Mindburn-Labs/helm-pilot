@@ -14,3 +14,4 @@ export * from './audit.js';
 export * from './governance.js';
 export * from './tenancy.js';
 export * from './compliance.js';
+export * from './telegram.js';

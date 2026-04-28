@@ -1,31 +1,51 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  authenticate, setAuthToken, getStatus, getTasks, createTask,
-  getOperators, createOperator, getOperatorRoles,
-  getOpportunities, createOpportunity,
-  searchKnowledge, createKnowledgePage,
-  getApplications, createApplication, updateApplicationStatus,
-  getApprovals, resolveApproval,
-  switchMode, getProfile, getSettings, updateSettings,
+  authenticate,
+  setAuthToken,
+  getStatus,
+  getTasks,
+  createTask,
+  getOperators,
+  createOperator,
+  getOperatorRoles,
+  getOpportunities,
+  createOpportunity,
+  searchKnowledge,
+  createKnowledgePage,
+  getApplications,
+  createApplication,
+  updateApplicationStatus,
+  getApprovals,
+  resolveApproval,
+  switchMode,
+  getProfile,
+  getSettings,
+  updateSettings,
   getReauthStatus,
+  getManagedTelegramState,
+  createManagedTelegramProvisioning,
+  updateManagedTelegramSettings,
 } from './api.js';
 import { useAsync } from './hooks.js';
 import type {
-  AuthResponse, OperatorRole, KnowledgeResult,
+  AuthResponse,
+  OperatorRole,
+  KnowledgeResult,
   ReauthGrant,
+  ManagedTelegramState,
 } from './api.js';
 
 const MODES = ['discover', 'decide', 'build', 'launch', 'apply'] as const;
 const TABS = ['home', 'discover', 'build', 'knowledge', 'apps', 'settings'] as const;
-type Tab = typeof TABS[number];
+type Tab = (typeof TABS)[number];
 
 const TAB_ICONS: Record<Tab, string> = {
-  home: '\u2302',      // house
-  discover: '\u2609',  // compass
-  build: '\u2692',     // hammer
+  home: '\u2302', // house
+  discover: '\u2609', // compass
+  build: '\u2692', // hammer
   knowledge: '\u2261', // book
-  apps: '\u2750',      // document
-  settings: '\u2699',  // gear
+  apps: '\u2750', // document
+  settings: '\u2699', // gear
 };
 
 declare global {
@@ -39,8 +59,17 @@ declare global {
         close: () => void;
         themeParams: Record<string, string>;
         colorScheme: 'light' | 'dark';
-        HapticFeedback: { impactOccurred: (style: string) => void; notificationOccurred: (type: string) => void };
-        MainButton: { text: string; show: () => void; hide: () => void; onClick: (cb: () => void) => void; offClick: (cb: () => void) => void };
+        HapticFeedback: {
+          impactOccurred: (style: string) => void;
+          notificationOccurred: (type: string) => void;
+        };
+        MainButton: {
+          text: string;
+          show: () => void;
+          hide: () => void;
+          onClick: (cb: () => void) => void;
+          offClick: (cb: () => void) => void;
+        };
       };
     };
   }
@@ -53,7 +82,9 @@ function haptic(type: 'light' | 'medium' | 'success' | 'error' = 'light') {
     } else {
       window.Telegram?.WebApp.HapticFeedback.impactOccurred(type);
     }
-  } catch { /* not in Telegram */ }
+  } catch {
+    /* not in Telegram */
+  }
 }
 
 // ─── App Root ───
@@ -65,12 +96,21 @@ export function App() {
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
-    if (!tg) { setAuthError('Not running inside Telegram'); return; }
+    if (!tg) {
+      setAuthError('Not running inside Telegram');
+      return;
+    }
     tg.ready();
     tg.expand();
-    if (!tg.initData) { setAuthError('No init data from Telegram'); return; }
+    if (!tg.initData) {
+      setAuthError('No init data from Telegram');
+      return;
+    }
     authenticate(tg.initData)
-      .then((res) => { setAuthToken(res.token); setAuth(res); })
+      .then((res) => {
+        setAuthToken(res.token);
+        setAuth(res);
+      })
       .catch((e: Error) => setAuthError(e.message));
   }, []);
 
@@ -79,12 +119,15 @@ export function App() {
     setActiveTab(tab);
   }, []);
 
-  if (authError) return (
-    <div>
-      <div className="header"><h1>HELM Pilot</h1></div>
-      <div className="error-banner">{authError}</div>
-    </div>
-  );
+  if (authError)
+    return (
+      <div>
+        <div className="header">
+          <h1>HELM Pilot</h1>
+        </div>
+        <div className="error-banner">{authError}</div>
+      </div>
+    );
 
   if (!auth) return <div className="loading">Connecting...</div>;
 
@@ -93,8 +136,12 @@ export function App() {
   return (
     <div className="app-shell">
       <div className="header">
-        <h1>HELM Pilot <span className="mode-badge">v0.1</span></h1>
-        <div className="subtitle">Hey, {auth.user.name} &middot; {auth.workspace.name}</div>
+        <h1>
+          HELM Pilot <span className="mode-badge">v0.1</span>
+        </h1>
+        <div className="subtitle">
+          Hey, {auth.user.name} &middot; {auth.workspace.name}
+        </div>
       </div>
 
       <ReauthBanner workspaceId={wsId} />
@@ -110,7 +157,11 @@ export function App() {
 
       <nav className="bottom-nav">
         {TABS.map((tab) => (
-          <button key={tab} className={`nav-item ${activeTab === tab ? 'active' : ''}`} onClick={() => switchTab(tab)}>
+          <button
+            key={tab}
+            className={`nav-item ${activeTab === tab ? 'active' : ''}`}
+            onClick={() => switchTab(tab)}
+          >
             <span className="nav-icon">{TAB_ICONS[tab]}</span>
             <span className="nav-label">{tab.charAt(0).toUpperCase() + tab.slice(1)}</span>
           </button>
@@ -122,7 +173,13 @@ export function App() {
 
 // ─── Home Tab ───
 
-function HomeTab({ workspaceId, onNavigate }: { workspaceId: string; onNavigate: (t: Tab) => void }) {
+function HomeTab({
+  workspaceId,
+  onNavigate,
+}: {
+  workspaceId: string;
+  onNavigate: (t: Tab) => void;
+}) {
   const { data: status, loading, reload } = useAsync(() => getStatus(workspaceId), [workspaceId]);
   const { data: approvals } = useAsync(() => getApprovals(workspaceId), [workspaceId]);
 
@@ -145,7 +202,11 @@ function HomeTab({ workspaceId, onNavigate }: { workspaceId: string; onNavigate:
       <div className="section">
         <div className="section-header">Dashboard</div>
         <div className="stat-grid">
-          <StatCard value={status?.tasks.running ?? 0} label="Running" onClick={() => onNavigate('build')} />
+          <StatCard
+            value={status?.tasks.running ?? 0}
+            label="Running"
+            onClick={() => onNavigate('build')}
+          />
           <StatCard value={status?.tasks.queued ?? 0} label="Queued" />
           <StatCard value={status?.tasks.completed ?? 0} label="Done" />
           <StatCard value={status?.pendingApprovals ?? 0} label="Approvals" accent />
@@ -153,10 +214,16 @@ function HomeTab({ workspaceId, onNavigate }: { workspaceId: string; onNavigate:
       </div>
 
       <div className="section">
-        <div className="section-header">Mode &middot; {status?.workspace.currentMode ?? 'discover'}</div>
+        <div className="section-header">
+          Mode &middot; {status?.workspace.currentMode ?? 'discover'}
+        </div>
         <div className="pill-row">
           {MODES.map((m) => (
-            <button key={m} className={`pill ${status?.workspace.currentMode === m ? 'active' : ''}`} onClick={() => handleModeSwitch(m)}>
+            <button
+              key={m}
+              className={`pill ${status?.workspace.currentMode === m ? 'active' : ''}`}
+              onClick={() => handleModeSwitch(m)}
+            >
               {m}
             </button>
           ))}
@@ -171,8 +238,15 @@ function HomeTab({ workspaceId, onNavigate }: { workspaceId: string; onNavigate:
               <div className="approval-action">{a.action}</div>
               <div className="approval-reason">{a.reason}</div>
               <div className="approval-buttons">
-                <button className="btn btn-approve" onClick={() => handleApproval(a.id, 'approved')}>Approve</button>
-                <button className="btn btn-reject" onClick={() => handleApproval(a.id, 'rejected')}>Reject</button>
+                <button
+                  className="btn btn-approve"
+                  onClick={() => handleApproval(a.id, 'approved')}
+                >
+                  Approve
+                </button>
+                <button className="btn btn-reject" onClick={() => handleApproval(a.id, 'rejected')}>
+                  Reject
+                </button>
               </div>
             </div>
           ))}
@@ -182,9 +256,23 @@ function HomeTab({ workspaceId, onNavigate }: { workspaceId: string; onNavigate:
   );
 }
 
-function StatCard({ value, label, accent, onClick }: { value: number; label: string; accent?: boolean; onClick?: () => void }) {
+function StatCard({
+  value,
+  label,
+  accent,
+  onClick,
+}: {
+  value: number;
+  label: string;
+  accent?: boolean;
+  onClick?: () => void;
+}) {
   return (
-    <div className={`stat-card ${accent && value > 0 ? 'accent' : ''}`} onClick={onClick} role={onClick ? 'button' : undefined}>
+    <div
+      className={`stat-card ${accent && value > 0 ? 'accent' : ''}`}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+    >
       <div className="stat-value">{value}</div>
       <div className="stat-label">{label}</div>
     </div>
@@ -194,7 +282,11 @@ function StatCard({ value, label, accent, onClick }: { value: number; label: str
 // ─── Discover Tab ───
 
 function DiscoverTab({ workspaceId }: { workspaceId: string }) {
-  const { data: opps, loading, reload } = useAsync(() => getOpportunities(workspaceId), [workspaceId]);
+  const {
+    data: opps,
+    loading,
+    reload,
+  } = useAsync(() => getOpportunities(workspaceId), [workspaceId]);
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
@@ -204,7 +296,9 @@ function DiscoverTab({ workspaceId }: { workspaceId: string }) {
     if (!title.trim()) return;
     haptic('success');
     await createOpportunity({ workspaceId, source, title: title.trim(), description: desc.trim() });
-    setTitle(''); setDesc(''); setShowForm(false);
+    setTitle('');
+    setDesc('');
+    setShowForm(false);
     reload();
   };
 
@@ -215,29 +309,59 @@ function DiscoverTab({ workspaceId }: { workspaceId: string }) {
       <div className="section">
         <div className="section-header-row">
           <span className="section-header">Opportunities ({opps?.length ?? 0})</span>
-          <button className="btn-icon" onClick={() => { haptic('light'); setShowForm(!showForm); }}>+</button>
+          <button
+            className="btn-icon"
+            onClick={() => {
+              haptic('light');
+              setShowForm(!showForm);
+            }}
+          >
+            +
+          </button>
         </div>
 
         {showForm && (
           <div className="form-card">
             <div className="pill-row" style={{ marginBottom: 8 }}>
               {['manual', 'yc', 'market'].map((s) => (
-                <button key={s} className={`pill ${source === s ? 'active' : ''}`} onClick={() => setSource(s)}>{s}</button>
+                <button
+                  key={s}
+                  className={`pill ${source === s ? 'active' : ''}`}
+                  onClick={() => setSource(s)}
+                >
+                  {s}
+                </button>
               ))}
             </div>
-            <input className="input" placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
-            <textarea className="input textarea" placeholder="Description" value={desc} onChange={(e) => setDesc(e.target.value)} />
-            <button className="btn btn-primary" onClick={handleCreate}>Create</button>
+            <input
+              className="input"
+              placeholder="Title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+            <textarea
+              className="input textarea"
+              placeholder="Description"
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+            />
+            <button className="btn btn-primary" onClick={handleCreate}>
+              Create
+            </button>
           </div>
         )}
 
-        {opps?.length === 0 && !showForm && <div className="empty-state">No opportunities yet. Tap + to add one.</div>}
+        {opps?.length === 0 && !showForm && (
+          <div className="empty-state">No opportunities yet. Tap + to add one.</div>
+        )}
 
         <ul className="item-list">
           {opps?.map((o) => (
             <li key={o.id} className="item-row">
               <div className="item-title">{o.title}</div>
-              <div className="item-meta">{o.source} &middot; {new Date(o.discoveredAt).toLocaleDateString()}</div>
+              <div className="item-meta">
+                {o.source} &middot; {new Date(o.discoveredAt).toLocaleDateString()}
+              </div>
             </li>
           ))}
         </ul>
@@ -260,7 +384,9 @@ function BuildTab({ workspaceId }: { workspaceId: string }) {
     if (!title.trim()) return;
     haptic('success');
     await createTask({ workspaceId, title: title.trim(), description: desc.trim(), mode, autoRun });
-    setTitle(''); setDesc(''); setShowForm(false);
+    setTitle('');
+    setDesc('');
+    setShowForm(false);
     reload();
   };
 
@@ -271,27 +397,59 @@ function BuildTab({ workspaceId }: { workspaceId: string }) {
       <div className="section">
         <div className="section-header-row">
           <span className="section-header">Tasks ({tasks?.length ?? 0})</span>
-          <button className="btn-icon" onClick={() => { haptic('light'); setShowForm(!showForm); }}>+</button>
+          <button
+            className="btn-icon"
+            onClick={() => {
+              haptic('light');
+              setShowForm(!showForm);
+            }}
+          >
+            +
+          </button>
         </div>
 
         {showForm && (
           <div className="form-card">
-            <input className="input" placeholder="Task title" value={title} onChange={(e) => setTitle(e.target.value)} />
-            <textarea className="input textarea" placeholder="Description (optional)" value={desc} onChange={(e) => setDesc(e.target.value)} />
+            <input
+              className="input"
+              placeholder="Task title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+            <textarea
+              className="input textarea"
+              placeholder="Description (optional)"
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+            />
             <div className="pill-row" style={{ marginBottom: 8 }}>
               {MODES.map((m) => (
-                <button key={m} className={`pill ${mode === m ? 'active' : ''}`} onClick={() => setMode(m)}>{m}</button>
+                <button
+                  key={m}
+                  className={`pill ${mode === m ? 'active' : ''}`}
+                  onClick={() => setMode(m)}
+                >
+                  {m}
+                </button>
               ))}
             </div>
             <label className="checkbox-row">
-              <input type="checkbox" checked={autoRun} onChange={(e) => setAutoRun(e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={autoRun}
+                onChange={(e) => setAutoRun(e.target.checked)}
+              />
               <span>Auto-run with agent</span>
             </label>
-            <button className="btn btn-primary" onClick={handleCreate}>Create Task</button>
+            <button className="btn btn-primary" onClick={handleCreate}>
+              Create Task
+            </button>
           </div>
         )}
 
-        {tasks?.length === 0 && !showForm && <div className="empty-state">No tasks yet. Tap + to create one.</div>}
+        {tasks?.length === 0 && !showForm && (
+          <div className="empty-state">No tasks yet. Tap + to create one.</div>
+        )}
 
         <ul className="item-list">
           {tasks?.map((t) => (
@@ -299,7 +457,9 @@ function BuildTab({ workspaceId }: { workspaceId: string }) {
               <span className={`status-dot ${t.status}`} />
               <div style={{ flex: 1 }}>
                 <div className="item-title">{t.title}</div>
-                <div className="item-meta">{t.mode} &middot; {t.status}</div>
+                <div className="item-meta">
+                  {t.mode} &middot; {t.status}
+                </div>
               </div>
             </li>
           ))}
@@ -312,7 +472,11 @@ function BuildTab({ workspaceId }: { workspaceId: string }) {
 }
 
 function OperatorsSection({ workspaceId }: { workspaceId: string }) {
-  const { data: operators, loading, reload } = useAsync(() => getOperators(workspaceId), [workspaceId]);
+  const {
+    data: operators,
+    loading,
+    reload,
+  } = useAsync(() => getOperators(workspaceId), [workspaceId]);
   const { data: roles } = useAsync(getOperatorRoles, []);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
@@ -323,7 +487,9 @@ function OperatorsSection({ workspaceId }: { workspaceId: string }) {
     if (!name.trim() || !goal.trim()) return;
     haptic('success');
     await createOperator({ workspaceId, name: name.trim(), role, goal: goal.trim() });
-    setName(''); setGoal(''); setShowForm(false);
+    setName('');
+    setGoal('');
+    setShowForm(false);
     reload();
   };
 
@@ -333,19 +499,53 @@ function OperatorsSection({ workspaceId }: { workspaceId: string }) {
     <div className="section">
       <div className="section-header-row">
         <span className="section-header">Operators ({operators?.length ?? 0})</span>
-        <button className="btn-icon" onClick={() => { haptic('light'); setShowForm(!showForm); }}>+</button>
+        <button
+          className="btn-icon"
+          onClick={() => {
+            haptic('light');
+            setShowForm(!showForm);
+          }}
+        >
+          +
+        </button>
       </div>
 
       {showForm && (
         <div className="form-card">
-          <input className="input" placeholder="Operator name" value={name} onChange={(e) => setName(e.target.value)} />
+          <input
+            className="input"
+            placeholder="Operator name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
           <div className="pill-row" style={{ marginBottom: 8 }}>
-            {(roles ?? [{ name: 'engineering' }, { name: 'product' }, { name: 'growth' }, { name: 'design' }, { name: 'ops' }]).map((r: OperatorRole | { name: string }) => (
-              <button key={r.name} className={`pill ${role === r.name ? 'active' : ''}`} onClick={() => setRole(r.name)}>{r.name}</button>
+            {(
+              roles ?? [
+                { name: 'engineering' },
+                { name: 'product' },
+                { name: 'growth' },
+                { name: 'design' },
+                { name: 'ops' },
+              ]
+            ).map((r: OperatorRole | { name: string }) => (
+              <button
+                key={r.name}
+                className={`pill ${role === r.name ? 'active' : ''}`}
+                onClick={() => setRole(r.name)}
+              >
+                {r.name}
+              </button>
             ))}
           </div>
-          <textarea className="input textarea" placeholder="Goal" value={goal} onChange={(e) => setGoal(e.target.value)} />
-          <button className="btn btn-primary" onClick={handleCreate}>Create Operator</button>
+          <textarea
+            className="input textarea"
+            placeholder="Goal"
+            value={goal}
+            onChange={(e) => setGoal(e.target.value)}
+          />
+          <button className="btn btn-primary" onClick={handleCreate}>
+            Create Operator
+          </button>
         </div>
       )}
 
@@ -354,7 +554,9 @@ function OperatorsSection({ workspaceId }: { workspaceId: string }) {
           <li key={op.id} className="item-row">
             <div>
               <div className="item-title">{op.name}</div>
-              <div className="item-meta">{op.role} &middot; {op.goal}</div>
+              <div className="item-meta">
+                {op.role} &middot; {op.goal}
+              </div>
             </div>
           </li>
         ))}
@@ -385,8 +587,14 @@ function KnowledgeTab() {
   const handleCreate = async () => {
     if (!pageTitle.trim()) return;
     haptic('success');
-    await createKnowledgePage({ type: pageType, title: pageTitle.trim(), content: pageContent.trim() || undefined });
-    setPageTitle(''); setPageContent(''); setShowForm(false);
+    await createKnowledgePage({
+      type: pageType,
+      title: pageTitle.trim(),
+      content: pageContent.trim() || undefined,
+    });
+    setPageTitle('');
+    setPageContent('');
+    setShowForm(false);
   };
 
   return (
@@ -394,7 +602,13 @@ function KnowledgeTab() {
       <div className="section">
         <div className="section-header">Search Knowledge</div>
         <div className="search-row">
-          <input className="input" placeholder="Search..." value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()} />
+          <input
+            className="input"
+            placeholder="Search..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+          />
           <button className="btn btn-primary btn-sm" onClick={handleSearch} disabled={searching}>
             {searching ? '...' : 'Go'}
           </button>
@@ -406,7 +620,9 @@ function KnowledgeTab() {
             {results.map((r) => (
               <li key={r.id} className="item-row">
                 <div className="item-title">{r.title}</div>
-                <div className="item-meta">{r.type} &middot; {(r.score * 100).toFixed(0)}% match</div>
+                <div className="item-meta">
+                  {r.type} &middot; {(r.score * 100).toFixed(0)}% match
+                </div>
               </li>
             ))}
           </ul>
@@ -416,18 +632,44 @@ function KnowledgeTab() {
       <div className="section">
         <div className="section-header-row">
           <span className="section-header">Create Page</span>
-          <button className="btn-icon" onClick={() => { haptic('light'); setShowForm(!showForm); }}>{showForm ? '\u2212' : '+'}</button>
+          <button
+            className="btn-icon"
+            onClick={() => {
+              haptic('light');
+              setShowForm(!showForm);
+            }}
+          >
+            {showForm ? '\u2212' : '+'}
+          </button>
         </div>
         {showForm && (
           <div className="form-card">
             <div className="pill-row" style={{ marginBottom: 8 }}>
               {['note', 'research', 'insight', 'decision'].map((t) => (
-                <button key={t} className={`pill ${pageType === t ? 'active' : ''}`} onClick={() => setPageType(t)}>{t}</button>
+                <button
+                  key={t}
+                  className={`pill ${pageType === t ? 'active' : ''}`}
+                  onClick={() => setPageType(t)}
+                >
+                  {t}
+                </button>
               ))}
             </div>
-            <input className="input" placeholder="Title" value={pageTitle} onChange={(e) => setPageTitle(e.target.value)} />
-            <textarea className="input textarea" placeholder="Content (optional)" value={pageContent} onChange={(e) => setPageContent(e.target.value)} />
-            <button className="btn btn-primary" onClick={handleCreate}>Save Page</button>
+            <input
+              className="input"
+              placeholder="Title"
+              value={pageTitle}
+              onChange={(e) => setPageTitle(e.target.value)}
+            />
+            <textarea
+              className="input textarea"
+              placeholder="Content (optional)"
+              value={pageContent}
+              onChange={(e) => setPageContent(e.target.value)}
+            />
+            <button className="btn btn-primary" onClick={handleCreate}>
+              Save Page
+            </button>
           </div>
         )}
       </div>
@@ -438,7 +680,11 @@ function KnowledgeTab() {
 // ─── Apps Tab ───
 
 function AppsTab({ workspaceId }: { workspaceId: string }) {
-  const { data: apps, loading, reload } = useAsync(() => getApplications(workspaceId), [workspaceId]);
+  const {
+    data: apps,
+    loading,
+    reload,
+  } = useAsync(() => getApplications(workspaceId), [workspaceId]);
   const [showForm, setShowForm] = useState(false);
   const [targetProgram, setTargetProgram] = useState('');
 
@@ -446,7 +692,8 @@ function AppsTab({ workspaceId }: { workspaceId: string }) {
     if (!targetProgram.trim()) return;
     haptic('success');
     await createApplication(workspaceId, targetProgram.trim());
-    setTargetProgram(''); setShowForm(false);
+    setTargetProgram('');
+    setShowForm(false);
     reload();
   };
 
@@ -462,13 +709,28 @@ function AppsTab({ workspaceId }: { workspaceId: string }) {
     <div className="section">
       <div className="section-header-row">
         <span className="section-header">Applications ({apps?.length ?? 0})</span>
-        <button className="btn-icon" onClick={() => { haptic('light'); setShowForm(!showForm); }}>+</button>
+        <button
+          className="btn-icon"
+          onClick={() => {
+            haptic('light');
+            setShowForm(!showForm);
+          }}
+        >
+          +
+        </button>
       </div>
 
       {showForm && (
         <div className="form-card">
-          <input className="input" placeholder="Target program (e.g. YC S26, Techstars)" value={targetProgram} onChange={(e) => setTargetProgram(e.target.value)} />
-          <button className="btn btn-primary" onClick={handleCreate}>Create</button>
+          <input
+            className="input"
+            placeholder="Target program (e.g. YC S26, Techstars)"
+            value={targetProgram}
+            onChange={(e) => setTargetProgram(e.target.value)}
+          />
+          <button className="btn btn-primary" onClick={handleCreate}>
+            Create
+          </button>
         </div>
       )}
 
@@ -480,11 +742,19 @@ function AppsTab({ workspaceId }: { workspaceId: string }) {
             <div style={{ flex: 1 }}>
               <div className="item-title">{a.targetProgram}</div>
               <div className="item-meta">
-                {a.status} {a.submittedAt ? ` \u00b7 submitted ${new Date(a.submittedAt).toLocaleDateString()}` : ''}
+                {a.status}{' '}
+                {a.submittedAt
+                  ? ` \u00b7 submitted ${new Date(a.submittedAt).toLocaleDateString()}`
+                  : ''}
               </div>
             </div>
             {a.status === 'draft' && (
-              <button className="btn btn-sm btn-outline" onClick={() => handleStatusChange(a.id, 'submitted')}>Submit</button>
+              <button
+                className="btn btn-sm btn-outline"
+                onClick={() => handleStatusChange(a.id, 'submitted')}
+              >
+                Submit
+              </button>
             )}
           </li>
         ))}
@@ -497,13 +767,23 @@ function AppsTab({ workspaceId }: { workspaceId: string }) {
 
 function SettingsTab({ workspaceId }: { workspaceId: string }) {
   const { data: profile } = useAsync(() => getProfile(workspaceId), [workspaceId]);
-  const { data: settings, reload: reloadSettings } = useAsync(() => getSettings(workspaceId), [workspaceId]);
+  const { data: settings, reload: reloadSettings } = useAsync(
+    () => getSettings(workspaceId),
+    [workspaceId],
+  );
+  const { data: launchBot, reload: reloadLaunchBot } = useAsync(
+    () => getManagedTelegramState(workspaceId),
+    [workspaceId],
+  );
   const [editingBudget, setEditingBudget] = useState(false);
   const [budget, setBudget] = useState('');
+  const [savingLaunchBot, setSavingLaunchBot] = useState(false);
 
   useEffect(() => {
     if (settings?.budgetConfig) {
-      setBudget(String((settings.budgetConfig as Record<string, unknown>).monthlyLlmBudget ?? '100'));
+      setBudget(
+        String((settings.budgetConfig as Record<string, unknown>).monthlyLlmBudget ?? '100'),
+      );
     }
   }, [settings]);
 
@@ -514,6 +794,26 @@ function SettingsTab({ workspaceId }: { workspaceId: string }) {
     });
     setEditingBudget(false);
     reloadSettings();
+  };
+
+  const createLaunchBot = async () => {
+    haptic('medium');
+    const request = await createManagedTelegramProvisioning(workspaceId);
+    await reloadLaunchBot();
+    if (request?.creationUrl) {
+      window.Telegram?.WebApp.close();
+      window.location.href = request.creationUrl;
+    }
+  };
+
+  const setLaunchBotMode = async (
+    mode: NonNullable<ManagedTelegramState['bot']>['responseMode'],
+  ) => {
+    haptic('success');
+    setSavingLaunchBot(true);
+    await updateManagedTelegramSettings(workspaceId, { responseMode: mode });
+    await reloadLaunchBot();
+    setSavingLaunchBot(false);
   };
 
   return (
@@ -531,7 +831,9 @@ function SettingsTab({ workspaceId }: { workspaceId: string }) {
           {profile.interests.length > 0 && (
             <div className="pill-row" style={{ marginTop: 12 }}>
               {profile.interests.map((interest, i) => (
-                <span key={i} className="pill">{interest}</span>
+                <span key={i} className="pill">
+                  {interest}
+                </span>
               ))}
             </div>
           )}
@@ -543,10 +845,19 @@ function SettingsTab({ workspaceId }: { workspaceId: string }) {
         {editingBudget ? (
           <div className="form-card">
             <label className="input-label">Monthly LLM Budget (USD)</label>
-            <input className="input" type="number" value={budget} onChange={(e) => setBudget(e.target.value)} />
+            <input
+              className="input"
+              type="number"
+              value={budget}
+              onChange={(e) => setBudget(e.target.value)}
+            />
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-primary btn-sm" onClick={saveBudget}>Save</button>
-              <button className="btn btn-outline btn-sm" onClick={() => setEditingBudget(false)}>Cancel</button>
+              <button className="btn btn-primary btn-sm" onClick={saveBudget}>
+                Save
+              </button>
+              <button className="btn btn-outline btn-sm" onClick={() => setEditingBudget(false)}>
+                Cancel
+              </button>
             </div>
           </div>
         ) : (
@@ -563,8 +874,15 @@ function SettingsTab({ workspaceId }: { workspaceId: string }) {
         <div className="section-header">Model</div>
         <div className="item-row">
           <div>
-            <div className="item-title">{String((settings?.modelConfig as Record<string, unknown>)?.model ?? 'anthropic/claude-sonnet-4-20250514')}</div>
-            <div className="item-meta">{String((settings?.modelConfig as Record<string, unknown>)?.provider ?? 'openrouter')}</div>
+            <div className="item-title">
+              {String(
+                (settings?.modelConfig as Record<string, unknown>)?.model ??
+                  'anthropic/claude-sonnet-4-20250514',
+              )}
+            </div>
+            <div className="item-meta">
+              {String((settings?.modelConfig as Record<string, unknown>)?.provider ?? 'openrouter')}
+            </div>
           </div>
         </div>
       </div>
@@ -573,10 +891,68 @@ function SettingsTab({ workspaceId }: { workspaceId: string }) {
         <div className="section-header">Policy</div>
         <div className="item-row">
           <div>
-            <div className="item-title">Max iterations: {String((settings?.policyConfig as Record<string, unknown>)?.maxIterationBudget ?? 50)}</div>
-            <div className="item-meta">Blocked tools: {((settings?.policyConfig as Record<string, unknown>)?.blockedTools as string[] ?? []).length === 0 ? 'none' : ((settings?.policyConfig as Record<string, unknown>)?.blockedTools as string[]).join(', ')}</div>
+            <div className="item-title">
+              Max iterations:{' '}
+              {String(
+                (settings?.policyConfig as Record<string, unknown>)?.maxIterationBudget ?? 50,
+              )}
+            </div>
+            <div className="item-meta">
+              Blocked tools:{' '}
+              {(
+                ((settings?.policyConfig as Record<string, unknown>)?.blockedTools as string[]) ??
+                []
+              ).length === 0
+                ? 'none'
+                : (
+                    (settings?.policyConfig as Record<string, unknown>)?.blockedTools as string[]
+                  ).join(', ')}
+            </div>
           </div>
         </div>
+      </div>
+
+      <div className="section">
+        <div className="section-header">Launch Bot</div>
+        {!launchBot?.bot ? (
+          <div className="item-row">
+            <div style={{ flex: 1 }}>
+              <div className="item-title">No launch/support bot connected</div>
+              <div className="item-meta">
+                {launchBot?.pendingRequest
+                  ? `Pending @${launchBot.pendingRequest.suggestedUsername}`
+                  : 'Create a founder-owned Telegram bot'}
+              </div>
+            </div>
+            <button className="btn btn-sm btn-primary" onClick={createLaunchBot}>
+              Create
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="item-row">
+              <div>
+                <div className="item-title">@{launchBot.bot.telegramBotUsername}</div>
+                <div className="item-meta">
+                  {launchBot.bot.status} · {launchBot.leads.length} leads ·{' '}
+                  {launchBot.messages.length} messages
+                </div>
+              </div>
+            </div>
+            <div className="pill-row" style={{ marginTop: 8 }}>
+              {(['intake_only', 'approval_required', 'autonomous_helm'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  className={`pill ${launchBot.bot?.responseMode === mode ? 'active' : ''}`}
+                  disabled={savingLaunchBot}
+                  onClick={() => setLaunchBotMode(mode)}
+                >
+                  {mode.replace('_', ' ')}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="section">

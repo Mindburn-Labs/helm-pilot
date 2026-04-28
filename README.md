@@ -162,24 +162,25 @@ All API routes require authentication except `/health`, `/metrics`, and the publ
 
 ## Environment Variables
 
-| Variable                   | Required   | Default                 | Description                                                                                                              |
-| -------------------------- | ---------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `DATABASE_URL`             | Yes        | -                       | PostgreSQL connection string                                                                                             |
-| `APP_URL`                  | Yes        | `http://localhost:3100` | Public gateway base URL used for OAuth callbacks                                                                         |
-| `TELEGRAM_BOT_TOKEN`       | No         | -                       | Telegram bot token (enables bot)                                                                                         |
-| `TELEGRAM_WEBHOOK_SECRET`  | No         | -                       | Webhook HMAC secret (production)                                                                                         |
-| `HELM_GOVERNANCE_URL`      | Prod       | -                       | HELM sidecar URL. Production Pilot routes LLM and tool governance through this.                                          |
-| `HELM_FAIL_CLOSED`         | Prod       | `1`                     | Keep `1` in production so HELM unreachability blocks governed calls.                                                     |
-| `OPENROUTER_API_KEY`       | Direct dev | -                       | Direct Pilot LLM key only when HELM sidecar is not configured. In production this key belongs in `.env.production.helm`. |
-| `SESSION_SECRET`           | Yes        | -                       | Session token signing secret                                                                                             |
-| `ENCRYPTION_KEY`           | Yes        | -                       | Connector token encryption key                                                                                           |
-| `PYTHON_BIN`               | No         | `python3`               | Python executable used by background ingestion jobs                                                                      |
-| `PLAYWRIGHT_BROWSERS_PATH` | No         | repo-local cache        | Browser cache for Scrapling dynamic fetchers                                                                             |
-| `PATCHRIGHT_BROWSERS_PATH` | No         | repo-local cache        | Browser cache for Scrapling stealth sessions                                                                             |
-| `PORT`                     | No         | 3100                    | HTTP server port                                                                                                         |
-| `NODE_ENV`                 | No         | development             | Environment (development/production)                                                                                     |
-| `LOG_LEVEL`                | No         | info                    | Pino log level                                                                                                           |
-| `ALLOWED_ORIGINS`          | No         | -                       | CORS allowed origins (comma-separated)                                                                                   |
+| Variable                        | Required   | Default                 | Description                                                                                                              |
+| ------------------------------- | ---------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`                  | Yes        | -                       | PostgreSQL connection string                                                                                             |
+| `APP_URL`                       | Yes        | `http://localhost:3100` | Public gateway base URL used for OAuth callbacks                                                                         |
+| `TELEGRAM_BOT_TOKEN`            | No         | -                       | Telegram bot token (enables bot)                                                                                         |
+| `TELEGRAM_WEBHOOK_SECRET`       | No         | -                       | Webhook HMAC secret (production)                                                                                         |
+| `TELEGRAM_MANAGER_BOT_USERNAME` | No         | `getMe`                 | Optional main-bot username override for Telegram Managed Bots setup links                                                |
+| `HELM_GOVERNANCE_URL`           | Prod       | -                       | HELM sidecar URL. Production Pilot routes LLM and tool governance through this.                                          |
+| `HELM_FAIL_CLOSED`              | Prod       | `1`                     | Keep `1` in production so HELM unreachability blocks governed calls.                                                     |
+| `OPENROUTER_API_KEY`            | Direct dev | -                       | Direct Pilot LLM key only when HELM sidecar is not configured. In production this key belongs in `.env.production.helm`. |
+| `SESSION_SECRET`                | Yes        | -                       | Session token signing secret                                                                                             |
+| `ENCRYPTION_KEY`                | Yes        | -                       | Connector token encryption key                                                                                           |
+| `PYTHON_BIN`                    | No         | `python3`               | Python executable used by background ingestion jobs                                                                      |
+| `PLAYWRIGHT_BROWSERS_PATH`      | No         | repo-local cache        | Browser cache for Scrapling dynamic fetchers                                                                             |
+| `PATCHRIGHT_BROWSERS_PATH`      | No         | repo-local cache        | Browser cache for Scrapling stealth sessions                                                                             |
+| `PORT`                          | No         | 3100                    | HTTP server port                                                                                                         |
+| `NODE_ENV`                      | No         | development             | Environment (development/production)                                                                                     |
+| `LOG_LEVEL`                     | No         | info                    | Pino log level                                                                                                           |
+| `ALLOWED_ORIGINS`               | No         | -                       | CORS allowed origins (comma-separated)                                                                                   |
 
 See `.env.example` for the full list including optional providers and connectors.
 

@@ -113,6 +113,13 @@
       "when": 1777126436400,
       "tag": "0014_pgvector_082_floor",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1777305600000,
+      "tag": "0015_managed_telegram_bots",
+      "breakpoints": true
     }
   ]
 }

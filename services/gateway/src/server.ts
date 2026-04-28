@@ -22,6 +22,7 @@ import { createGateway } from './index.js';
 import { configureRateLimit } from './middleware/rate-limit.js';
 import { EventBus } from './events/bus.js';
 import { createEmailProvider } from './services/email-provider.js';
+import { ManagedTelegramBotService } from './services/managed-telegram-bots.js';
 import { initSentry, flushSentry } from '@helm-pilot/shared/errors/sentry';
 
 const log = createLogger('helm-pilot');
@@ -271,6 +272,16 @@ async function main() {
   });
   log.info({ emailProvider: emailProvider.kind }, 'Email provider configured');
 
+  const botToken = process.env['TELEGRAM_BOT_TOKEN'];
+  const managedTelegram = new ManagedTelegramBotService({
+    db,
+    helmClient,
+    managerBotToken: botToken,
+    managerBotUsername: process.env['TELEGRAM_MANAGER_BOT_USERNAME'],
+    appUrl: process.env['APP_URL'],
+    llm,
+  });
+
   const app = createGateway({
     db,
     orchestrator,
@@ -282,10 +293,10 @@ async function main() {
     eventBus,
     emailProvider,
     helmClient,
+    managedTelegram,
   });
 
   // ─── Telegram bot (webhook mode) ───
-  const botToken = process.env['TELEGRAM_BOT_TOKEN'];
   if (botToken) {
     const { webhookCallback } = await import('grammy');
     const { createBot } = await import('@helm-pilot/telegram-bot');
@@ -294,14 +305,26 @@ async function main() {
       founderIntel,
       runTask: (params) => orchestrator.runTask(params),
       runConduct: (params) => orchestrator.runConduct(params),
+      createLaunchBotProvisioning: (params) => managedTelegram.createProvisioningRequest(params),
+      claimLaunchBot: (params) => managedTelegram.claimManagedBot(params),
     });
     await bot.init();
+    managedTelegram.setManagerBotUsername(bot.botInfo.username);
 
     // Wire approval push notifications via Telegram
     const notifications = new NotificationService(bot, db);
     notificationsRef = notifications;
     orchestrator.agentLoop.setApprovalNotifier((workspaceId, approvalId, action, reason) =>
       notifications.requestApproval(workspaceId, approvalId, action, reason),
+    );
+    managedTelegram.setApprovalNotifier((workspaceId, approvalId, action, reason) =>
+      notifications.requestApproval(workspaceId, approvalId, action, reason),
+    );
+    managedTelegram.setSupportNotifier((workspaceId, _messageId, managedBotUsername) =>
+      notifications.notifyWorkspace(
+        workspaceId,
+        `*Telegram support message received*\n\n@${managedBotUsername} captured a new support message. Open Launch to review and reply.`,
+      ),
     );
     log.info('Approval + re-auth notifications enabled via Telegram');
 

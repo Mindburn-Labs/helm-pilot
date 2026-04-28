@@ -34,7 +34,7 @@ async function main() {
     body: JSON.stringify({
       url: webhookUrl,
       secret_token: newSecret,
-      allowed_updates: ['message', 'callback_query'],
+      allowed_updates: ['message', 'callback_query', 'managed_bot'],
     }),
   });
 

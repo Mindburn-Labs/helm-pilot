@@ -63,7 +63,14 @@ export function getReauthStatus(workspaceId: string): Promise<{ grants: ReauthGr
 
 export interface StatusResponse {
   workspace: { id: string; name: string; currentMode: string };
-  tasks: { total: number; running: number; queued: number; completed: number; failed: number; awaitingApproval: number };
+  tasks: {
+    total: number;
+    running: number;
+    queued: number;
+    completed: number;
+    failed: number;
+    awaitingApproval: number;
+  };
   operators: number;
   pendingApprovals: number;
 }
@@ -204,7 +211,10 @@ export function getApplications(workspaceId: string): Promise<Application[]> {
   return request(`/applications?workspaceId=${workspaceId}`);
 }
 
-export function createApplication(workspaceId: string, targetProgram: string): Promise<Application> {
+export function createApplication(
+  workspaceId: string,
+  targetProgram: string,
+): Promise<Application> {
   return request('/applications', {
     method: 'POST',
     body: JSON.stringify({ workspaceId, targetProgram }),
@@ -242,7 +252,10 @@ export function resolveApproval(id: string, status: 'approved' | 'rejected'): Pr
 
 // ─── Workspace ───
 
-export function switchMode(workspaceId: string, mode: string): Promise<{ id: string; currentMode: string }> {
+export function switchMode(
+  workspaceId: string,
+  mode: string,
+): Promise<{ id: string; currentMode: string }> {
   return request(`/workspace/${workspaceId}/mode`, {
     method: 'PUT',
     body: JSON.stringify({ mode }),
@@ -259,7 +272,10 @@ export function getSettings(workspaceId: string): Promise<WorkspaceSettings> {
   return request(`/workspace/${workspaceId}/settings`);
 }
 
-export function updateSettings(workspaceId: string, settings: Partial<WorkspaceSettings>): Promise<WorkspaceSettings> {
+export function updateSettings(
+  workspaceId: string,
+  settings: Partial<WorkspaceSettings>,
+): Promise<WorkspaceSettings> {
   return request(`/workspace/${workspaceId}/settings`, {
     method: 'PUT',
     body: JSON.stringify(settings),
@@ -292,6 +308,58 @@ export function getConnectors(): Promise<ConnectorDef[]> {
   return request('/connectors');
 }
 
-export function getConnectorGrants(workspaceId: string): Promise<{ connectorId: string; isActive: boolean }[]> {
+export function getConnectorGrants(
+  workspaceId: string,
+): Promise<{ connectorId: string; isActive: boolean }[]> {
   return request(`/connectors/grants?workspaceId=${workspaceId}`);
+}
+
+// ─── Managed Telegram launch/support bot ───
+
+export interface ManagedTelegramState {
+  bot: {
+    id: string;
+    telegramBotUsername: string;
+    status: string;
+    responseMode: 'intake_only' | 'approval_required' | 'autonomous_helm';
+    welcomeCopy: string;
+    launchUrl: string | null;
+    supportPrompt: string | null;
+  } | null;
+  pendingRequest: {
+    id: string;
+    creationUrl: string;
+    suggestedUsername: string;
+    expiresAt: string;
+  } | null;
+  leads: Array<{ id: string }>;
+  messages: Array<{ id: string; replyStatus: string }>;
+}
+
+export function getManagedTelegramState(workspaceId: string): Promise<ManagedTelegramState> {
+  return request(`/launch/telegram-bot?workspaceId=${workspaceId}`);
+}
+
+export function createManagedTelegramProvisioning(
+  workspaceId: string,
+): Promise<ManagedTelegramState['pendingRequest']> {
+  return request(`/launch/telegram-bot/provisioning-request?workspaceId=${workspaceId}`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+export function updateManagedTelegramSettings(
+  workspaceId: string,
+  body: {
+    responseMode?: 'intake_only' | 'approval_required' | 'autonomous_helm';
+    welcomeCopy?: string;
+    launchUrl?: string | null;
+    supportPrompt?: string | null;
+  },
+): Promise<ManagedTelegramState['bot']> {
+  return request(`/launch/telegram-bot/settings?workspaceId=${workspaceId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
 }

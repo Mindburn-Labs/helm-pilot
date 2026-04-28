@@ -72,6 +72,10 @@ const WORKSPACE_SCOPED_TABLES = new Set<string>([
   'launchArtifacts',
   'deployments',
   'deployTargets',
+  'managedTelegramBots',
+  'managedTelegramBotProvisioningRequests',
+  'managedTelegramBotLeads',
+  'managedTelegramBotMessages',
 ]);
 
 /**

@@ -18,6 +18,22 @@ export interface BotDeps {
   runTask?: (params: OrchestratorRunParams) => Promise<OrchestratorRunResult>;
   /** Phase 13 Track C4 — run a subagent-enabled conduct loop. */
   runConduct?: (params: OrchestratorRunParams) => Promise<OrchestratorRunResult>;
+  /** Create a Telegram Managed Bots provisioning request for a founder-owned launch/support bot. */
+  createLaunchBotProvisioning?: (params: {
+    workspaceId: string;
+    userId: string;
+    creatorTelegramId: string;
+  }) => Promise<{
+    creationUrl: string;
+    suggestedUsername: string;
+    suggestedName: string;
+    expiresAt: string;
+  }>;
+  /** Claim a Telegram child bot after Telegram emits a managed_bot update. */
+  claimLaunchBot?: (params: {
+    creatorTelegramId: string;
+    bot: { id: number | string; username?: string; firstName?: string };
+  }) => Promise<{ id: string; telegramBotUsername: string; status: string }>;
 }
 
 export interface OrchestratorRunParams {

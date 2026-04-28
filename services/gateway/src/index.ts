@@ -39,11 +39,13 @@ import { decideRoutes } from './routes/decide.js';
 import { secretsRoutes } from './routes/secrets.js';
 import { adminRoutes } from './routes/admin.js';
 import { conductRoutes } from './routes/conduct.js';
+import { managedTelegramWebhookRoutes } from './routes/telegram-managed.js';
 import { type ConnectorRegistry, type OAuthFlowManager } from '@helm-pilot/connectors';
 import { type CofounderEngine } from '@helm-pilot/cofounder-engine';
 import { type HelmClient } from '@helm-pilot/helm-client';
 import { type EventBus } from './events/bus.js';
 import { type EmailProvider } from './services/email-provider.js';
+import { type ManagedTelegramBotService } from './services/managed-telegram-bots.js';
 
 const log = createLogger('gateway');
 
@@ -57,6 +59,7 @@ export interface GatewayDeps {
   cofounderEngine?: CofounderEngine;
   eventBus?: EventBus;
   emailProvider?: EmailProvider;
+  managedTelegram?: ManagedTelegramBotService;
   /**
    * HELM governance client. When present the orchestrator routes LLM calls
    * through HELM's /v1/chat/completions and persists receipts to
@@ -201,6 +204,7 @@ export function createGateway(deps: GatewayDeps) {
   const auth = requireAuth(deps.db);
   app.use('/api/*', async (c, next) => {
     if (c.req.path === '/api/telegram/webhook') return next();
+    if (c.req.path.startsWith('/api/telegram/managed/')) return next();
     return auth(c, next);
   });
 
@@ -230,6 +234,7 @@ export function createGateway(deps: GatewayDeps) {
   app.route('/api/decide', decideRoutes(deps));
   app.route('/api/orchestrator', conductRoutes(deps));
   app.route('/api/workspace/secrets', secretsRoutes(deps));
+  app.route('/api/telegram/managed', managedTelegramWebhookRoutes(deps));
   // Admin surface — platform-wide, gated by HELM_ADMIN_API_KEY. Mounted
   // BEFORE the requireAuth workspace gate could hijack its subtree, and the
   // route file guards itself with a Bearer-token middleware.
