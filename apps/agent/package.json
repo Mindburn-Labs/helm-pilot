@@ -1,30 +1,23 @@
 {
-  "name": "@helm-pilot/connectors",
+  "name": "@helm-pilot/agent",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./dist/index.js",
-    "./storage": "./dist/storage.js",
-    "./github": "./dist/github.js",
-    "./linear": "./dist/linear.js"
+    "./integrations/slack": "./dist/integrations/slack/index.js"
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "test:coverage": "vitest run --coverage --passWithNoTests"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1030.0",
-    "@helm-pilot/db": "*",
-    "@helm-pilot/shared": "*",
-    "pino": "^9.6.0"
+    "@helm-pilot/connectors": "*"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "tsx": "^4.19.0",
+    "@types/node": "^22.15.0",
     "typescript": "^5.8.0",
     "vitest": "^3.2.0"
   }

@@ -1,3 +1,5 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
 // ─── Slack Connector (Phase 15 Track I) ───
 //
 // Thin REST wrapper over Slack Web API. Bearer-token auth (Bot User
@@ -26,11 +28,181 @@ export interface SlackSearchMatch {
   permalink?: string;
 }
 
+export interface SlackSignatureInput {
+  signingSecret: string;
+  timestamp: string;
+  rawBody: string;
+  signature: string;
+  toleranceSeconds?: number;
+  nowSeconds?: number;
+}
+
+export interface SlackSlashCommandPayload {
+  teamId?: string;
+  teamDomain?: string;
+  channelId: string;
+  channelName?: string;
+  userId: string;
+  userName?: string;
+  command: string;
+  text: string;
+  responseUrl?: string;
+  triggerId?: string;
+}
+
+export interface SlackWorkspaceAgentRequest {
+  workspaceId: string;
+  source: 'slash_command';
+  teamId?: string;
+  teamDomain?: string;
+  channelId: string;
+  channelName?: string;
+  userId: string;
+  userName?: string;
+  command: string;
+  text: string;
+  responseUrl?: string;
+  triggerId?: string;
+}
+
+export interface SlackWorkspaceAgentApproval {
+  approvalId: string;
+  action: string;
+  status: 'pending' | 'approved' | 'rejected';
+  reason?: string;
+  receiptId?: string;
+}
+
+export interface SlackWorkspaceAgentRunSummary {
+  title: string;
+  status: 'queued' | 'running' | 'awaiting_approval' | 'completed' | 'blocked';
+  steps: readonly string[];
+  approvals: readonly SlackWorkspaceAgentApproval[];
+  evidencePackId?: string;
+  receiptUrl?: string;
+}
+
 export class SlackError extends Error {
-  constructor(message: string, readonly slackError?: string) {
+  constructor(
+    message: string,
+    readonly slackError?: string,
+  ) {
     super(message);
     this.name = 'SlackError';
   }
+}
+
+export function verifySlackRequestSignature(input: SlackSignatureInput): boolean {
+  if (!input.signingSecret || !input.timestamp || !input.rawBody || !input.signature) {
+    return false;
+  }
+
+  const timestampSeconds = Number(input.timestamp);
+  const nowSeconds = input.nowSeconds ?? Math.floor(Date.now() / 1000);
+  const toleranceSeconds = input.toleranceSeconds ?? 60 * 5;
+  if (!Number.isFinite(timestampSeconds)) return false;
+  if (Math.abs(nowSeconds - timestampSeconds) > toleranceSeconds) return false;
+
+  const base = `v0:${input.timestamp}:${input.rawBody}`;
+  const expected = `v0=${createHmac('sha256', input.signingSecret).update(base).digest('hex')}`;
+  return timingSafeStringEqual(expected, input.signature);
+}
+
+export function parseSlackFormBody(body: string | URLSearchParams): Record<string, string> {
+  const params = typeof body === 'string' ? new URLSearchParams(body) : body;
+  return Object.fromEntries(params.entries());
+}
+
+export function parseSlackSlashCommand(
+  body: string | URLSearchParams | Record<string, string | undefined>,
+): SlackSlashCommandPayload {
+  const payload =
+    typeof body === 'string' || body instanceof URLSearchParams ? parseSlackFormBody(body) : body;
+  const channelId = requiredSlackField(payload, 'channel_id');
+  const userId = requiredSlackField(payload, 'user_id');
+  const command = requiredSlackField(payload, 'command');
+
+  return {
+    teamId: optionalSlackField(payload, 'team_id'),
+    teamDomain: optionalSlackField(payload, 'team_domain'),
+    channelId,
+    channelName: optionalSlackField(payload, 'channel_name'),
+    userId,
+    userName: optionalSlackField(payload, 'user_name'),
+    command,
+    text: optionalSlackField(payload, 'text') ?? '',
+    responseUrl: optionalSlackField(payload, 'response_url'),
+    triggerId: optionalSlackField(payload, 'trigger_id'),
+  };
+}
+
+export function slackWorkspaceAgentRequestFromSlashCommand(
+  workspaceId: string,
+  body: string | URLSearchParams | Record<string, string | undefined>,
+): SlackWorkspaceAgentRequest {
+  if (!workspaceId) throw new SlackError('workspaceId is required');
+  const parsed = parseSlackSlashCommand(body);
+
+  return {
+    workspaceId,
+    source: 'slash_command',
+    ...parsed,
+  };
+}
+
+export function formatSlackWorkspaceAgentRunSummary(
+  summary: SlackWorkspaceAgentRunSummary,
+): string {
+  const stepLines =
+    summary.steps.length > 0
+      ? summary.steps.map((step, index) => `${index + 1}. ${step}`)
+      : ['No steps reported.'];
+  const approvalLines =
+    summary.approvals.length > 0
+      ? summary.approvals.map(formatApprovalLine)
+      : ['No approvals required.'];
+  const evidenceLines = [
+    summary.evidencePackId ? `Evidence pack: ${summary.evidencePackId}` : undefined,
+    summary.receiptUrl ? `Receipt trail: ${summary.receiptUrl}` : undefined,
+  ].filter((line): line is string => Boolean(line));
+
+  return [
+    `*${summary.title}*`,
+    `Status: ${summary.status}`,
+    '',
+    '*Steps*',
+    ...stepLines,
+    '',
+    '*HELM approvals and receipts*',
+    ...approvalLines,
+    ...(evidenceLines.length > 0 ? ['', ...evidenceLines] : []),
+  ].join('\n');
+}
+
+function timingSafeStringEqual(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function requiredSlackField(payload: Record<string, string | undefined>, field: string): string {
+  const value = optionalSlackField(payload, field);
+  if (!value) throw new SlackError(`Missing Slack field: ${field}`);
+  return value;
+}
+
+function optionalSlackField(
+  payload: Record<string, string | undefined>,
+  field: string,
+): string | undefined {
+  const value = payload[field];
+  return value && value.trim().length > 0 ? value : undefined;
+}
+
+function formatApprovalLine(approval: SlackWorkspaceAgentApproval): string {
+  const receiptSuffix = approval.receiptId ? ` receipt=${approval.receiptId}` : '';
+  const reasonSuffix = approval.reason ? ` reason=${approval.reason}` : '';
+  return `- ${approval.status}: ${approval.action} approval=${approval.approvalId}${receiptSuffix}${reasonSuffix}`;
 }
 
 export class SlackConnector {
@@ -76,10 +248,9 @@ export class SlackConnector {
   /** Full-text search across messages the token can see. */
   async search(query: string, opts?: { limit?: number }): Promise<SlackSearchMatch[]> {
     const limit = Math.max(1, Math.min(100, opts?.limit ?? 20));
-    const r = await this.call(
-      `search.messages?query=${encodeURIComponent(query)}&count=${limit}`,
-      { method: 'GET' },
-    );
+    const r = await this.call(`search.messages?query=${encodeURIComponent(query)}&count=${limit}`, {
+      method: 'GET',
+    });
     const wrapper =
       typeof r['messages'] === 'object' && r['messages'] !== null
         ? (r['messages'] as Record<string, unknown>)
@@ -100,6 +271,14 @@ export class SlackConnector {
         permalink: m['permalink'] != null ? String(m['permalink']) : undefined,
       };
     });
+  }
+
+  async postWorkspaceAgentRunSummary(
+    channel: string,
+    summary: SlackWorkspaceAgentRunSummary,
+    opts?: { threadTs?: string },
+  ): Promise<SlackPostResult> {
+    return this.postMessage(channel, formatSlackWorkspaceAgentRunSummary(summary), opts);
   }
 
   private async call(

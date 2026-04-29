@@ -15,8 +15,25 @@ export { GmailConnector } from './gmail.js';
 export { DriveConnector } from './gdrive.js';
 export { LinearConnector } from './linear.js';
 export type { LinearIssue, LinearTeam, LinearProject } from './linear.js';
-export { SlackConnector, SlackError } from './slack.js';
-export type { SlackChannel, SlackPostResult, SlackSearchMatch } from './slack.js';
+export {
+  SlackConnector,
+  SlackError,
+  formatSlackWorkspaceAgentRunSummary,
+  parseSlackFormBody,
+  parseSlackSlashCommand,
+  slackWorkspaceAgentRequestFromSlashCommand,
+  verifySlackRequestSignature,
+} from './slack.js';
+export type {
+  SlackChannel,
+  SlackPostResult,
+  SlackSearchMatch,
+  SlackSignatureInput,
+  SlackSlashCommandPayload,
+  SlackWorkspaceAgentApproval,
+  SlackWorkspaceAgentRequest,
+  SlackWorkspaceAgentRunSummary,
+} from './slack.js';
 export { NotionConnector, NotionError } from './notion.js';
 export type { NotionSearchResult, NotionPageCreateResult, NotionPageDetail } from './notion.js';
 export { StripeConnector, StripeError } from './stripe.js';
@@ -407,9 +424,18 @@ export class ConnectorRegistry {
     this.registerConnector({
       id: 'slack',
       name: 'Slack',
-      description: 'Post messages, list channels, search workspace history',
+      description: 'Run HELM-governed workspace agents from Slack and post receipt trails',
       authType: 'oauth2',
-      requiredScopes: ['chat:write', 'channels:read', 'groups:read', 'search:read'],
+      requiredScopes: [
+        'app_mentions:read',
+        'channels:read',
+        'channels:history',
+        'chat:write',
+        'commands',
+        'groups:read',
+        'groups:history',
+        'search:read',
+      ],
       requiresApproval: true,
     });
 

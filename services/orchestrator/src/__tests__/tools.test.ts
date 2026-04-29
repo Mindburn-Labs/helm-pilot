@@ -101,8 +101,10 @@ describe('ToolRegistry', () => {
       // Apply mode tools
       expect(names).toContain('create_application_draft');
 
-      // Phase 15 Track I + K: 45 connector tools + 2 multimodal (parse_pdf, analyze_image) = 47.
-      expect(tools.length).toBe(47);
+      expect(names).toContain('slack_workspace_agent_reply');
+
+      // Phase 15 Track I + K plus Workspace Agents: 46 connector tools + 2 multimodal.
+      expect(tools.length).toBe(48);
     });
   });
 
@@ -146,6 +148,7 @@ describe('ToolRegistry', () => {
       expect(names).toContain('create_plan');
       expect(names).toContain('create_artifact');
       expect(names).toContain('scrapling_fetch');
+      expect(names).toContain('slack_workspace_agent_reply');
 
       // Should NOT include discover-only tools
       expect(names).not.toContain('list_opportunities');
@@ -387,7 +390,10 @@ describe('ToolRegistry', () => {
         content: longContent,
       });
 
-      const call = (mockMemory.upsertPage.mock.calls as unknown[][])[0]![0] as { compiledTruth: string; content: string };
+      const call = (mockMemory.upsertPage.mock.calls as unknown[][])[0]![0] as {
+        compiledTruth: string;
+        content: string;
+      };
       expect(call.compiledTruth).toHaveLength(500);
       expect(call.content).toHaveLength(1000);
     });

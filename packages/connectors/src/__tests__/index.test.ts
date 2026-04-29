@@ -11,7 +11,15 @@ function createMockDb() {
 
   const chainable = (): Record<string, unknown> => {
     const chain: Record<string, unknown> = {};
-    for (const m of ['from', 'where', 'orderBy', 'limit', 'returning', 'onConflictDoNothing', 'set']) {
+    for (const m of [
+      'from',
+      'where',
+      'orderBy',
+      'limit',
+      'returning',
+      'onConflictDoNothing',
+      'set',
+    ]) {
       chain[m] = vi.fn(() => chainable());
     }
     chain['then'] = (resolve: ResolveCallback) => resolve(nextResult);
@@ -45,7 +53,15 @@ function createSequentialMockDb(results: unknown[][]) {
   const chainableForSelect = (): Record<string, unknown> => {
     const result = results[callCount] ?? [];
     const chain: Record<string, unknown> = {};
-    for (const m of ['from', 'where', 'orderBy', 'limit', 'returning', 'onConflictDoNothing', 'set']) {
+    for (const m of [
+      'from',
+      'where',
+      'orderBy',
+      'limit',
+      'returning',
+      'onConflictDoNothing',
+      'set',
+    ]) {
       chain[m] = vi.fn(() => chainableForSelect());
     }
     chain['then'] = (resolve: ResolveCallback) => {
@@ -58,7 +74,15 @@ function createSequentialMockDb(results: unknown[][]) {
   // Insert/update chains always return the last result in the sequence
   const insertChainable = (): Record<string, unknown> => {
     const chain: Record<string, unknown> = {};
-    for (const m of ['from', 'where', 'orderBy', 'limit', 'returning', 'onConflictDoNothing', 'set']) {
+    for (const m of [
+      'from',
+      'where',
+      'orderBy',
+      'limit',
+      'returning',
+      'onConflictDoNothing',
+      'set',
+    ]) {
       chain[m] = vi.fn(() => insertChainable());
     }
     chain['then'] = (resolve: ResolveCallback) => {
@@ -121,6 +145,9 @@ describe('ConnectorRegistry', () => {
     expect(gh).toBeDefined();
     expect(gh!.name).toBe('GitHub');
     expect(gh!.requiredScopes).toContain('repo');
+    const slack = registry.getConnector('slack');
+    expect(slack!.requiredScopes).toContain('commands');
+    expect(slack!.requiredScopes).toContain('app_mentions:read');
   });
 
   it('getConnector returns undefined for unknown', () => {
@@ -171,11 +198,7 @@ describe('ConnectorRegistry', () => {
 
   it('grantConnector creates new grant when none exists', async () => {
     // First select: connector, second select: no existing grant, insert returns new
-    const seqDb = createSequentialMockDb([
-      [{ id: 'c-1', name: 'github' }],
-      [],
-      [{ id: 'g-2' }],
-    ]);
+    const seqDb = createSequentialMockDb([[{ id: 'c-1', name: 'github' }], [], [{ id: 'g-2' }]]);
     const seqRegistry = new ConnectorRegistry(seqDb as never);
     const grantId = await seqRegistry.grantConnector('ws-1', 'github', ['repo']);
     expect(grantId).toBe('g-2');
@@ -184,7 +207,9 @@ describe('ConnectorRegistry', () => {
 
   it('grantConnector throws for unknown connector', async () => {
     db._setResult([]);
-    await expect(registry.grantConnector('ws-1', 'jira')).rejects.toThrow('Unknown connector: jira');
+    await expect(registry.grantConnector('ws-1', 'jira')).rejects.toThrow(
+      'Unknown connector: jira',
+    );
   });
 
   it('revokeConnector sets isActive to false', async () => {
@@ -206,10 +231,7 @@ describe('ConnectorRegistry', () => {
   });
 
   it('hasGrant returns false when no grant', async () => {
-    const seqDb = createSequentialMockDb([
-      [{ id: 'c-1', name: 'github' }],
-      [],
-    ]);
+    const seqDb = createSequentialMockDb([[{ id: 'c-1', name: 'github' }], []]);
     const seqRegistry = new ConnectorRegistry(seqDb as never);
     const result = await seqRegistry.hasGrant('ws-1', 'github');
     expect(result).toBe(false);

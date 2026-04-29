@@ -1071,6 +1071,78 @@ export class ToolRegistry {
       },
     });
 
+    // ─── Slack: Workspace Agent Receipt Trail ───
+    this.register({
+      name: 'slack_workspace_agent_reply',
+      description:
+        'Post a HELM Pilot workspace-agent run summary into Slack with approval and receipt trail. Input: {"workspaceId":"...","channel":"C0123","title":"...","status":"queued|running|awaiting_approval|completed|blocked","steps":["..."],"approvals":[{"approvalId":"...","action":"...","status":"pending|approved|rejected","receiptId":"optional"}],"threadTs":"optional","evidencePackId":"optional","receiptUrl":"optional"}',
+      modes: ['build', 'launch'],
+      execute: async (input) => {
+        const {
+          workspaceId,
+          channel,
+          title,
+          status,
+          steps,
+          approvals,
+          threadTs,
+          evidencePackId,
+          receiptUrl,
+        } = input as {
+          workspaceId: string;
+          channel: string;
+          title: string;
+          status: 'queued' | 'running' | 'awaiting_approval' | 'completed' | 'blocked';
+          steps?: string[];
+          approvals?: Array<{
+            approvalId: string;
+            action: string;
+            status: 'pending' | 'approved' | 'rejected';
+            reason?: string;
+            receiptId?: string;
+          }>;
+          threadTs?: string;
+          evidencePackId?: string;
+          receiptUrl?: string;
+        };
+        const token = await this.resolveConnectorToken(workspaceId, 'slack');
+        if (!token) return { error: 'Slack connector not authorized' };
+        const { SlackConnector } = await import('@helm-pilot/connectors');
+        const stepLines =
+          steps && steps.length > 0
+            ? steps.map((step, index) => `${index + 1}. ${step}`)
+            : ['No steps reported.'];
+        const approvalLines =
+          approvals && approvals.length > 0
+            ? approvals.map((approval) => {
+                const receipt = approval.receiptId ? ` receipt=${approval.receiptId}` : '';
+                const reason = approval.reason ? ` reason=${approval.reason}` : '';
+                return `- ${approval.status}: ${approval.action} approval=${approval.approvalId}${receipt}${reason}`;
+              })
+            : ['No approvals required.'];
+        const evidenceLines = [
+          evidencePackId ? `Evidence pack: ${evidencePackId}` : undefined,
+          receiptUrl ? `Receipt trail: ${receiptUrl}` : undefined,
+        ].filter((line): line is string => Boolean(line));
+        const text = [
+          `*${title}*`,
+          `Status: ${status}`,
+          '',
+          '*Steps*',
+          ...stepLines,
+          '',
+          '*HELM approvals and receipts*',
+          ...approvalLines,
+          ...(evidenceLines.length > 0 ? ['', ...evidenceLines] : []),
+        ].join('\n');
+        return new SlackConnector(token).postMessage(
+          channel,
+          text,
+          threadTs ? { threadTs } : undefined,
+        );
+      },
+    });
+
     // ─── Notion: Search ───
     this.register({
       name: 'notion_search',
