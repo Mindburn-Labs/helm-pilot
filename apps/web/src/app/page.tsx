@@ -70,6 +70,11 @@ export default function Home() {
           description="Run founder operators from Slack with HELM receipts"
         />
         <NavCard
+          href="/positioning/vs-replit"
+          title="vs Replit Agent"
+          description="Compare mobile shipping loops and governance boundaries"
+        />
+        <NavCard
           href="/operators"
           title="Operators"
           description="Manage your digital co-founder team"
