@@ -1,8 +1,11 @@
 services:
+  # Development/self-hosting convenience stack. For production, use
+  # infra/digitalocean/docker-compose.yml so Postgres stays private and
+  # production env validation runs before deploy.
   postgres:
     image: pgvector/pgvector:0.8.2-pg17
     ports:
-      - '5432:5432'
+      - '127.0.0.1:5432:5432'
     environment:
       POSTGRES_DB: helm_pilot
       POSTGRES_USER: helm
@@ -106,7 +109,13 @@ services:
       helm:
         condition: service_healthy
     healthcheck:
-      test: ['CMD', 'node', '-e', "fetch('http://localhost:3100/health').then(r => process.exit(r.ok ? 0 : 1))"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3100/health').then(r => process.exit(r.ok ? 0 : 1))",
+        ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -153,7 +162,13 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ['CMD', 'node', '-e', "fetch('http://localhost:3200/mcp/health').then(r => process.exit(r.ok ? 0 : 1))"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3200/mcp/health').then(r => process.exit(r.ok ? 0 : 1))",
+        ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -214,7 +229,7 @@ services:
   pgadmin:
     image: dpage/pgadmin4:latest
     ports:
-      - '5050:80'
+      - '127.0.0.1:5050:80'
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@helm-pilot.local
       PGADMIN_DEFAULT_PASSWORD: admin

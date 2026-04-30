@@ -62,6 +62,22 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Build and push multi-arch web image (with attestations)
+        id: build-web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: |
+            ghcr.io/mindburn-labs/helm-pilot-web:${{ steps.tag.outputs.version }}
+            ghcr.io/mindburn-labs/helm-pilot-web:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       # Standalone CycloneDX SBOM attached to the GitHub Release (on top of
       # the BuildKit-embedded one, so downstream scanners that can't read
       # image attestations still get a machine-readable SBOM).
@@ -82,6 +98,13 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
+      - name: Generate web image SLSA build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/mindburn-labs/helm-pilot-web
+          subject-digest: ${{ steps.build-web.outputs.digest }}
+          push-to-registry: true
+
       # Vulnerability scan: fail the release on HIGH or CRITICAL CVEs so we
       # don't ship an image with known exploitable paths.
       - name: Trivy vulnerability scan
@@ -94,11 +117,27 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
+      - name: Trivy vulnerability scan (web)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ghcr.io/mindburn-labs/helm-pilot-web:${{ steps.tag.outputs.version }}
+          format: sarif
+          output: trivy-web-results.sarif
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
       - name: Upload Trivy results to GitHub Security tab
         if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-results.sarif
+
+      - name: Upload web Trivy results to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-web-results.sarif
 
       - name: Extract changelog for this version
         id: changelog
@@ -119,6 +158,7 @@ jobs:
 
           \`\`\`
           docker pull ghcr.io/mindburn-labs/helm-pilot:${{ steps.tag.outputs.version }}
+          docker pull ghcr.io/mindburn-labs/helm-pilot-web:${{ steps.tag.outputs.version }}
           \`\`\`
 
           Architectures: \`linux/amd64\`, \`linux/arm64\`
@@ -143,4 +183,5 @@ jobs:
           files: |
             sbom.cdx.json
             trivy-results.sarif
+            trivy-web-results.sarif
           generate_release_notes: false

@@ -5,6 +5,8 @@ import { testApp, expectJson, mockOpportunity, createMockDeps } from '../helpers
 describe('opportunityRoutes', () => {
   let deps: ReturnType<typeof createMockDeps>;
   let fetch: ReturnType<typeof testApp>['fetch'];
+  const workspaceId = '00000000-0000-4000-8000-000000000001';
+  const wsHeader = { 'X-Workspace-Id': workspaceId };
 
   beforeEach(() => {
     const t = testApp(opportunityRoutes);
@@ -29,7 +31,7 @@ describe('opportunityRoutes', () => {
       const opps = [mockOpportunity({ workspaceId: 'ws-42' })];
       deps.db._setResult(opps);
 
-      const res = await fetch('GET', '/?workspaceId=ws-42');
+      const res = await fetch('GET', '/', undefined, { 'X-Workspace-Id': 'ws-42' });
       const json = await expectJson<unknown[]>(res, 200);
 
       expect(json).toHaveLength(1);
@@ -63,7 +65,7 @@ describe('opportunityRoutes', () => {
         return origSelect();
       }) as any;
 
-      const res = await fetch('GET', '/opp-1');
+      const res = await fetch('GET', '/opp-1', undefined, wsHeader);
       const json = await expectJson<Record<string, unknown>>(res, 200);
 
       expect(json.id).toBe('opp-1');
@@ -74,7 +76,7 @@ describe('opportunityRoutes', () => {
     it('returns 404 when opportunity not found', async () => {
       deps.db._setResult([]);
 
-      const res = await fetch('GET', '/nonexistent');
+      const res = await fetch('GET', '/nonexistent', undefined, wsHeader);
       const json = await expectJson<{ error: string }>(res, 404);
 
       expect(json.error).toBe('Not found');
@@ -85,14 +87,36 @@ describe('opportunityRoutes', () => {
 
   describe('POST /', () => {
     it('returns 400 on invalid body (missing source)', async () => {
-      const res = await fetch('POST', '/', {
-        title: 'Test',
-        description: 'Desc',
-        // source is missing
-      });
+      const res = await fetch(
+        'POST',
+        '/',
+        {
+          title: 'Test',
+          description: 'Desc',
+          // source is missing
+        },
+        wsHeader,
+      );
       const json = await expectJson<{ error: string }>(res, 400);
 
       expect(json.error).toBe('Validation failed');
+    });
+
+    it('returns 403 when body workspaceId mismatches the bound workspace', async () => {
+      const res = await fetch(
+        'POST',
+        '/',
+        {
+          workspaceId: '00000000-0000-4000-8000-000000000002',
+          source: 'scraper',
+          title: 'New Opp',
+          description: 'A scraped opportunity',
+        },
+        wsHeader,
+      );
+      const json = await expectJson<{ error: string }>(res, 403);
+
+      expect(json.error).toBe('workspaceId does not match authenticated workspace');
     });
 
     it('creates opportunity and returns 201', async () => {
@@ -105,11 +129,16 @@ describe('opportunityRoutes', () => {
         })),
       })) as any;
 
-      const res = await fetch('POST', '/', {
-        source: 'scraper',
-        title: 'New Opp',
-        description: 'A scraped opportunity',
-      });
+      const res = await fetch(
+        'POST',
+        '/',
+        {
+          source: 'scraper',
+          title: 'New Opp',
+          description: 'A scraped opportunity',
+        },
+        wsHeader,
+      );
       const json = await expectJson<Record<string, unknown>>(res, 201);
 
       expect(json.id).toBe('opp-1');

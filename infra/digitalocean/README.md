@@ -37,7 +37,7 @@ openssl rand -hex 32 # use for BACKUP_ENCRYPTION_PASSPHRASE
 
 Edit the three env files and set at minimum:
 
-- `.env.production.shared`: `DOMAIN`, `APP_URL`, `ALLOWED_ORIGINS`, `POSTGRES_PASSWORD`, `HELM_IMAGE`, `S3_ENDPOINT`, `S3_BUCKET`
+- `.env.production.shared`: `DOMAIN`, `APP_URL`, `ALLOWED_ORIGINS`, `POSTGRES_PASSWORD`, pinned `POSTGRES_IMAGE`, `CADDY_IMAGE`, `OFELIA_IMAGE`, `HELM_IMAGE`, `PILOT_IMAGE`, `WEB_IMAGE`, `S3_ENDPOINT`, `S3_BUCKET`
 - `.env.production.helm`: `HELM_UPSTREAM_URL`, `EVIDENCE_SIGNING_KEY`, and one upstream LLM provider key
 - `.env.production.pilot`: `SESSION_SECRET`, `ENCRYPTION_KEY`, `TELEGRAM_WEBHOOK_SECRET`, production email delivery, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `BACKUP_ENCRYPTION_PASSPHRASE`
 
@@ -70,10 +70,10 @@ bash infra/digitalocean/deploy.sh deploy
 
 `preload-helm` defaults to `HELM_PRELOAD_MODE=binary`: it cross-compiles the local `../helm-oss` sidecar for Linux amd64, packages it as `HELM_IMAGE`, copies it to the Droplet, and runs `docker load`. Set `HELM_PRELOAD_MODE=docker` to build from the HELM Dockerfile instead, or set `HELM_IMAGE_ARCHIVE` to upload an existing `docker save` tar.
 
-`deploy` copies this checkout to `/opt/helm-pilot/releases/<git-sha>`, writes the split production env files, starts the stack, and points `/opt/helm-pilot/current` at the successful release. It starts `COMPOSE_PROFILES=backup` by default so encrypted scheduled backups run in production:
+`deploy` copies this checkout to `/opt/helm-pilot/releases/<git-sha>`, writes the split production env files, pulls the pinned production images, starts Postgres, waits for both Pilot and HELM databases to accept connections, runs the production migration CLI once, starts the stack, and points `/opt/helm-pilot/current` at the successful release. It starts `COMPOSE_PROFILES=backup` by default so encrypted scheduled backups run in production:
 
 ```bash
-COMPOSE_PROFILES=backup docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml up -d --build
+COMPOSE_PROFILES=backup docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml up -d
 ```
 
 Set `COMPOSE_PROFILES=` only for a controlled non-production smoke that intentionally disables scheduled backups.

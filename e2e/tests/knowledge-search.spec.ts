@@ -1,7 +1,9 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 
 let ipCounter = 40;
-async function authenticate(request: APIRequestContext): Promise<string> {
+async function authenticate(
+  request: APIRequestContext,
+): Promise<{ token: string; workspaceId: string }> {
   const email = `e2e-kb-${Math.random().toString(36).slice(2, 10)}@helm-pilot.test`;
   const headers = { 'x-forwarded-for': `198.51.100.${ipCounter++}` };
   const requestResp = await request.post('/api/auth/email/request', { headers, data: { email } });
@@ -11,13 +13,13 @@ async function authenticate(request: APIRequestContext): Promise<string> {
     data: { email, code: requestBody.code },
   });
   const verifyBody = await verifyResp.json();
-  return verifyBody.token;
+  return { token: verifyBody.token, workspaceId: verifyBody.workspace.id };
 }
 
 test.describe('Knowledge Base', () => {
   test('create a page then search for it', async ({ request }) => {
-    const token = await authenticate(request);
-    const headers = { Authorization: `Bearer ${token}` };
+    const { token, workspaceId } = await authenticate(request);
+    const headers = { Authorization: `Bearer ${token}`, 'X-Workspace-Id': workspaceId };
 
     // Create a knowledge page
     const createResp = await request.post('/api/knowledge/pages', {
@@ -41,17 +43,17 @@ test.describe('Knowledge Base', () => {
   });
 
   test('search without query returns 400', async ({ request }) => {
-    const token = await authenticate(request);
+    const { token, workspaceId } = await authenticate(request);
     const resp = await request.get('/api/knowledge/search', {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, 'X-Workspace-Id': workspaceId },
     });
     expect(resp.status()).toBe(400);
   });
 
   test('search supports hybrid method parameter', async ({ request }) => {
-    const token = await authenticate(request);
+    const { token, workspaceId } = await authenticate(request);
     const resp = await request.get('/api/knowledge/search?q=test&method=hybrid', {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, 'X-Workspace-Id': workspaceId },
     });
     expect(resp.status()).toBe(200);
   });

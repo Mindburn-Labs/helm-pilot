@@ -1,13 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { taskRoutes } from '../../routes/task.js';
-import {
-  createMockDeps,
-  testApp,
-  expectJson,
-  mockTask,
-} from '../helpers.js';
+import { createMockDeps, testApp, expectJson, mockTask } from '../helpers.js';
 
 const VALID_UUID = '00000000-0000-0000-0000-000000000001';
+const wsHeader = { 'X-Workspace-Id': VALID_UUID };
 
 describe('taskRoutes', () => {
   // ─── GET / ───
@@ -25,7 +21,7 @@ describe('taskRoutes', () => {
       const tasks = [mockTask(), mockTask({ id: 'task-2', title: 'Second task' })];
       deps.db._setResult(tasks);
 
-      const res = await fetch('GET', `/?workspaceId=${VALID_UUID}`);
+      const res = await fetch('GET', '/', undefined, wsHeader);
       const json = await expectJson<unknown[]>(res, 200);
       expect(Array.isArray(json)).toBe(true);
       expect(json).toHaveLength(2);
@@ -38,19 +34,51 @@ describe('taskRoutes', () => {
     it('returns 400 when body fails Zod validation', async () => {
       const { fetch } = testApp(taskRoutes);
       // Missing required fields
-      const res = await fetch('POST', '/', { title: 'No workspace' });
+      const res = await fetch('POST', '/', { title: '' }, wsHeader);
       const json = await expectJson(res, 400);
       expect(json).toHaveProperty('error', 'Validation failed');
       expect(json).toHaveProperty('details');
     });
 
-    it('returns 400 for invalid mode', async () => {
+    it('returns 400 when only body workspaceId is provided', async () => {
       const { fetch } = testApp(taskRoutes);
       const res = await fetch('POST', '/', {
         workspaceId: VALID_UUID,
-        title: 'Test',
-        mode: 'invalid',
+        title: 'Body-only workspace',
+        mode: 'build',
       });
+      const json = await expectJson(res, 400);
+      expect(json).toHaveProperty('error', 'workspaceId required');
+    });
+
+    it('returns 403 when body workspaceId mismatches the bound workspace', async () => {
+      const { fetch } = testApp(taskRoutes);
+      const res = await fetch(
+        'POST',
+        '/',
+        {
+          workspaceId: '00000000-0000-0000-0000-000000000002',
+          title: 'Mismatched workspace',
+          mode: 'build',
+        },
+        wsHeader,
+      );
+      const json = await expectJson(res, 403);
+      expect(json).toHaveProperty('error', 'workspaceId does not match authenticated workspace');
+    });
+
+    it('returns 400 for invalid mode', async () => {
+      const { fetch } = testApp(taskRoutes);
+      const res = await fetch(
+        'POST',
+        '/',
+        {
+          workspaceId: VALID_UUID,
+          title: 'Test',
+          mode: 'invalid',
+        },
+        wsHeader,
+      );
       const json = await expectJson(res, 400);
       expect(json).toHaveProperty('error', 'Validation failed');
     });
@@ -68,11 +96,16 @@ describe('taskRoutes', () => {
       })) as any;
 
       const { fetch } = testApp(taskRoutes, deps as any);
-      const res = await fetch('POST', '/', {
-        workspaceId: VALID_UUID,
-        title: 'Build MVP',
-        mode: 'build',
-      });
+      const res = await fetch(
+        'POST',
+        '/',
+        {
+          workspaceId: VALID_UUID,
+          title: 'Build MVP',
+          mode: 'build',
+        },
+        wsHeader,
+      );
       const json = await expectJson<{ id: string; title: string }>(res, 201);
       expect(json.id).toBe('task-1');
       expect(json.title).toBe('Build MVP');
@@ -93,12 +126,17 @@ describe('taskRoutes', () => {
       })) as any;
 
       const { fetch } = testApp(taskRoutes, deps as any);
-      const res = await fetch('POST', '/', {
-        workspaceId: VALID_UUID,
-        title: 'Auto task',
-        mode: 'discover',
-        autoRun: true,
-      });
+      const res = await fetch(
+        'POST',
+        '/',
+        {
+          workspaceId: VALID_UUID,
+          title: 'Auto task',
+          mode: 'discover',
+          autoRun: true,
+        },
+        wsHeader,
+      );
       await expectJson(res, 201);
       expect(deps.orchestrator.runTask).toHaveBeenCalledTimes(1);
       expect(deps.orchestrator.runTask).toHaveBeenCalledWith(
@@ -113,22 +151,57 @@ describe('taskRoutes', () => {
     it('returns array of runs', async () => {
       const { fetch, deps } = testApp(taskRoutes);
       const runs = [
-        { id: 'run-1', taskId: 'task-1', status: 'completed', iterationsUsed: 3, iterationBudget: 50 },
+        {
+          id: 'run-1',
+          taskId: 'task-1',
+          status: 'completed',
+          iterationsUsed: 3,
+          iterationBudget: 50,
+        },
       ];
-      deps.db._setResult(runs);
+      let selectCall = 0;
+      const origSelect = deps.db.select;
+      deps.db.select = vi.fn(() => {
+        selectCall++;
+        deps.db._setResult(
+          selectCall === 1 ? [mockTask({ id: 'task-1', workspaceId: VALID_UUID })] : runs,
+        );
+        return origSelect();
+      }) as any;
 
-      const res = await fetch('GET', '/task-1/runs');
+      const res = await fetch('GET', '/task-1/runs', undefined, wsHeader);
       const json = await expectJson<unknown[]>(res, 200);
       expect(Array.isArray(json)).toBe(true);
       expect(json).toHaveLength(1);
     });
 
     it('returns empty array when no runs exist', async () => {
-      const { fetch } = testApp(taskRoutes);
+      const deps = createMockDeps();
+      let selectCall = 0;
+      const origSelect = deps.db.select;
+      deps.db.select = vi.fn(() => {
+        selectCall++;
+        deps.db._setResult(
+          selectCall === 1 ? [mockTask({ id: 'task-1', workspaceId: VALID_UUID })] : [],
+        );
+        return origSelect();
+      }) as any;
+
+      const { fetch } = testApp(taskRoutes, deps);
       // Default mock returns []
-      const res = await fetch('GET', '/task-1/runs');
+      const res = await fetch('GET', '/task-1/runs', undefined, wsHeader);
       const json = await expectJson<unknown[]>(res, 200);
       expect(json).toEqual([]);
+    });
+
+    it('returns 404 before reading runs when task is outside the bound workspace', async () => {
+      const { fetch, deps } = testApp(taskRoutes);
+      deps.db._setResult([]);
+
+      const res = await fetch('GET', '/task-foreign/runs', undefined, wsHeader);
+      const json = await expectJson<{ error: string }>(res, 404);
+
+      expect(json.error).toBe('Task not found');
     });
   });
 });

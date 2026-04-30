@@ -19,6 +19,8 @@ beforeEach(() => {
 });
 
 describe('productRoutes', () => {
+  const wsHeader = { 'X-Workspace-Id': 'ws-1' };
+
   // ─── GET /plans ───
 
   describe('GET /plans', () => {
@@ -34,7 +36,7 @@ describe('productRoutes', () => {
       mockFactory.listPlans.mockResolvedValueOnce(plans);
 
       const { fetch } = testApp(productRoutes);
-      const res = await fetch('GET', '/plans?workspaceId=ws-1');
+      const res = await fetch('GET', '/plans', undefined, wsHeader);
       const json = await expectJson(res, 200);
 
       expect(mockFactory.listPlans).toHaveBeenCalledWith('ws-1');
@@ -49,17 +51,17 @@ describe('productRoutes', () => {
       mockFactory.getPlan.mockResolvedValueOnce(null);
 
       const { fetch } = testApp(productRoutes);
-      const res = await fetch('GET', '/plans/plan-999');
+      const res = await fetch('GET', '/plans/plan-999', undefined, wsHeader);
       const json = await expectJson(res, 404);
       expect(json).toHaveProperty('error', 'Not found');
     });
 
     it('returns 200 when plan found', async () => {
-      const plan = { id: 'plan-1', title: 'MVP', description: 'Build MVP' };
+      const plan = { id: 'plan-1', workspaceId: 'ws-1', title: 'MVP', description: 'Build MVP' };
       mockFactory.getPlan.mockResolvedValueOnce(plan);
 
       const { fetch } = testApp(productRoutes);
-      const res = await fetch('GET', '/plans/plan-1');
+      const res = await fetch('GET', '/plans/plan-1', undefined, wsHeader);
       const json = await expectJson(res, 200);
       expect(json).toEqual(plan);
     });
@@ -77,10 +79,15 @@ describe('productRoutes', () => {
 
     it('returns 201 on success', async () => {
       const { fetch } = testApp(productRoutes);
-      const res = await fetch('POST', '/plans?workspaceId=ws-1', {
-        title: 'MVP',
-        description: 'Build MVP',
-      });
+      const res = await fetch(
+        'POST',
+        '/plans',
+        {
+          title: 'MVP',
+          description: 'Build MVP',
+        },
+        wsHeader,
+      );
       const json = await expectJson(res, 201);
 
       expect(mockFactory.createPlan).toHaveBeenCalledWith('ws-1', 'MVP', 'Build MVP');
@@ -92,14 +99,25 @@ describe('productRoutes', () => {
 
   describe('POST /plans/:id/milestones', () => {
     it('returns 201 on success', async () => {
+      mockFactory.getPlan.mockResolvedValueOnce({ id: 'plan-1', workspaceId: 'ws-1' });
+
       const { fetch } = testApp(productRoutes);
-      const res = await fetch('POST', '/plans/plan-1/milestones', {
-        title: 'Alpha',
-        description: 'First alpha release',
-      });
+      const res = await fetch(
+        'POST',
+        '/plans/plan-1/milestones',
+        {
+          title: 'Alpha',
+          description: 'First alpha release',
+        },
+        wsHeader,
+      );
       const json = await expectJson(res, 201);
 
-      expect(mockFactory.addMilestone).toHaveBeenCalledWith('plan-1', 'Alpha', 'First alpha release');
+      expect(mockFactory.addMilestone).toHaveBeenCalledWith(
+        'plan-1',
+        'Alpha',
+        'First alpha release',
+      );
       expect(json).toEqual({ id: 'ms-1', title: 'Alpha', planId: 'plan-1' });
     });
   });
@@ -119,7 +137,7 @@ describe('productRoutes', () => {
       mockFactory.getWorkspaceSummary.mockResolvedValueOnce(summary);
 
       const { fetch } = testApp(productRoutes);
-      const res = await fetch('GET', '/summary?workspaceId=ws-1');
+      const res = await fetch('GET', '/summary', undefined, wsHeader);
       const json = await expectJson(res, 200);
 
       expect(mockFactory.getWorkspaceSummary).toHaveBeenCalledWith('ws-1');

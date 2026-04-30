@@ -1,16 +1,17 @@
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { eq, desc, inArray } from 'drizzle-orm';
+import { and, eq, desc, inArray } from 'drizzle-orm';
 import { tasks } from '@helm-pilot/db/schema';
 import { conductStream, type ConductEvent } from '@helm-pilot/orchestrator';
 import { type GatewayDeps } from '../index.js';
+import { getWorkspaceId } from '../lib/workspace.js';
 
 export function eventRoutes(deps: GatewayDeps) {
   const app = new Hono();
 
   // GET /api/events/tasks?workspaceId=... — SSE stream of task status changes
   app.get('/tasks', async (c) => {
-    const workspaceId = c.get('workspaceId') ?? c.req.query('workspaceId');
+    const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
 
     return streamSSE(c, async (stream) => {
@@ -38,7 +39,11 @@ export function eventRoutes(deps: GatewayDeps) {
         const unsubscribe = deps.eventBus.subscribeWorkspace(workspaceId, async (event) => {
           if (event.type.startsWith('task.') && event.id) {
             // Fetch the full task row and push it
-            const [row] = await deps.db.select().from(tasks).where(inArray(tasks.id, [event.id])).limit(1);
+            const [row] = await deps.db
+              .select()
+              .from(tasks)
+              .where(and(inArray(tasks.id, [event.id]), eq(tasks.workspaceId, workspaceId)))
+              .limit(1);
             if (row) {
               queue.push({
                 event: 'task.updated',
@@ -107,8 +112,18 @@ export function eventRoutes(deps: GatewayDeps) {
   // action.approval_required, subagent.spawned, subagent.completed,
   // task.verdict. The stream closes when the client disconnects.
   app.get('/conduct/:taskId', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
     const taskId = c.req.param('taskId');
     if (!taskId) return c.json({ error: 'taskId required' }, 400);
+
+    const [task] = await deps.db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, workspaceId)))
+      .limit(1);
+    if (!task) return c.json({ error: 'Task not found' }, 404);
 
     return streamSSE(c, async (stream) => {
       const queue: ConductEvent[] = [];

@@ -8,8 +8,9 @@ COPY package.json package-lock.json turbo.json tsconfig.base.json ./
 # Copy web app and its dependencies
 COPY apps/web/ apps/web/
 
-# Install dependencies
-RUN npm ci --ignore-scripts
+# Install dependencies, including platform-native optional packages used by
+# Next.js during production image builds.
+RUN npm ci --include=optional --ignore-scripts
 
 # Build the web app
 RUN npx turbo build --filter=@helm-pilot/web
@@ -24,7 +25,9 @@ ENV HOSTNAME=0.0.0.0
 # Copy standalone output
 COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
-COPY --from=builder /app/apps/web/public ./apps/web/public
+
+# The app does not use next/image; do not ship optional Sharp/libvips binaries.
+RUN rm -rf node_modules/sharp node_modules/@img/sharp-*
 
 EXPOSE 3000
 

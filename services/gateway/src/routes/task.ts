@@ -3,7 +3,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import { tasks, taskRuns } from '@helm-pilot/db/schema';
 import { CreateTaskInput, TaskStatusSchema } from '@helm-pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId } from '../lib/workspace.js';
+import { getWorkspaceId, workspaceIdMismatch } from '../lib/workspace.js';
 
 export function taskRoutes(deps: GatewayDeps) {
   const app = new Hono();
@@ -25,10 +25,14 @@ export function taskRoutes(deps: GatewayDeps) {
 
   app.post('/', async (c) => {
     const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
     const raw = await c.req.json();
+    if (workspaceIdMismatch(c, raw.workspaceId)) {
+      return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
+    }
     const parsed = CreateTaskInput.safeParse({
       ...raw,
-      workspaceId: raw.workspaceId ?? workspaceId,
+      workspaceId,
     });
 
     if (!parsed.success) {
@@ -98,11 +102,14 @@ export function taskRoutes(deps: GatewayDeps) {
   });
 
   app.post('/:id/run', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
     const { id } = c.req.param();
     const [task] = await deps.db
       .select()
       .from(tasks)
-      .where(eq(tasks.id, id))
+      .where(and(eq(tasks.id, id), eq(tasks.workspaceId, workspaceId)))
       .limit(1);
 
     if (!task) return c.json({ error: 'Task not found' }, 404);
@@ -122,7 +129,7 @@ export function taskRoutes(deps: GatewayDeps) {
     const [updatedTask] = await deps.db
       .select()
       .from(tasks)
-      .where(eq(tasks.id, id))
+      .where(and(eq(tasks.id, id), eq(tasks.workspaceId, workspaceId)))
       .limit(1);
 
     return c.json({
@@ -132,7 +139,17 @@ export function taskRoutes(deps: GatewayDeps) {
   });
 
   app.get('/:id/runs', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
     const { id } = c.req.param();
+    const [task] = await deps.db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(and(eq(tasks.id, id), eq(tasks.workspaceId, workspaceId)))
+      .limit(1);
+    if (!task) return c.json({ error: 'Task not found' }, 404);
+
     const runs = await deps.db
       .select()
       .from(taskRuns)
@@ -161,7 +178,7 @@ async function executeTaskRun(
       updatedAt: new Date(),
       completedAt: null,
     })
-    .where(eq(tasks.id, taskId));
+    .where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, input.workspaceId)));
 
   const result = await deps.orchestrator.runTask({
     taskId,
@@ -178,12 +195,14 @@ async function executeTaskRun(
       updatedAt: new Date(),
       completedAt: result.status === 'completed' ? new Date() : null,
     })
-    .where(eq(tasks.id, taskId));
+    .where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, input.workspaceId)));
 
   return result;
 }
 
-function mapRunStatusToTaskStatus(status: 'completed' | 'budget_exhausted' | 'blocked' | 'awaiting_approval') {
+function mapRunStatusToTaskStatus(
+  status: 'completed' | 'budget_exhausted' | 'blocked' | 'awaiting_approval',
+) {
   if (status === 'completed') return 'completed';
   if (status === 'awaiting_approval') return 'awaiting_approval';
   return 'failed';

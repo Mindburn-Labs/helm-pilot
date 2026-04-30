@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { operators, operatorRoles, operatorConfigs } from '@helm-pilot/db/schema';
 import { CreateOperatorInput, UpdateOperatorInput } from '@helm-pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId } from '../lib/workspace.js';
+import { getWorkspaceId, workspaceIdMismatch } from '../lib/workspace.js';
 
 export function operatorRoutes(deps: GatewayDeps) {
   const app = new Hono();
@@ -22,10 +22,14 @@ export function operatorRoutes(deps: GatewayDeps) {
 
   app.post('/', async (c) => {
     const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
     const raw = await c.req.json();
+    if (workspaceIdMismatch(c, raw.workspaceId)) {
+      return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
+    }
     const parsed = CreateOperatorInput.safeParse({
       ...raw,
-      workspaceId: raw.workspaceId ?? workspaceId,
+      workspaceId,
     });
 
     if (!parsed.success) {

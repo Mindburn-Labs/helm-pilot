@@ -3,6 +3,8 @@ import { applicationRoutes } from '../../routes/application.js';
 import { testApp, expectJson, createMockDeps } from '../helpers.js';
 
 describe('applicationRoutes', () => {
+  const wsHeader = { 'X-Workspace-Id': 'ws-1' };
+
   // ── GET / ──
 
   describe('GET /', () => {
@@ -22,7 +24,7 @@ describe('applicationRoutes', () => {
       deps.db._setResult(apps);
 
       const { fetch } = testApp(applicationRoutes, deps);
-      const res = await fetch('GET', '/?workspaceId=ws-1');
+      const res = await fetch('GET', '/', undefined, wsHeader);
       const body = await expectJson<unknown[]>(res, 200);
       expect(body).toEqual([
         { ...apps[0], program: 'YC' },
@@ -36,9 +38,23 @@ describe('applicationRoutes', () => {
   describe('POST /', () => {
     it('returns 400 when required fields are missing', async () => {
       const { fetch } = testApp(applicationRoutes);
-      const res = await fetch('POST', '/', { workspaceId: 'ws-1' });
+      const res = await fetch('POST', '/', { workspaceId: 'ws-1' }, wsHeader);
       const body = await expectJson<{ error: string }>(res, 400);
       expect(body.error).toContain('targetProgram');
+    });
+
+    it('returns 400 when only body workspaceId is provided', async () => {
+      const { fetch } = testApp(applicationRoutes);
+      const res = await fetch('POST', '/', { workspaceId: 'ws-1', targetProgram: 'YC' });
+      const body = await expectJson<{ error: string }>(res, 400);
+      expect(body.error).toContain('workspaceId');
+    });
+
+    it('returns 403 when body workspaceId mismatches the bound workspace', async () => {
+      const { fetch } = testApp(applicationRoutes);
+      const res = await fetch('POST', '/', { workspaceId: 'ws-2', targetProgram: 'YC' }, wsHeader);
+      const body = await expectJson<{ error: string }>(res, 403);
+      expect(body.error).toContain('does not match');
     });
 
     it('creates an application and returns 201', async () => {
@@ -61,7 +77,7 @@ describe('applicationRoutes', () => {
       })) as any;
 
       const { fetch } = testApp(applicationRoutes, deps);
-      const res = await fetch('POST', '/', { workspaceId: 'ws-1', targetProgram: 'YC' });
+      const res = await fetch('POST', '/', { workspaceId: 'ws-1', targetProgram: 'YC' }, wsHeader);
       const body = await expectJson<{ id: string }>(res, 201);
       expect(body.id).toBe('app-1');
       expect(body).toHaveProperty('targetProgram', 'YC');
@@ -76,7 +92,7 @@ describe('applicationRoutes', () => {
       const deps = createMockDeps();
       // default result is [] so destructured [application] will be undefined
       const { fetch } = testApp(applicationRoutes, deps);
-      const res = await fetch('GET', '/app-missing');
+      const res = await fetch('GET', '/app-missing', undefined, wsHeader);
       const body = await expectJson<{ error: string }>(res, 404);
       expect(body.error).toContain('not found');
     });
@@ -98,18 +114,30 @@ describe('applicationRoutes', () => {
           from: vi.fn(() => ({
             where: vi.fn(() => ({
               limit: vi.fn(() => ({
-                then: (r: (v: unknown[]) => void) => { selectCount++; r(results[idx] ?? []); },
+                then: (r: (v: unknown[]) => void) => {
+                  selectCount++;
+                  r(results[idx] ?? []);
+                },
               })),
-              then: (r: (v: unknown[]) => void) => { selectCount++; r(results[idx] ?? []); },
+              then: (r: (v: unknown[]) => void) => {
+                selectCount++;
+                r(results[idx] ?? []);
+              },
             })),
-            then: (r: (v: unknown[]) => void) => { selectCount++; r(results[idx] ?? []); },
+            then: (r: (v: unknown[]) => void) => {
+              selectCount++;
+              r(results[idx] ?? []);
+            },
           })),
         };
       }) as any;
 
       const { fetch } = testApp(applicationRoutes, deps);
-      const res = await fetch('GET', '/app-1');
-      const body = await expectJson<{ id: string; drafts: unknown[]; artifacts: unknown[] }>(res, 200);
+      const res = await fetch('GET', '/app-1', undefined, wsHeader);
+      const body = await expectJson<{ id: string; drafts: unknown[]; artifacts: unknown[] }>(
+        res,
+        200,
+      );
       expect(body.id).toBe('app-1');
       expect(body.drafts).toEqual([]);
       expect(body.artifacts).toEqual([]);
@@ -121,7 +149,7 @@ describe('applicationRoutes', () => {
   describe('PUT /:id/drafts', () => {
     it('returns 400 when section or content is missing', async () => {
       const { fetch } = testApp(applicationRoutes);
-      const res = await fetch('PUT', '/app-1/drafts', { section: 'overview' });
+      const res = await fetch('PUT', '/app-1/drafts', { section: 'overview' }, wsHeader);
       const body = await expectJson<{ error: string }>(res, 400);
       expect(body.error).toContain('section and content');
     });
@@ -144,12 +172,33 @@ describe('applicationRoutes', () => {
           then: (r: any) => r([createdDraft]),
         })),
       })) as any;
+      let selectCall = 0;
+      const results: unknown[][] = [[{ id: 'app-1' }], []];
+      deps.db.select = vi.fn(() => {
+        const idx = selectCall;
+        selectCall++;
+        return {
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(() => ({
+                then: (r: (v: unknown[]) => void) => r(results[idx] ?? []),
+              })),
+              then: (r: (v: unknown[]) => void) => r(results[idx] ?? []),
+            })),
+          })),
+        };
+      }) as any;
 
       const { fetch } = testApp(applicationRoutes, deps);
-      const res = await fetch('PUT', '/app-1/drafts', {
-        section: 'overview',
-        content: 'Our company...',
-      });
+      const res = await fetch(
+        'PUT',
+        '/app-1/drafts',
+        {
+          section: 'overview',
+          content: 'Our company...',
+        },
+        wsHeader,
+      );
       const body = await expectJson<{ id: string }>(res, 201);
       expect(body.id).toBe('draft-1');
     });
@@ -181,10 +230,15 @@ describe('applicationRoutes', () => {
       })) as any;
 
       const { fetch } = testApp(applicationRoutes, deps);
-      const res = await fetch('PUT', '/app-1/drafts', {
-        section: 'overview',
-        content: 'New content',
-      });
+      const res = await fetch(
+        'PUT',
+        '/app-1/drafts',
+        {
+          section: 'overview',
+          content: 'New content',
+        },
+        wsHeader,
+      );
       const body = await expectJson<{ content: string }>(res, 200);
       expect(body.content).toBe('New content');
     });
@@ -193,8 +247,6 @@ describe('applicationRoutes', () => {
   // ── PUT /:id/status ──
 
   describe('PUT /:id/status', () => {
-    const wsHeader = { 'X-Workspace-Id': 'ws-1' };
-
     it('returns 400 for invalid status', async () => {
       const { fetch } = testApp(applicationRoutes);
       const res = await fetch('PUT', '/app-1/status', { status: 'bogus' }, wsHeader);

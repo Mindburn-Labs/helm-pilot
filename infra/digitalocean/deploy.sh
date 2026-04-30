@@ -101,6 +101,19 @@ require_value() {
   esac
 }
 
+require_pinned_image() {
+  local file="$1"
+  local key="$2"
+  local value
+  require_value "$file" "$key"
+  value="$(env_value "$file" "$key")"
+  case "$value" in
+    *:local|*:latest|*REPLACE*|*change-me*|'')
+      die "$key in $file must be an immutable release tag or digest, not '$value'"
+      ;;
+  esac
+}
+
 forbid_value() {
   local file="$1"
   local key="$2"
@@ -122,7 +135,12 @@ validate_env_files() {
   require_value "$ENV_SHARED_FILE" POSTGRES_PASSWORD
   require_value "$ENV_SHARED_FILE" POSTGRES_DB
   require_value "$ENV_SHARED_FILE" HELM_POSTGRES_DB
-  require_value "$ENV_SHARED_FILE" HELM_IMAGE
+  require_pinned_image "$ENV_SHARED_FILE" POSTGRES_IMAGE
+  require_pinned_image "$ENV_SHARED_FILE" CADDY_IMAGE
+  require_pinned_image "$ENV_SHARED_FILE" OFELIA_IMAGE
+  require_pinned_image "$ENV_SHARED_FILE" HELM_IMAGE
+  require_pinned_image "$ENV_SHARED_FILE" PILOT_IMAGE
+  require_pinned_image "$ENV_SHARED_FILE" WEB_IMAGE
   forbid_value "$ENV_SHARED_FILE" OPENROUTER_API_KEY
   forbid_value "$ENV_SHARED_FILE" ANTHROPIC_API_KEY
   forbid_value "$ENV_SHARED_FILE" OPENAI_API_KEY
@@ -369,7 +387,25 @@ deploy_to() {
     cd '$release_dir'
     find packages services apps -type d \( -name dist -o -name .next \) -prune -exec rm -rf {} +
     COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml config >/dev/null
-    COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml up -d --build
+    COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml pull postgres caddy backup-cron helm-pilot web
+    COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml pull helm || {
+      echo 'HELM image pull failed; continuing only if HELM_IMAGE was preloaded on the Droplet.'
+      COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml config >/dev/null
+    }
+    COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml up -d postgres
+    for attempt in \$(seq 1 60); do
+      if COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml exec -T postgres sh -c 'pg_isready -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" && pg_isready -U \"\$POSTGRES_USER\" -d \"\$HELM_POSTGRES_DB\"' >/dev/null 2>&1; then
+        break
+      fi
+      if [ \"\$attempt\" -eq 60 ]; then
+        COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml logs --tail=100 postgres
+        echo 'Postgres did not become ready before migrations.' >&2
+        exit 1
+      fi
+      sleep 2
+    done
+    COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml run --rm --no-deps helm-pilot node packages/db/dist/migrate-production.js
+    COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml up -d
     ln -sfnT '$release_dir' '$REMOTE_DIR'
     ls -1dt '$REMOTE_RELEASES_DIR'/* 2>/dev/null | tail -n +4 | xargs -r rm -rf
     COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml ps
@@ -416,7 +452,7 @@ fi
 }
 cd "$target"
 COMPOSE_PROFILES="$COMPOSE_PROFILES" docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml config >/dev/null
-COMPOSE_PROFILES="$COMPOSE_PROFILES" docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml up -d --build
+COMPOSE_PROFILES="$COMPOSE_PROFILES" docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml up -d
 ln -sfnT "$target" "$REMOTE_DIR"
 COMPOSE_PROFILES="$COMPOSE_PROFILES" docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml ps
 echo "Rolled back to $target"

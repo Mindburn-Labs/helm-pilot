@@ -30,18 +30,55 @@ export function statusRoutes(deps: GatewayDeps) {
 
     const taskCounts = await Promise.all([
       deps.db.select({ count: count() }).from(tasks).where(eq(tasks.workspaceId, workspaceId)),
-      deps.db.select({ count: count() }).from(tasks).where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, 'running'))),
-      deps.db.select({ count: count() }).from(tasks).where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, 'queued'))),
-      deps.db.select({ count: count() }).from(tasks).where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, 'completed'))),
-      deps.db.select({ count: count() }).from(tasks).where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, 'failed'))),
-      deps.db.select({ count: count() }).from(tasks).where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, 'awaiting_approval'))),
-      deps.db.select({ count: count() }).from(operators).where(eq(operators.workspaceId, workspaceId)),
-      deps.db.select({ count: count() }).from(approvals).where(and(eq(approvals.workspaceId, workspaceId), eq(approvals.status, 'pending'))),
-      deps.db.select({ count: count() }).from(connectorGrants).where(eq(connectorGrants.workspaceId, workspaceId)),
-      deps.db.select({ count: count() }).from(crawlRuns).where(eq(crawlRuns.workspaceId, workspaceId)),
-      deps.db.select({ count: count() }).from(crawlRuns).where(and(eq(crawlRuns.workspaceId, workspaceId), eq(crawlRuns.status, 'running'))),
-      deps.db.select({ count: count() }).from(ingestionRecords).where(eq(ingestionRecords.status, 'parsed')),
-      deps.db.select({ count: count() }).from(connectorSessions),
+      deps.db
+        .select({ count: count() })
+        .from(tasks)
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, 'running'))),
+      deps.db
+        .select({ count: count() })
+        .from(tasks)
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, 'queued'))),
+      deps.db
+        .select({ count: count() })
+        .from(tasks)
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, 'completed'))),
+      deps.db
+        .select({ count: count() })
+        .from(tasks)
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, 'failed'))),
+      deps.db
+        .select({ count: count() })
+        .from(tasks)
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, 'awaiting_approval'))),
+      deps.db
+        .select({ count: count() })
+        .from(operators)
+        .where(eq(operators.workspaceId, workspaceId)),
+      deps.db
+        .select({ count: count() })
+        .from(approvals)
+        .where(and(eq(approvals.workspaceId, workspaceId), eq(approvals.status, 'pending'))),
+      deps.db
+        .select({ count: count() })
+        .from(connectorGrants)
+        .where(eq(connectorGrants.workspaceId, workspaceId)),
+      deps.db
+        .select({ count: count() })
+        .from(crawlRuns)
+        .where(eq(crawlRuns.workspaceId, workspaceId)),
+      deps.db
+        .select({ count: count() })
+        .from(crawlRuns)
+        .where(and(eq(crawlRuns.workspaceId, workspaceId), eq(crawlRuns.status, 'running'))),
+      deps.db
+        .select({ count: count() })
+        .from(ingestionRecords)
+        .where(eq(ingestionRecords.status, 'parsed')),
+      deps.db
+        .select({ count: count() })
+        .from(connectorSessions)
+        .innerJoin(connectorGrants, eq(connectorSessions.grantId, connectorGrants.id))
+        .where(eq(connectorGrants.workspaceId, workspaceId)),
     ]);
 
     const asNumber = (value: unknown) => Number(value ?? 0);

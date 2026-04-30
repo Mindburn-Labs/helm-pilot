@@ -27,7 +27,7 @@ fi
 VENV_PY="$VENV_DIR/bin/python"
 
 "$VENV_PY" -m pip install --upgrade pip setuptools wheel >/dev/null
-"$VENV_PY" -m pip install -r "$ROOT_DIR/pipelines/requirements.txt"
+"$VENV_PY" -m pip install --timeout 180 --retries 10 -r "$ROOT_DIR/pipelines/requirements.txt"
 
 export PLAYWRIGHT_BROWSERS_PATH
 export PATCHRIGHT_BROWSERS_PATH

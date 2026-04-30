@@ -44,6 +44,13 @@ const ALLOWED = new Set([
 // That's fine for packages we own.
 const PRIVATE_MARKERS = new Set(['UNLICENSED', 'SEE LICENSE IN LICENSE', 'PROPRIETARY']);
 
+// Next.js pulls Sharp/libvips as an optional image-optimization dependency even
+// when apps do not use next/image. HELM Pilot disables image optimization and
+// prunes these binaries from the production web image.
+function isExcludedOptionalBinaryPackage(name: string): boolean {
+  return name.startsWith('@img/sharp-libvips-');
+}
+
 interface Finding {
   name: string;
   version: string;
@@ -111,6 +118,10 @@ function checkPackage(pkgDir: string, out: Finding[]): void {
     const name = pkg.name ?? '(unknown)';
     const version = pkg.version ?? '0.0.0';
     const license = normalizeLicense(pkg);
+
+    if (isExcludedOptionalBinaryPackage(name)) {
+      return;
+    }
 
     // Allow our own private workspace packages without license field.
     if (pkg.private && (!license || PRIVATE_MARKERS.has(license.toUpperCase()))) {

@@ -27,7 +27,7 @@ async function authenticate(
 test.describe('Task Lifecycle', () => {
   test('create, list, update status, get runs', async ({ request }) => {
     const { token, workspaceId } = await authenticate(request);
-    const headers = { Authorization: `Bearer ${token}` };
+    const headers = { Authorization: `Bearer ${token}`, 'X-Workspace-Id': workspaceId };
 
     // Create a task
     const createResp = await request.post('/api/tasks', {
@@ -47,7 +47,7 @@ test.describe('Task Lifecycle', () => {
     expect(task.status).toBeDefined();
 
     // List tasks for the workspace
-    const listResp = await request.get(`/api/tasks?workspaceId=${workspaceId}`, { headers });
+    const listResp = await request.get('/api/tasks', { headers });
     expect(listResp.status()).toBe(200);
     const tasks = await listResp.json();
     expect(Array.isArray(tasks)).toBe(true);
@@ -63,7 +63,7 @@ test.describe('Task Lifecycle', () => {
   test('creating task with invalid mode returns 400', async ({ request }) => {
     const { token, workspaceId } = await authenticate(request);
     const resp = await request.post('/api/tasks', {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, 'X-Workspace-Id': workspaceId },
       data: { workspaceId, title: 'x', mode: 'invalid-mode' },
     });
     expect(resp.status()).toBe(400);

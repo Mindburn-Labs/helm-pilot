@@ -115,9 +115,9 @@ The `yc` connector uses founder-authorized session capture instead of OAuth.
 
 All YC session snapshots are encrypted at rest using `ENCRYPTION_KEY`.
 
-## Custom Domain (Production)
+## Custom Domain (Non-DigitalOcean)
 
-For production, put a reverse proxy (Caddy, nginx, or Cloudflare Tunnel) in front:
+For non-DigitalOcean deployments, put a reverse proxy (Caddy, nginx, or Cloudflare Tunnel) in front:
 
 ```
 # Caddyfile example
@@ -138,8 +138,8 @@ HELM Pilot ships on DigitalOcean as a Docker Compose stack on one Droplet. The H
 cp infra/digitalocean/env.production.shared.example .env.production.shared
 cp infra/digitalocean/env.production.helm.example .env.production.helm
 cp infra/digitalocean/env.production.pilot.example .env.production.pilot
-# Fill domain, database, Pilot secrets, email, DO Spaces backup settings,
-# evidence signing, and sidecar provider key.
+# Fill domain, database, pinned images, Pilot secrets, email,
+# DO Spaces backup settings, evidence signing, and sidecar provider key.
 
 export DO_SSH_KEYS=<digitalocean-ssh-key-id-or-fingerprint>
 export DO_REGION=fra1
@@ -171,7 +171,7 @@ npm run db:studio
 
 ## pgAdmin (Optional)
 
-For database inspection, start the debug profile:
+For local database inspection, start the dev-only Docker stack's debug profile:
 
 ```bash
 docker compose -f infra/docker/docker-compose.yml --profile debug up -d

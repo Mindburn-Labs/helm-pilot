@@ -129,10 +129,12 @@ if [ -f .env ]; then
   export $(grep -v '^#' .env | xargs -d '\n' 2>/dev/null || true)
 fi
 
-warn_check "SESSION_SECRET is not default" bash -c "[ \"${SESSION_SECRET:-}\" != \"dev-state-secret\" ] && [ \"${SESSION_SECRET:-}\" != \"change-me-in-production\" ] && [ -n \"${SESSION_SECRET:-}\" ]"
-warn_check "ENCRYPTION_KEY is not default" bash -c "[ \"${ENCRYPTION_KEY:-}\" != \"dev-encryption-key\" ] && [ -n \"${ENCRYPTION_KEY:-}\" ]"
+warn_check "SESSION_SECRET is not default" bash -c "[ -n \"${SESSION_SECRET:-}\" ] && [ \"${SESSION_SECRET:-}\" != \"dev-state-secret\" ] && [ \"${SESSION_SECRET:-}\" != \"dev-state-secret-change-me\" ] && [ \"${SESSION_SECRET:-}\" != \"change-me-in-production\" ] && [ \"${SESSION_SECRET:-}\" != \"change-me-with-openssl-rand-hex-32\" ]"
+warn_check "ENCRYPTION_KEY is not default" bash -c "[ -n \"${ENCRYPTION_KEY:-}\" ] && [ \"${ENCRYPTION_KEY:-}\" != \"dev-encryption-key\" ] && [ \"${ENCRYPTION_KEY:-}\" != \"dev-encryption-key-change-me\" ] && [ \"${ENCRYPTION_KEY:-}\" != \"change-me-with-openssl-rand-hex-32\" ]"
+warn_check "EVIDENCE_SIGNING_KEY is not default" bash -c "[ -z \"${EVIDENCE_SIGNING_KEY:-}\" ] || { [ \"${EVIDENCE_SIGNING_KEY:-}\" != \"pilot-dev-ephemeral-key-change-me\" ] && [ \"${EVIDENCE_SIGNING_KEY:-}\" != \"change-me-with-openssl-rand-hex-32\" ]; }"
 warn_check "ALLOWED_ORIGINS is restricted" bash -c "[ \"${ALLOWED_ORIGINS:-*}\" != \"*\" ]"
 warn_check "EMAIL_PROVIDER is not noop in production" bash -c "[ \"${NODE_ENV:-}\" != \"production\" ] || [ \"${EMAIL_PROVIDER:-noop}\" != \"noop\" ]"
+warn_check "Telegram webhook secret is set when bot is configured in production" bash -c "[ \"${NODE_ENV:-}\" != \"production\" ] || [ -z \"${TELEGRAM_BOT_TOKEN:-}\" ] || [ -n \"${TELEGRAM_WEBHOOK_SECRET:-}\" ]"
 warn_check "SENTRY_DSN configured (optional)" bash -c "[ -n \"${SENTRY_DSN:-}\" ]"
 echo ""
 

@@ -3,6 +3,7 @@ import { and, desc, eq, lt } from 'drizzle-orm';
 import { evidencePacks, helmHealthSnapshots } from '@helm-pilot/db/schema';
 import { HelmClient } from '@helm-pilot/helm-client';
 import { type GatewayDeps } from '../index.js';
+import { getWorkspaceId } from '../lib/workspace.js';
 
 /**
  * Governance admin surface.
@@ -53,7 +54,7 @@ export function governanceRoutes(deps: GatewayDeps) {
   // Paginated list of local evidence packs for the authenticated workspace.
   // Supports cursor pagination via `?before=<isoDate>&limit=<n>`.
   app.get('/receipts', async (c) => {
-    const workspaceId = c.req.query('workspaceId') ?? c.get('workspaceId');
+    const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
 
     const before = c.req.query('before');
@@ -83,14 +84,16 @@ export function governanceRoutes(deps: GatewayDeps) {
   // GET /api/governance/receipts/:decisionId
   // Single receipt — signed blob included so clients can verify offline.
   app.get('/receipts/:decisionId', async (c) => {
-    const workspaceId = c.req.query('workspaceId') ?? c.get('workspaceId');
+    const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
 
     const decisionId = c.req.param('decisionId');
     const [row] = await deps.db
       .select()
       .from(evidencePacks)
-      .where(and(eq(evidencePacks.workspaceId, workspaceId), eq(evidencePacks.decisionId, decisionId)))
+      .where(
+        and(eq(evidencePacks.workspaceId, workspaceId), eq(evidencePacks.decisionId, decisionId)),
+      )
       .limit(1);
 
     if (!row) return c.json({ error: 'not found' }, 404);
@@ -103,7 +106,7 @@ export function governanceRoutes(deps: GatewayDeps) {
   // rooted at the given task's task_runs. Nodes are flat; edges are
   // parent_evidence_pack_id → id. Traversal uses Postgres recursive CTE.
   app.get('/proofgraph/:taskId', async (c) => {
-    const workspaceId = c.req.query('workspaceId') ?? c.get('workspaceId');
+    const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
 
     const taskId = c.req.param('taskId');
@@ -136,13 +139,11 @@ export function governanceRoutes(deps: GatewayDeps) {
         signed_blob, received_at, verified_at, parent_evidence_pack_id
       FROM chain
       ORDER BY received_at ASC
-    `)) as unknown as
-      | { rows?: Array<Record<string, unknown>> }
-      | Array<Record<string, unknown>>;
+    `)) as unknown as { rows?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>;
 
-    const rows = (Array.isArray(result)
-      ? result
-      : (result.rows ?? [])) as Array<Record<string, unknown>>;
+    const rows = (Array.isArray(result) ? result : (result.rows ?? [])) as Array<
+      Record<string, unknown>
+    >;
 
     const nodes = rows.map((r) => ({
       id: String(r['id']),
@@ -187,10 +188,7 @@ export function governanceRoutes(deps: GatewayDeps) {
     try {
       return c.json(await helm.getBudgetStatus());
     } catch (err) {
-      return c.json(
-        { error: err instanceof Error ? err.message : String(err) },
-        502,
-      );
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 502);
     }
   });
 
@@ -199,15 +197,12 @@ export function governanceRoutes(deps: GatewayDeps) {
     try {
       return c.json(await helm.getMerkleRoot());
     } catch (err) {
-      return c.json(
-        { error: err instanceof Error ? err.message : String(err) },
-        502,
-      );
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 502);
     }
   });
 
   app.get('/charges', async (c) => {
-    const workspaceId = c.get('workspaceId');
+    const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
     if (!helm) return c.json({ error: 'helm client not configured' }, 503);
     const now = new Date();
@@ -217,24 +212,18 @@ export function governanceRoutes(deps: GatewayDeps) {
     try {
       return c.json(await helm.getEconomicCharges(workspaceId, from, to));
     } catch (err) {
-      return c.json(
-        { error: err instanceof Error ? err.message : String(err) },
-        502,
-      );
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 502);
     }
   });
 
   app.get('/allocations', async (c) => {
-    const workspaceId = c.get('workspaceId');
+    const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
     if (!helm) return c.json({ error: 'helm client not configured' }, 503);
     try {
       return c.json(await helm.getEconomicAllocations(workspaceId));
     } catch (err) {
-      return c.json(
-        { error: err instanceof Error ? err.message : String(err) },
-        502,
-      );
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 502);
     }
   });
 

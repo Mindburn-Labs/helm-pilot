@@ -1,6 +1,11 @@
 import { Hono } from 'hono';
-import { eq } from 'drizzle-orm';
-import { cofounderCandidates, founderAssessments, founderProfiles, founderStrengths } from '@helm-pilot/db/schema';
+import { and, eq } from 'drizzle-orm';
+import {
+  cofounderCandidates,
+  founderAssessments,
+  founderProfiles,
+  founderStrengths,
+} from '@helm-pilot/db/schema';
 import {
   AnalyzeFounderInput,
   CreateCofounderCandidateInput,
@@ -92,17 +97,25 @@ export function founderRoutes(deps: GatewayDeps) {
       return c.json({ error: 'candidateIds must contain at least two ids' }, 400);
     }
 
-    const results = await Promise.all(body.candidateIds.map((candidateId) => deps.cofounderEngine!.getCandidate(candidateId)));
-    const filtered = results.filter((candidate) => candidate && candidate.workspaceId === workspaceId);
+    const results = await Promise.all(
+      body.candidateIds.map((candidateId) => deps.cofounderEngine!.getCandidate(candidateId)),
+    );
+    const filtered = results.filter(
+      (candidate) => candidate && candidate.workspaceId === workspaceId,
+    );
     return c.json(filtered);
   });
 
   app.get('/candidates/:id', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
     if (!deps.cofounderEngine) return c.json({ error: 'Cofounder engine unavailable' }, 503);
 
     const { id } = c.req.param();
     const candidate = await deps.cofounderEngine.getCandidate(id);
-    if (!candidate) return c.json({ error: 'Candidate not found' }, 404);
+    if (!candidate || candidate.workspaceId !== workspaceId) {
+      return c.json({ error: 'Candidate not found' }, 404);
+    }
     return c.json(candidate);
   });
 
@@ -116,7 +129,10 @@ export function founderRoutes(deps: GatewayDeps) {
       const evaluation = await deps.cofounderEngine.scoreCandidate(workspaceId, id);
       return c.json(evaluation, 201);
     } catch (error) {
-      return c.json({ error: error instanceof Error ? error.message : 'Failed to score candidate' }, 404);
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Failed to score candidate' },
+        404,
+      );
     }
   });
 
@@ -196,18 +212,36 @@ export function founderRoutes(deps: GatewayDeps) {
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
 
     const body = (await c.req.json().catch(() => ({}))) as { status?: string };
-    const allowed = new Set(['new', 'reviewing', 'contacted', 'interviewing', 'shortlisted', 'passed']);
+    const allowed = new Set([
+      'new',
+      'reviewing',
+      'contacted',
+      'interviewing',
+      'shortlisted',
+      'passed',
+    ]);
     if (!body.status || !allowed.has(body.status)) {
-      return c.json({ error: 'status must be one of new, reviewing, contacted, interviewing, shortlisted, passed' }, 400);
+      return c.json(
+        {
+          error:
+            'status must be one of new, reviewing, contacted, interviewing, shortlisted, passed',
+        },
+        400,
+      );
     }
 
     const [candidate] = await deps.db
       .update(cofounderCandidates)
       .set({ status: body.status, updatedAt: new Date() })
-      .where(eq(cofounderCandidates.id, c.req.param('id')))
+      .where(
+        and(
+          eq(cofounderCandidates.id, c.req.param('id')),
+          eq(cofounderCandidates.workspaceId, workspaceId),
+        ),
+      )
       .returning();
 
-    if (!candidate || candidate.workspaceId !== workspaceId) {
+    if (!candidate) {
       return c.json({ error: 'Candidate not found' }, 404);
     }
 
@@ -216,7 +250,12 @@ export function founderRoutes(deps: GatewayDeps) {
 
   // Legacy compatibility routes while surfaces migrate.
   app.get('/:workspaceId', async (c) => {
-    const { workspaceId } = c.req.param();
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    if (c.req.param('workspaceId') !== workspaceId) {
+      return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
+    }
+
     const profile = deps.founderIntel
       ? await deps.founderIntel.getProfile(workspaceId)
       : await getFounderProfileFallback(deps, workspaceId);
@@ -226,7 +265,12 @@ export function founderRoutes(deps: GatewayDeps) {
   });
 
   app.post('/:workspaceId', async (c) => {
-    const { workspaceId } = c.req.param();
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    if (c.req.param('workspaceId') !== workspaceId) {
+      return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
+    }
+
     const raw = await c.req.json();
     const parsed = CreateFounderProfileInput.safeParse(raw);
     if (!parsed.success) {
@@ -238,11 +282,21 @@ export function founderRoutes(deps: GatewayDeps) {
   });
 
   app.post('/:founderId/assessment', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
     const { founderId } = c.req.param();
     const body = await c.req.json();
     if (!body.assessmentType || !body.responses) {
       return c.json({ error: 'assessmentType and responses are required' }, 400);
     }
+
+    const [profile] = await deps.db
+      .select({ id: founderProfiles.id })
+      .from(founderProfiles)
+      .where(and(eq(founderProfiles.id, founderId), eq(founderProfiles.workspaceId, workspaceId)))
+      .limit(1);
+    if (!profile) return c.json({ error: 'Founder profile not found' }, 404);
 
     const [assessment] = await deps.db
       .insert(founderAssessments)
@@ -257,7 +311,17 @@ export function founderRoutes(deps: GatewayDeps) {
   });
 
   app.get('/:founderId/strengths', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
     const { founderId } = c.req.param();
+    const [profile] = await deps.db
+      .select({ id: founderProfiles.id })
+      .from(founderProfiles)
+      .where(and(eq(founderProfiles.id, founderId), eq(founderProfiles.workspaceId, workspaceId)))
+      .limit(1);
+    if (!profile) return c.json({ error: 'Founder profile not found' }, 404);
+
     const strengths = await deps.db
       .select()
       .from(founderStrengths)

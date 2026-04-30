@@ -1,8 +1,11 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { type Connector, listReauthRequired } from '@helm-pilot/connectors';
-import { SaveConnectorSessionInput, ValidateConnectorSessionInput } from '@helm-pilot/shared/schemas';
+import {
+  SaveConnectorSessionInput,
+  ValidateConnectorSessionInput,
+} from '@helm-pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId } from '../lib/workspace.js';
+import { getWorkspaceId, workspaceIdMismatch } from '../lib/workspace.js';
 
 export function connectorRoutes(deps: GatewayDeps) {
   const app = new Hono();
@@ -51,9 +54,15 @@ export function connectorRoutes(deps: GatewayDeps) {
   app.post('/:name/grant', async (c) => {
     if (!deps.connectors) return c.json({ error: 'Connectors not configured' }, 503);
     const { name } = c.req.param();
-    const body = (await c.req.json().catch(() => ({}))) as { workspaceId?: string; scopes?: string[] };
-    const workspaceId = body.workspaceId ?? getWorkspaceId(c);
+    const body = (await c.req.json().catch(() => ({}))) as {
+      workspaceId?: string;
+      scopes?: string[];
+    };
+    const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    if (workspaceIdMismatch(c, body.workspaceId)) {
+      return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
+    }
 
     const connector = deps.connectors.getConnector(name);
     if (!connector) return c.json({ error: `Unknown connector: ${name}` }, 404);
@@ -88,6 +97,9 @@ export function connectorRoutes(deps: GatewayDeps) {
     };
     if (!grantId || !accessToken) return c.json({ error: 'grantId and accessToken required' }, 400);
 
+    const ownership = await requireOwnedGrant(deps, c, name, grantId);
+    if (ownership instanceof Response) return ownership;
+
     await deps.connectors.storeToken(
       grantId,
       accessToken,
@@ -111,6 +123,9 @@ export function connectorRoutes(deps: GatewayDeps) {
     if (!parsed.success) {
       return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
     }
+
+    const ownership = await requireOwnedGrant(deps, c, name, parsed.data.grantId);
+    if (ownership instanceof Response) return ownership;
 
     await deps.connectors.storeSession(
       parsed.data.grantId,
@@ -139,10 +154,13 @@ export function connectorRoutes(deps: GatewayDeps) {
       return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
     }
 
+    const ownership = await requireOwnedGrant(deps, c, name, parsed.data.grantId);
+    if (ownership instanceof Response) return ownership;
+    const workspaceId = ownership.workspaceId;
+
     const record = await deps.connectors.getSessionRecord(parsed.data.grantId);
     if (!record) return c.json({ error: 'No session stored for this grant' }, 404);
 
-    const workspaceId = getWorkspaceId(c);
     const queue = name === 'yc' ? 'pipeline.yc-private' : `pipeline.${name}-session`;
     const jobId = await deps.orchestrator.boss.send(queue, {
       workspaceId,
@@ -152,7 +170,9 @@ export function connectorRoutes(deps: GatewayDeps) {
     });
 
     if (parsed.data.action === 'validate') {
-      await deps.connectors.markSessionValidated(parsed.data.grantId, { lastValidationQueuedAt: new Date().toISOString() });
+      await deps.connectors.markSessionValidated(parsed.data.grantId, {
+        lastValidationQueuedAt: new Date().toISOString(),
+      });
     }
 
     return c.json({ queued: true, queue, jobId });
@@ -167,6 +187,9 @@ export function connectorRoutes(deps: GatewayDeps) {
     const grantId = c.req.query('grantId');
     if (!grantId) return c.json({ error: 'grantId required' }, 400);
 
+    const ownership = await requireOwnedGrant(deps, c, name, grantId);
+    if (ownership instanceof Response) return ownership;
+
     await deps.connectors.deleteSession(grantId);
     return c.json({ deleted: true });
   });
@@ -180,9 +203,12 @@ export function connectorRoutes(deps: GatewayDeps) {
     const provider = deps.oauth.getProvider(name);
     if (!provider) return c.json({ error: `No OAuth provider for connector: ${name}` }, 404);
     if (!provider.clientId) {
-      return c.json({
-        error: `OAuth not configured for ${name}. Set ${provider.clientIdEnv ?? 'CLIENT_ID'} in .env`,
-      }, 503);
+      return c.json(
+        {
+          error: `OAuth not configured for ${name}. Set ${provider.clientIdEnv ?? 'CLIENT_ID'} in .env`,
+        },
+        503,
+      );
     }
 
     try {
@@ -233,6 +259,9 @@ export function connectorRoutes(deps: GatewayDeps) {
     const body = await c.req.json();
     const { grantId } = body as { grantId: string };
     if (!grantId) return c.json({ error: 'grantId required' }, 400);
+
+    const ownership = await requireOwnedGrant(deps, c, name, grantId);
+    if (ownership instanceof Response) return ownership;
 
     const newToken = await deps.oauth.refreshToken(grantId, name);
     if (!newToken) {
@@ -288,10 +317,17 @@ function serializeConnector(
   const configured = connector.authType !== 'oauth2' || Boolean(provider?.clientId);
   const hasGrant = Boolean(grant);
   const hasSession = Boolean(session);
-  const hasToken = connector.authType === 'none' ? hasGrant : connector.authType === 'session' ? hasSession : Boolean(token);
+  const hasToken =
+    connector.authType === 'none'
+      ? hasGrant
+      : connector.authType === 'session'
+        ? hasSession
+        : Boolean(token);
   const expiresAt = token?.expiresAt ? new Date(token.expiresAt).toISOString() : null;
   const isExpired = expiresAt ? new Date(expiresAt).getTime() <= Date.now() : false;
-  const lastValidatedAt = session?.lastValidatedAt ? new Date(session.lastValidatedAt).toISOString() : null;
+  const lastValidatedAt = session?.lastValidatedAt
+    ? new Date(session.lastValidatedAt).toISOString()
+    : null;
 
   let connectionState: ConnectorConnectionState = 'available';
   if (!configured) {
@@ -344,6 +380,24 @@ type ConnectorConnectionState =
   | 'reauthorization_required'
   | 'configuration_required';
 
+async function requireOwnedGrant(
+  deps: GatewayDeps,
+  c: Context,
+  connectorName: string,
+  grantId: string,
+): Promise<{ workspaceId: string } | Response> {
+  if (!deps.connectors) return c.json({ error: 'Connectors not configured' }, 503);
+  const workspaceId = getWorkspaceId(c);
+  if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
+  const grant = await deps.connectors.getGrantByWorkspaceConnector(workspaceId, connectorName);
+  if (!grant || grant.id !== grantId) {
+    return c.json({ error: 'Connector grant not found' }, 404);
+  }
+
+  return { workspaceId };
+}
+
 function oauthResultPage(
   success: boolean,
   message: string,
@@ -375,7 +429,9 @@ function oauthResultPage(
     <button class="close" onclick="window.close()">Close</button>
   </div>
   <script>
-    ${success && result ? `
+    ${
+      success && result
+        ? `
     if (window.opener) {
       window.opener.postMessage({
         type: 'helm-pilot-oauth-success',
@@ -384,7 +440,9 @@ function oauthResultPage(
         grantId: '${result.grantId}',
       }, '*');
       setTimeout(() => window.close(), 1500);
-    }` : ''}
+    }`
+        : ''
+    }
   </script>
 </body>
 </html>`;

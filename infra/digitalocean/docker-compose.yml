@@ -1,7 +1,7 @@
 services:
   postgres:
     container_name: helm-pilot-postgres
-    image: pgvector/pgvector:pg17
+    image: ${POSTGRES_IMAGE}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-helm_pilot}
       HELM_POSTGRES_DB: ${HELM_POSTGRES_DB:-helm_governance}
@@ -64,10 +64,7 @@ services:
 
   helm-pilot:
     container_name: helm-pilot
-    image: ${PILOT_IMAGE:-helm-pilot:local}
-    build:
-      context: ../..
-      dockerfile: Dockerfile
+    image: ${PILOT_IMAGE}
     expose:
       - '3100'
     env_file:
@@ -84,7 +81,7 @@ services:
       HELM_HEALTH_URL: http://helm:8081
       HELM_FAIL_CLOSED: '1'
       HELM_EVALUATE_ENABLED: '1'
-      RUN_MIGRATIONS_ON_STARTUP: ${RUN_MIGRATIONS_ON_STARTUP:-true}
+      RUN_MIGRATIONS_ON_STARTUP: ${RUN_MIGRATIONS_ON_STARTUP:-false}
     volumes:
       - app_storage:/app/data/storage
       - app_backups:/app/backups
@@ -114,10 +111,7 @@ services:
 
   web:
     container_name: helm-pilot-web
-    image: ${WEB_IMAGE:-helm-pilot-web:local}
-    build:
-      context: ../..
-      dockerfile: apps/web/Dockerfile
+    image: ${WEB_IMAGE}
     expose:
       - '3000'
     environment:
@@ -137,7 +131,7 @@ services:
 
   caddy:
     container_name: helm-pilot-caddy
-    image: caddy:2-alpine
+    image: ${CADDY_IMAGE}
     ports:
       - '80:80'
       - '443:443'
@@ -157,7 +151,7 @@ services:
 
   backup-cron:
     container_name: helm-pilot-backup-cron
-    image: mcuadros/ofelia:latest
+    image: ${OFELIA_IMAGE}
     depends_on:
       helm-pilot:
         condition: service_healthy

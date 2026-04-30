@@ -9,7 +9,7 @@ import {
 } from '@helm-pilot/db/schema';
 import { CreateOpportunityInput } from '@helm-pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId } from '../lib/workspace.js';
+import { getWorkspaceId, workspaceIdMismatch } from '../lib/workspace.js';
 
 export function opportunityRoutes(deps: GatewayDeps) {
   const app = new Hono();
@@ -31,15 +31,16 @@ export function opportunityRoutes(deps: GatewayDeps) {
 
   app.get('/:id', async (c) => {
     const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
     const { id } = c.req.param();
 
     const [opp] = await deps.db
       .select()
       .from(opportunities)
-      .where(eq(opportunities.id, id))
+      .where(and(eq(opportunities.id, id), eq(opportunities.workspaceId, workspaceId)))
       .limit(1);
 
-    if (!opp || (workspaceId && opp.workspaceId !== workspaceId)) {
+    if (!opp) {
       return c.json({ error: 'Not found' }, 404);
     }
 
@@ -58,10 +59,14 @@ export function opportunityRoutes(deps: GatewayDeps) {
 
   app.post('/', async (c) => {
     const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
     const raw = await c.req.json();
+    if (workspaceIdMismatch(c, raw.workspaceId)) {
+      return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
+    }
     const parsed = CreateOpportunityInput.safeParse({
       ...raw,
-      workspaceId: raw.workspaceId ?? workspaceId,
+      workspaceId,
     });
 
     if (!parsed.success) {
@@ -93,7 +98,9 @@ export function opportunityRoutes(deps: GatewayDeps) {
     const unscored = await deps.db
       .select({ id: opportunities.id })
       .from(opportunities)
-      .where(and(eq(opportunities.workspaceId, workspaceId), eq(opportunities.status, 'discovered')));
+      .where(
+        and(eq(opportunities.workspaceId, workspaceId), eq(opportunities.status, 'discovered')),
+      );
 
     let enqueued = 0;
     for (const { id } of unscored) {
@@ -137,7 +144,12 @@ export function opportunityRoutes(deps: GatewayDeps) {
     const [cluster] = await deps.db
       .select()
       .from(opportunityClusters)
-      .where(and(eq(opportunityClusters.id, clusterId), eq(opportunityClusters.workspaceId, workspaceId)))
+      .where(
+        and(
+          eq(opportunityClusters.id, clusterId),
+          eq(opportunityClusters.workspaceId, workspaceId),
+        ),
+      )
       .limit(1);
 
     if (!cluster) return c.json({ error: 'Cluster not found' }, 404);
@@ -149,12 +161,13 @@ export function opportunityRoutes(deps: GatewayDeps) {
 
     // Hydrate with opportunity data
     const oppIds = members.map((m) => m.opportunityId);
-    const opps = oppIds.length > 0
-      ? await deps.db
-          .select()
-          .from(opportunities)
-          .where(eq(opportunities.workspaceId, workspaceId))
-      : [];
+    const opps =
+      oppIds.length > 0
+        ? await deps.db
+            .select()
+            .from(opportunities)
+            .where(eq(opportunities.workspaceId, workspaceId))
+        : [];
 
     const oppMap = new Map(opps.map((o) => [o.id, o]));
 

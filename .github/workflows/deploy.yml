@@ -34,6 +34,7 @@ jobs:
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: mindburn-labs/helm-pilot
+      WEB_IMAGE_NAME: mindburn-labs/helm-pilot-web
     steps:
       - uses: actions/checkout@v4
 
@@ -58,6 +59,35 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.WEB_IMAGE_NAME }}:${{ steps.tag.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.WEB_IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.version }}
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Trivy vulnerability scan (web)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.WEB_IMAGE_NAME }}:${{ steps.tag.outputs.version }}
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
 
   deploy-staging:
     needs: docker
@@ -84,6 +114,10 @@ jobs:
           printf '%s\n' "${{ secrets.DO_ENV_SHARED }}" > .env.production.shared
           printf '%s\n' "${{ secrets.DO_ENV_HELM }}" > .env.production.helm
           printf '%s\n' "${{ secrets.DO_ENV_PILOT }}" > .env.production.pilot
+          {
+            echo "PILOT_IMAGE=ghcr.io/mindburn-labs/helm-pilot:${GITHUB_REF_NAME}"
+            echo "WEB_IMAGE=ghcr.io/mindburn-labs/helm-pilot-web:${GITHUB_REF_NAME}"
+          } >> .env.production.shared
 
       - name: Deploy to DigitalOcean staging
         env:
@@ -122,6 +156,10 @@ jobs:
           printf '%s\n' "${{ secrets.DO_ENV_SHARED }}" > .env.production.shared
           printf '%s\n' "${{ secrets.DO_ENV_HELM }}" > .env.production.helm
           printf '%s\n' "${{ secrets.DO_ENV_PILOT }}" > .env.production.pilot
+          {
+            echo "PILOT_IMAGE=ghcr.io/mindburn-labs/helm-pilot:${GITHUB_REF_NAME}"
+            echo "WEB_IMAGE=ghcr.io/mindburn-labs/helm-pilot-web:${GITHUB_REF_NAME}"
+          } >> .env.production.shared
 
       - name: Deploy to DigitalOcean production
         env:

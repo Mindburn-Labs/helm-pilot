@@ -2,9 +2,16 @@ import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
 import { applications, applicationDrafts, applicationArtifacts } from '@helm-pilot/db/schema';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId } from '../lib/workspace.js';
+import { getWorkspaceId, workspaceIdMismatch } from '../lib/workspace.js';
 
-const VALID_STATUSES = ['draft', 'in_progress', 'in_review', 'submitted', 'accepted', 'rejected'] as const;
+const VALID_STATUSES = [
+  'draft',
+  'in_progress',
+  'in_review',
+  'submitted',
+  'accepted',
+  'rejected',
+] as const;
 
 export function applicationRoutes(deps: GatewayDeps) {
   const app = new Hono();
@@ -23,19 +30,22 @@ export function applicationRoutes(deps: GatewayDeps) {
 
   app.post('/', async (c) => {
     const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
     const body = await c.req.json();
-    const resolvedWorkspaceId = body.workspaceId ?? workspaceId;
+    if (workspaceIdMismatch(c, body.workspaceId)) {
+      return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
+    }
     const targetProgram = body.targetProgram ?? body.program;
     const name = body.name ?? targetProgram ?? 'Application';
 
-    if (!resolvedWorkspaceId || !targetProgram) {
+    if (!targetProgram) {
       return c.json({ error: 'workspaceId and targetProgram required' }, 400);
     }
 
     const [created] = await deps.db
       .insert(applications)
       .values({
-        workspaceId: resolvedWorkspaceId,
+        workspaceId,
         name,
         targetProgram,
         deadline: body.deadline ? new Date(body.deadline) : undefined,
@@ -49,14 +59,15 @@ export function applicationRoutes(deps: GatewayDeps) {
 
   app.get('/:id', async (c) => {
     const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
     const { id } = c.req.param();
 
     const [application] = await deps.db
       .select()
       .from(applications)
-      .where(eq(applications.id, id))
+      .where(and(eq(applications.id, id), eq(applications.workspaceId, workspaceId)))
       .limit(1);
-    if (!application || (workspaceId && application.workspaceId !== workspaceId)) {
+    if (!application) {
       return c.json({ error: 'Application not found' }, 404);
     }
 
@@ -74,12 +85,22 @@ export function applicationRoutes(deps: GatewayDeps) {
   });
 
   app.put('/:id/drafts', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
     const { id } = c.req.param();
     const body = await c.req.json();
     const { section, content } = body as { section: string; content: string };
     if (!section || !content) {
       return c.json({ error: 'section and content required' }, 400);
     }
+
+    const [application] = await deps.db
+      .select({ id: applications.id })
+      .from(applications)
+      .where(and(eq(applications.id, id), eq(applications.workspaceId, workspaceId)))
+      .limit(1);
+    if (!application) return c.json({ error: 'Application not found' }, 404);
 
     const [existing] = await deps.db
       .select()
@@ -139,7 +160,10 @@ export function applicationRoutes(deps: GatewayDeps) {
 function normalizeStatus(status: unknown): (typeof VALID_STATUSES)[number] | undefined {
   if (status === undefined || status === null || status === '') return undefined;
   if (status === 'in_review') return 'in_progress';
-  if (typeof status === 'string' && VALID_STATUSES.includes(status as (typeof VALID_STATUSES)[number])) {
+  if (
+    typeof status === 'string' &&
+    VALID_STATUSES.includes(status as (typeof VALID_STATUSES)[number])
+  ) {
     return status as (typeof VALID_STATUSES)[number];
   }
   return undefined;

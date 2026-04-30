@@ -15,7 +15,7 @@ describe('eventRoutes', () => {
 
     it('returns 200 with SSE content-type when workspaceId is provided', async () => {
       const { fetch } = testApp(eventRoutes);
-      const res = await fetch('GET', '/tasks?workspaceId=ws-1');
+      const res = await fetch('GET', '/tasks', undefined, { 'X-Workspace-Id': 'ws-1' });
 
       expect(res.status).toBe(200);
       const contentType = res.headers.get('content-type') ?? '';

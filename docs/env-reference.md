@@ -96,17 +96,17 @@ YC session state is stored separately from OAuth tokens. It powers authenticated
 
 ## Server
 
-| Variable                    | Required | Default                                        | Description                                                                                                                           |
-| --------------------------- | -------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                      | No       | `3100`                                         | HTTP server port                                                                                                                      |
-| `NODE_ENV`                  | No       | `development`                                  | Environment. Set to `production` for production.                                                                                      |
-| `LOG_LEVEL`                 | No       | `info`                                         | Pino log level (`debug`, `info`, `warn`, `error`, `fatal`)                                                                            |
-| `ALLOWED_ORIGINS`           | No       | `*` (dev)                                      | Comma-separated CORS allowed origins. Set to your domain in production.                                                               |
-| `APP_URL`                   | No       | `http://localhost:3100`                        | Public-facing URL of the app (used for OAuth redirect URIs)                                                                           |
-| `RUN_MIGRATIONS_ON_STARTUP` | No       | `true`                                         | When `true` (default), gateway runs pending Drizzle migrations on boot. Set `false` to manage migrations manually.                    |
-| `PYTHON_BIN`                | No       | `python3`                                      | Python executable used by the orchestrator for Scrapling-backed pipelines. For local installs, prefer `./.venv-pipelines/bin/python`. |
-| `PLAYWRIGHT_BROWSERS_PATH`  | No       | repo-local cache or `/ms-playwright` in Docker | Browser binary cache used by dynamic Scrapling fetchers.                                                                              |
-| `PATCHRIGHT_BROWSERS_PATH`  | No       | repo-local cache or `/ms-patchright` in Docker | Browser binary cache used by stealth Scrapling sessions.                                                                              |
+| Variable                    | Required | Default                                        | Description                                                                                                                                                |
+| --------------------------- | -------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                      | No       | `3100`                                         | HTTP server port                                                                                                                                           |
+| `NODE_ENV`                  | No       | `development`                                  | Environment. Set to `production` for production.                                                                                                           |
+| `LOG_LEVEL`                 | No       | `info`                                         | Pino log level (`debug`, `info`, `warn`, `error`, `fatal`)                                                                                                 |
+| `ALLOWED_ORIGINS`           | No       | `*` (dev)                                      | Comma-separated CORS allowed origins. Set to your domain in production.                                                                                    |
+| `APP_URL`                   | No       | `http://localhost:3100`                        | Public-facing URL of the app (used for OAuth redirect URIs)                                                                                                |
+| `RUN_MIGRATIONS_ON_STARTUP` | No       | `true`                                         | When `true` (default), gateway runs pending Drizzle migrations on boot. DigitalOcean production sets `false` and runs migrations explicitly during deploy. |
+| `PYTHON_BIN`                | No       | `python3`                                      | Python executable used by the orchestrator for Scrapling-backed pipelines. For local installs, prefer `./.venv-pipelines/bin/python`.                      |
+| `PLAYWRIGHT_BROWSERS_PATH`  | No       | repo-local cache or `/ms-playwright` in Docker | Browser binary cache used by dynamic Scrapling fetchers.                                                                                                   |
+| `PATCHRIGHT_BROWSERS_PATH`  | No       | repo-local cache or `/ms-patchright` in Docker | Browser binary cache used by stealth Scrapling sessions.                                                                                                   |
 
 ## Email (Transactional)
 
@@ -160,25 +160,26 @@ When using local storage, HELM Pilot also persists:
 
 ## DigitalOcean (Production)
 
-| Variable            | Required | Default                                 | Description                                                          |
-| ------------------- | -------- | --------------------------------------- | -------------------------------------------------------------------- |
-| `DOMAIN`            | Prod     | `localhost`                             | Public hostname served by Caddy on the Droplet                       |
-| `TLS_EMAIL`         | Prod     | `admin@helm-pilot.dev`                  | ACME registration email for Caddy certificates                       |
-| `POSTGRES_PASSWORD` | Prod     | `helm`                                  | PostgreSQL password used by the Droplet compose stack                |
-| `HELM_IMAGE`        | Prod     | `ghcr.io/mindburn-labs/helm-oss:latest` | Published HELM sidecar image pulled by the Droplet                   |
-| `PILOT_IMAGE`       | No       | `helm-pilot:local`                      | Optional prebuilt Pilot image. If unset, the Droplet builds locally. |
-| `WEB_IMAGE`         | No       | `helm-pilot-web:local`                  | Optional prebuilt web image. If unset, the Droplet builds locally.   |
+| Variable            | Required | Default                                      | Description                                           |
+| ------------------- | -------- | -------------------------------------------- | ----------------------------------------------------- |
+| `DOMAIN`            | Prod     | `localhost`                                  | Public hostname served by Caddy on the Droplet        |
+| `TLS_EMAIL`         | Prod     | `admin@helm-pilot.dev`                       | ACME registration email for Caddy certificates        |
+| `POSTGRES_PASSWORD` | Prod     | `helm`                                       | PostgreSQL password used by the Droplet compose stack |
+| `POSTGRES_IMAGE`    | Prod     | `pgvector/pgvector:0.8.0-pg17`               | Pinned pgvector PostgreSQL image                      |
+| `CADDY_IMAGE`       | Prod     | `caddy:2.10.2-alpine`                        | Pinned Caddy TLS proxy image                          |
+| `OFELIA_IMAGE`      | Prod     | `mcuadros/ofelia:0.3.22`                     | Pinned backup scheduler image                         |
+| `HELM_IMAGE`        | Prod     | `ghcr.io/mindburn-labs/helm-oss:0.3.0`       | Published HELM sidecar image pulled by the Droplet    |
+| `PILOT_IMAGE`       | Prod     | `ghcr.io/mindburn-labs/helm-pilot:<tag>`     | Published Pilot gateway image pulled by the Droplet   |
+| `WEB_IMAGE`         | Prod     | `ghcr.io/mindburn-labs/helm-pilot-web:<tag>` | Published Next.js web image pulled by the Droplet     |
 
 Deployment-time `doctl` variables such as `DO_REGION`, `DO_SIZE`, `DO_SSH_KEYS`, and `DO_DROPLET_IP` are consumed by `infra/digitalocean/deploy.sh`; they are not runtime app variables.
 
 ## Backup
 
-| Variable                       | Required | Default     | Description                                             |
-| ------------------------------ | -------- | ----------- | ------------------------------------------------------- |
-| Variable                       | Required | Default     | Description                                             |
-| ------------------------------ | -------- | ----------- | ------------------------------------------------------- |
-| `BACKUP_DIR`                   | No       | `./backups` | Local backup directory for `scripts/backup.sh`          |
-| `BACKUP_ENCRYPTION_PASSPHRASE` | Prod     | —           | GPG symmetric passphrase for encrypted remote backups   |
-| `BACKUP_CRON_SCHEDULE`         | No       | `0 3 * * *` | Ofelia cron expression for the DigitalOcean backup job  |
+| Variable                       | Required | Default     | Description                                            |
+| ------------------------------ | -------- | ----------- | ------------------------------------------------------ |
+| `BACKUP_DIR`                   | No       | `./backups` | Local backup directory for `scripts/backup.sh`         |
+| `BACKUP_ENCRYPTION_PASSPHRASE` | Prod     | —           | GPG symmetric passphrase for encrypted remote backups  |
+| `BACKUP_CRON_SCHEDULE`         | No       | `0 3 * * *` | Ofelia cron expression for the DigitalOcean backup job |
 
 Production backups are uploaded as encrypted `.sql.gz.gpg` files using the `S3_*` variables above. Plaintext upload is blocked unless `BACKUP_ALLOW_PLAINTEXT_UPLOAD=1` is set for a non-production drill.

@@ -5,6 +5,7 @@ import { testApp, expectJson, createMockDeps } from '../helpers.js';
 describe('founderRoutes', () => {
   let deps: ReturnType<typeof createMockDeps>;
   let fetch: ReturnType<typeof testApp>['fetch'];
+  const wsHeader = { 'X-Workspace-Id': 'ws-1' };
 
   beforeEach(() => {
     const t = testApp(founderRoutes);
@@ -29,7 +30,7 @@ describe('founderRoutes', () => {
       };
       deps.db._setResult([profile]);
 
-      const res = await fetch('GET', '/ws-1');
+      const res = await fetch('GET', '/ws-1', undefined, wsHeader);
       const json = await expectJson<Record<string, unknown>>(res, 200);
 
       expect(json.id).toBe('fp-1');
@@ -39,10 +40,10 @@ describe('founderRoutes', () => {
     it('returns 404 when no profile exists', async () => {
       deps.db._setResult([]);
 
-      const res = await fetch('GET', '/ws-nonexistent');
-      const json = await expectJson<{ error: string }>(res, 404);
+      const res = await fetch('GET', '/ws-2', undefined, wsHeader);
+      const json = await expectJson<{ error: string }>(res, 403);
 
-      expect(json.error).toBe('No founder profile found');
+      expect(json.error).toBe('workspaceId does not match authenticated workspace');
     });
   });
 
@@ -50,9 +51,14 @@ describe('founderRoutes', () => {
 
   describe('POST /:workspaceId', () => {
     it('returns 400 on invalid body (empty name)', async () => {
-      const res = await fetch('POST', '/ws-1', {
-        name: '',
-      });
+      const res = await fetch(
+        'POST',
+        '/ws-1',
+        {
+          name: '',
+        },
+        wsHeader,
+      );
       const json = await expectJson<{ error: string }>(res, 400);
 
       expect(json.error).toBe('Validation failed');
@@ -81,9 +87,14 @@ describe('founderRoutes', () => {
         })),
       })) as any;
 
-      const res = await fetch('POST', '/ws-1', {
-        name: 'Test Founder',
-      });
+      const res = await fetch(
+        'POST',
+        '/ws-1',
+        {
+          name: 'Test Founder',
+        },
+        wsHeader,
+      );
       const json = await expectJson<Record<string, unknown>>(res, 201);
 
       expect(json.id).toBe('fp-1');
@@ -95,10 +106,15 @@ describe('founderRoutes', () => {
 
   describe('POST /:founderId/assessment', () => {
     it('returns 400 when required fields are missing', async () => {
-      const res = await fetch('POST', '/fp-1/assessment', {
-        assessmentType: 'personality',
-        // missing responses
-      });
+      const res = await fetch(
+        'POST',
+        '/fp-1/assessment',
+        {
+          assessmentType: 'personality',
+          // missing responses
+        },
+        wsHeader,
+      );
       const json = await expectJson<{ error: string }>(res, 400);
 
       expect(json.error).toBe('assessmentType and responses are required');
@@ -120,11 +136,21 @@ describe('founderRoutes', () => {
           then: (r: any) => r([assessment]),
         })),
       })) as any;
+      const origSelect = deps.db.select;
+      deps.db.select = vi.fn(() => {
+        deps.db._setResult([{ id: 'fp-1' }]);
+        return origSelect();
+      }) as any;
 
-      const res = await fetch('POST', '/fp-1/assessment', {
-        assessmentType: 'personality',
-        responses: { q1: 'a1', q2: 'a2' },
-      });
+      const res = await fetch(
+        'POST',
+        '/fp-1/assessment',
+        {
+          assessmentType: 'personality',
+          responses: { q1: 'a1', q2: 'a2' },
+        },
+        wsHeader,
+      );
       const json = await expectJson<Record<string, unknown>>(res, 201);
 
       expect(json.id).toBe('fa-1');
@@ -137,12 +163,30 @@ describe('founderRoutes', () => {
   describe('GET /:founderId/strengths', () => {
     it('returns founder strengths', async () => {
       const strengths = [
-        { id: 'fs-1', founderId: 'fp-1', category: 'technical', strength: 'System design', score: 0.9 },
-        { id: 'fs-2', founderId: 'fp-1', category: 'leadership', strength: 'Team building', score: 0.85 },
+        {
+          id: 'fs-1',
+          founderId: 'fp-1',
+          category: 'technical',
+          strength: 'System design',
+          score: 0.9,
+        },
+        {
+          id: 'fs-2',
+          founderId: 'fp-1',
+          category: 'leadership',
+          strength: 'Team building',
+          score: 0.85,
+        },
       ];
-      deps.db._setResult(strengths);
+      let selectCall = 0;
+      const origSelect = deps.db.select;
+      deps.db.select = vi.fn(() => {
+        selectCall++;
+        deps.db._setResult(selectCall === 1 ? [{ id: 'fp-1' }] : strengths);
+        return origSelect();
+      }) as any;
 
-      const res = await fetch('GET', '/fp-1/strengths');
+      const res = await fetch('GET', '/fp-1/strengths', undefined, wsHeader);
       const json = await expectJson<unknown[]>(res, 200);
 
       expect(json).toHaveLength(2);

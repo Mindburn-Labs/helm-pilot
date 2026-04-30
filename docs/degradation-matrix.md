@@ -21,7 +21,7 @@ HELM Pilot is designed so that missing optional services cause specific, bounded
 | `ENCRYPTION_KEY`                                                                  | **Required in production** (process exits 1). Dev fallback is insecure.                                                                  | Connector token encryption at rest.                                                               |
 | `SESSION_SECRET`                                                                  | Defaults to dev value. **Unsafe for production.**                                                                                        | Session token + OAuth state HMAC.                                                                 |
 | `ENABLED_CONNECTORS`                                                              | All connectors register with warnings if credentials missing.                                                                            | Strict startup validation disabled.                                                               |
-| `RUN_MIGRATIONS_ON_STARTUP`                                                       | Defaults to `true`. Set `false` to manage migrations manually.                                                                           | Schema drift risk if set false and migrations forgotten.                                          |
+| `RUN_MIGRATIONS_ON_STARTUP`                                                       | Defaults to `true`. DigitalOcean production sets `false` and runs migrations explicitly during deploy.                                   | Schema drift risk if set false and migrations forgotten.                                          |
 | `DAILY_BUDGET_MAX` / `PER_TASK_BUDGET_MAX`                                        | Defaults to 500 / 100 (EUR).                                                                                                             | Cost enforcement tightness.                                                                       |
 | `DB_POOL_MAX` / `DB_IDLE_TIMEOUT` / etc.                                          | Sensible defaults applied.                                                                                                               | Pool tuning only matters under high concurrency.                                                  |
 
@@ -30,10 +30,11 @@ HELM Pilot is designed so that missing optional services cause specific, bounded
 The process exits non-zero if any of these fail:
 
 1. `DATABASE_URL` is missing.
-2. `ENCRYPTION_KEY` is missing AND `NODE_ENV=production`.
-3. `drizzle-kit migrate` fails during startup (when `RUN_MIGRATIONS_ON_STARTUP=true`).
-4. Any connector listed in `ENABLED_CONNECTORS` has missing credentials (prod only).
-5. `EMAIL_PROVIDER=resend` without `RESEND_API_KEY`, or `EMAIL_PROVIDER=smtp` without `SMTP_HOST`.
+2. `SESSION_SECRET`, `ENCRYPTION_KEY`, or configured `EVIDENCE_SIGNING_KEY` is missing or still a placeholder when `NODE_ENV=production`.
+3. `TELEGRAM_BOT_TOKEN` is set in production without `TELEGRAM_WEBHOOK_SECRET`.
+4. `drizzle-kit migrate` fails during startup (when `RUN_MIGRATIONS_ON_STARTUP=true`).
+5. Any connector listed in `ENABLED_CONNECTORS` has missing credentials (prod only).
+6. `EMAIL_PROVIDER=resend` without `RESEND_API_KEY`, or `EMAIL_PROVIDER=smtp` without `SMTP_HOST`.
 
 ## Degraded but running
 
