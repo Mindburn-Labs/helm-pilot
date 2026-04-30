@@ -55,6 +55,13 @@ export {
 } from './validators.js';
 
 export {
+  type OperatorComputerUse,
+  type ScraplingFetch,
+  OperatorComputerUseInput,
+  ScraplingFetchInput,
+} from './tool-inputs.js';
+
+export {
   type PolicyConfig,
   type BudgetLimits,
   type TrustBoundaryResult,

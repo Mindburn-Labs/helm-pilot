@@ -27,6 +27,15 @@ import {
   updateManagedTelegramSettings,
 } from './api.js';
 import { useAsync } from './hooks.js';
+import {
+  detectTelegramCapabilities,
+  getDeviceStorageItem,
+  requestCommandCenterFullscreen,
+  requestHomeScreenShortcut,
+  setDeviceStorageItem,
+  setSecureStorageItem,
+  type TelegramWebAppBridge,
+} from './telegram-capabilities.js';
 import type {
   AuthResponse,
   OperatorRole,
@@ -70,7 +79,7 @@ declare global {
           onClick: (cb: () => void) => void;
           offClick: (cb: () => void) => void;
         };
-      };
+      } & TelegramWebAppBridge;
     };
   }
 }
@@ -93,6 +102,9 @@ export function App() {
   const [auth, setAuth] = useState<AuthResponse | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('home');
+  const [telegramCapabilities, setTelegramCapabilities] = useState(() =>
+    detectTelegramCapabilities(window.Telegram?.WebApp),
+  );
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
@@ -102,6 +114,12 @@ export function App() {
     }
     tg.ready();
     tg.expand();
+    setTelegramCapabilities(detectTelegramCapabilities(tg));
+    void getDeviceStorageItem(tg, 'helm_pilot_active_tab').then((tab) => {
+      if (tab && (TABS as readonly string[]).includes(tab)) {
+        setActiveTab(tab as Tab);
+      }
+    });
     if (!tg.initData) {
       setAuthError('No init data from Telegram');
       return;
@@ -110,6 +128,15 @@ export function App() {
       .then((res) => {
         setAuthToken(res.token);
         setAuth(res);
+        void setSecureStorageItem(
+          tg,
+          'helm_pilot_session_hint',
+          JSON.stringify({
+            workspaceId: res.workspace.id,
+            userId: res.user.id,
+            storedAt: new Date().toISOString(),
+          }),
+        );
       })
       .catch((e: Error) => setAuthError(e.message));
   }, []);
@@ -117,6 +144,7 @@ export function App() {
   const switchTab = useCallback((tab: Tab) => {
     haptic('light');
     setActiveTab(tab);
+    void setDeviceStorageItem(window.Telegram?.WebApp, 'helm_pilot_active_tab', tab);
   }, []);
 
   if (authError)
@@ -147,7 +175,13 @@ export function App() {
       <ReauthBanner workspaceId={wsId} />
 
       <div className="tab-content">
-        {activeTab === 'home' && <HomeTab workspaceId={wsId} onNavigate={switchTab} />}
+        {activeTab === 'home' && (
+          <HomeTab
+            workspaceId={wsId}
+            onNavigate={switchTab}
+            telegramCapabilities={telegramCapabilities}
+          />
+        )}
         {activeTab === 'discover' && <DiscoverTab workspaceId={wsId} />}
         {activeTab === 'build' && <BuildTab workspaceId={wsId} />}
         {activeTab === 'knowledge' && <KnowledgeTab />}
@@ -176,9 +210,11 @@ export function App() {
 function HomeTab({
   workspaceId,
   onNavigate,
+  telegramCapabilities,
 }: {
   workspaceId: string;
   onNavigate: (t: Tab) => void;
+  telegramCapabilities: ReturnType<typeof detectTelegramCapabilities>;
 }) {
   const { data: status, loading, reload } = useAsync(() => getStatus(workspaceId), [workspaceId]);
   const { data: approvals } = useAsync(() => getApprovals(workspaceId), [workspaceId]);
@@ -212,6 +248,36 @@ function HomeTab({
           <StatCard value={status?.pendingApprovals ?? 0} label="Approvals" accent />
         </div>
       </div>
+
+      {(telegramCapabilities.fullscreen || telegramCapabilities.homeScreen) && (
+        <div className="section">
+          <div className="section-header">Command Center</div>
+          <div className="pill-row">
+            {telegramCapabilities.fullscreen && (
+              <button
+                className="pill"
+                onClick={() => {
+                  haptic('medium');
+                  requestCommandCenterFullscreen(window.Telegram?.WebApp);
+                }}
+              >
+                Fullscreen
+              </button>
+            )}
+            {telegramCapabilities.homeScreen && (
+              <button
+                className="pill"
+                onClick={() => {
+                  haptic('success');
+                  requestHomeScreenShortcut(window.Telegram?.WebApp);
+                }}
+              >
+                Home screen
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="section">
         <div className="section-header">

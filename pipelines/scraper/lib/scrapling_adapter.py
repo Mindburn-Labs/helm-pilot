@@ -9,6 +9,8 @@ from urllib.parse import urlparse
 from scrapling import DynamicFetcher, Fetcher, StealthyFetcher
 from scrapling.core.storage import SQLiteStorageSystem
 
+SAFE_REDIRECT_MODE = "safe"
+
 
 def domain_key(url: str) -> str:
     return urlparse(url).netloc.replace(".", "_")
@@ -43,6 +45,24 @@ def selector_config(url: str, adaptive_domain: str | None = None) -> dict[str, A
         },
         "adaptive_domain": domain,
     }
+
+
+def follow_redirects_mode() -> str | bool:
+    raw = os.environ.get("SCRAPLING_FOLLOW_REDIRECTS", SAFE_REDIRECT_MODE).strip().lower()
+    if raw in {"0", "false", "off", "no"}:
+        return False
+    if raw in {"all", "unsafe"}:
+        return "all"
+    return SAFE_REDIRECT_MODE
+
+
+def spider_development_mode(enabled: bool = False) -> bool:
+    if os.environ.get("NODE_ENV") == "production":
+        return False
+    raw = os.environ.get("SCRAPLING_DEVELOPMENT_MODE")
+    if raw is not None:
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return enabled
 
 
 def cookies_from_session(session_data: Any) -> list[dict[str, Any]] | None:
@@ -89,6 +109,7 @@ def fetch_json(
         "cookies": cookies,
         "timeout": timeout,
         "selector_config": selector_config(url, adaptive_domain),
+        "follow_redirects": follow_redirects_mode(),
     }
     if method.upper() == "POST":
         if json_body is not None:
@@ -127,6 +148,7 @@ def fetch_html(
             cookies=cookies,
             extra_headers=headers or {},
             selector_config=selector_config(url, adaptive_domain),
+            follow_redirects=follow_redirects_mode(),
             timeout=timeout_ms,
             wait_selector=wait_selector,
             wait_selector_state=wait_selector_state,
@@ -142,6 +164,7 @@ def fetch_html(
             cookies=cookies,
             extra_headers=headers or {},
             selector_config=selector_config(url, adaptive_domain),
+            follow_redirects=follow_redirects_mode(),
             timeout=timeout_ms,
             wait_selector=wait_selector,
             wait_selector_state=wait_selector_state,
@@ -155,6 +178,7 @@ def fetch_html(
         headers=headers or {},
         cookies=cookies,
         selector_config=selector_config(url, adaptive_domain),
+        follow_redirects=follow_redirects_mode(),
         timeout=max(5, int(timeout_ms / 1000)),
     )
 

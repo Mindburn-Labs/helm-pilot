@@ -17,5 +17,7 @@ export type {
   HelmClientConfig,
   HelmReceipt,
   HelmVerdict,
+  OperatorComputerUseRequest,
+  OperatorComputerUseResult,
 } from './types.js';
 export type { HelmLlmProviderOptions } from './provider.js';

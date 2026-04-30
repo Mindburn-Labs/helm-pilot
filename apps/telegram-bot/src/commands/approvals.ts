@@ -2,9 +2,9 @@ import { Bot } from 'grammy';
 import { and, eq } from 'drizzle-orm';
 import { type Db } from '@helm-pilot/db/client';
 import { approvals } from '@helm-pilot/db/schema';
-import { type BotContext } from '../types.js';
+import { type BotContext, type BotDeps } from '../types.js';
 
-export function registerApprovals(bot: Bot<BotContext>, db: Db) {
+export function registerApprovals(bot: Bot<BotContext>, db: Db, deps?: Partial<BotDeps>) {
   bot.command('approve', async (ctx) => {
     const wsId = ctx.session.workspaceId;
     if (!wsId) return ctx.reply('Use /start first.');
@@ -66,14 +66,20 @@ export function registerApprovals(bot: Bot<BotContext>, db: Db) {
       return;
     }
 
-    await db
-      .update(approvals)
-      .set({
-        status: approved ? 'approved' : 'rejected',
-        resolvedBy: ctx.from?.id?.toString() ?? 'unknown',
-        resolvedAt: new Date(),
-      })
-      .where(and(eq(approvals.id, approvalId!), eq(approvals.workspaceId, wsId)));
+    const status = approved ? 'approved' : 'rejected';
+    const resolvedBy = ctx.from?.id?.toString() ?? 'unknown';
+    if (deps?.resolveApproval) {
+      await deps.resolveApproval({ approvalId: approvalId!, workspaceId: wsId, status, resolvedBy });
+    } else {
+      await db
+        .update(approvals)
+        .set({
+          status,
+          resolvedBy,
+          resolvedAt: new Date(),
+        })
+        .where(and(eq(approvals.id, approvalId!), eq(approvals.workspaceId, wsId)));
+    }
 
     await ctx.answerCallbackQuery({ text: approved ? 'Approved' : 'Rejected' });
     await ctx.editMessageText(

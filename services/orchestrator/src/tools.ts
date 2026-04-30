@@ -1,9 +1,11 @@
 import { type Db } from '@helm-pilot/db/client';
 import { type MemoryService } from '@helm-pilot/memory';
+import { OperatorComputerUseInput, ScraplingFetchInput } from '@helm-pilot/shared/schemas';
 import {
   SubagentSpawnRequestSchema,
   SubagentParallelRequestSchema,
 } from '@helm-pilot/shared/subagents';
+import { type HelmClient } from '@helm-pilot/helm-client';
 import { withToolSpan } from '@helm-pilot/shared/otel';
 import { type McpClient } from '@helm-pilot/shared/mcp';
 import { type ToolDef } from './agent-loop.js';
@@ -28,7 +30,7 @@ export class ToolRegistry {
   constructor(
     private readonly db: Db,
     private readonly memory?: MemoryService,
-    options?: { skipBuiltins?: boolean },
+    private readonly options?: { skipBuiltins?: boolean; helmClient?: HelmClient },
   ) {
     if (!options?.skipBuiltins) {
       this.registerBuiltins();
@@ -50,7 +52,10 @@ export class ToolRegistry {
    */
   subset(allowedNames: string[]): ToolRegistry {
     const allowed = new Set(allowedNames);
-    const scoped = new ToolRegistry(this.db, this.memory, { skipBuiltins: true });
+    const scoped = new ToolRegistry(this.db, this.memory, {
+      skipBuiltins: true,
+      helmClient: this.options?.helmClient,
+    });
     for (const [name, tool] of this.tools) {
       if (allowed.has(name)) {
         scoped.tools.set(name, tool);
@@ -228,20 +233,13 @@ export class ToolRegistry {
     this.register({
       name: 'scrapling_fetch',
       description:
-        'Fetch and optionally extract a web page using the internal Scrapling bridge. Input: {"url":"https://...","selector":"main","strategy":"auto|fetcher|dynamic|stealthy","waitSelector":"main","adaptiveDomain":"ycombinator.com","limit":5,"convertMarkdown":false}',
+        'Fetch and optionally extract a web page using the internal Scrapling bridge. Input: {"url":"https://...","selector":"main","strategy":"auto|fetcher|dynamic|stealthy","waitSelector":"main","adaptiveDomain":"ycombinator.com","limit":5,"convertMarkdown":false,"developmentMode":false}',
       modes: ['discover', 'build', 'launch', 'apply'],
       execute: async (input) => {
-        const { url, selector, strategy, waitSelector, adaptiveDomain, limit, convertMarkdown } =
-          input as {
-            url?: string;
-            selector?: string;
-            strategy?: 'auto' | 'fetcher' | 'dynamic' | 'stealthy';
-            waitSelector?: string;
-            adaptiveDomain?: string;
-            limit?: number;
-            convertMarkdown?: boolean;
-          };
-        if (!url) return { error: 'url is required' };
+        const parsed = ScraplingFetchInput.safeParse(input);
+        if (!parsed.success) return { error: `invalid scrapling_fetch input: ${parsed.error.message}` };
+        const { url, selector, strategy, waitSelector, adaptiveDomain, limit, convertMarkdown, developmentMode } =
+          parsed.data;
 
         const { resolve } = await import('node:path');
         const { execFile } = await import('node:child_process');
@@ -257,7 +255,9 @@ export class ToolRegistry {
           ...(strategy ? ['--strategy', strategy] : []),
           ...(waitSelector ? ['--wait-selector', waitSelector] : []),
           ...(adaptiveDomain ? ['--adaptive-domain', adaptiveDomain] : []),
-          ...(limit ? ['--limit', String(limit)] : []),
+          '--limit',
+          String(limit),
+          ...(developmentMode ? ['--development-mode'] : []),
           ...(convertMarkdown ? ['--convert-markdown'] : []),
         ];
 
@@ -268,6 +268,40 @@ export class ToolRegistry {
           maxBuffer: 10 * 1024 * 1024,
         });
         return JSON.parse(stdout);
+      },
+    });
+
+    // ─── Governed Operator / Computer Use Prototype ───
+    this.register({
+      name: 'operator.computer_use',
+      description:
+        'Request a governed computer-use run behind HELM. Input: {"workspaceId":"uuid","taskId":"uuid","operatorId":"uuid","objective":"...","targetUrl":"https://...","environment":"browser","maxSteps":12,"approvalCheckpoint":"before submit/payment/write"}',
+      modes: ['discover', 'build', 'launch', 'apply'],
+      execute: async (input) => {
+        const parsed = OperatorComputerUseInput.safeParse(input);
+        if (!parsed.success) {
+          return { error: `invalid operator.computer_use input: ${parsed.error.message}` };
+        }
+        const helmClient = this.options?.helmClient;
+        if (!helmClient) {
+          return {
+            error:
+              'operator.computer_use requires packages/helm-client wiring; refusing to create an out-of-band computer-use path',
+          };
+        }
+        const req = parsed.data;
+        return helmClient.evaluateOperatorComputerUse({
+          principal: `workspace:${req.workspaceId}/operator:${req.operatorId ?? 'agent'}`,
+          workspaceId: req.workspaceId,
+          taskId: req.taskId,
+          operatorId: req.operatorId,
+          objective: req.objective,
+          targetUrl: req.targetUrl,
+          environment: req.environment,
+          maxSteps: req.maxSteps,
+          approvalCheckpoint: req.approvalCheckpoint,
+          evidencePackId: req.evidencePackId,
+        });
       },
     });
 
