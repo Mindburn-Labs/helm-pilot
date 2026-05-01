@@ -16,5 +16,5 @@ numpy==2.2.3
 psycopg2-binary==2.9.10
 pyyaml==6.0.2
 python-dotenv==1.0.1
-cryptography==45.0.4
+cryptography==46.0.7
 markitdown[all]==0.1.5
