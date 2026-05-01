@@ -15,6 +15,19 @@
 		-Server
 	}
 
+	# Next.js HTML must not be cached by shared proxies; static chunks are content-hashed.
+	@nextStatic path /_next/static/*
+	header @nextStatic Cache-Control "public, max-age=31536000, immutable"
+
+	@dynamic {
+		not path /_next/static/*
+	}
+	header @dynamic -Cache-Control
+	header @dynamic Cache-Control "no-store"
+	header @dynamic CDN-Cache-Control "no-store"
+	header @dynamic Cloudflare-CDN-Cache-Control "no-store"
+	header @dynamic Pragma "no-cache"
+
 	# SSE events (longer timeouts)
 	handle /api/events/* {
 		reverse_proxy helm-pilot:3100 {
