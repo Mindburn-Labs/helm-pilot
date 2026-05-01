@@ -89,7 +89,11 @@ if curl -sf "$API_URL/health" > /dev/null 2>&1; then
   check "Security headers (x-content-type-options)" bash -c "curl -sI '$API_URL/health' | grep -qi 'x-content-type-options'"
   check "Request-ID header echoed" bash -c "curl -sI '$API_URL/health' | grep -qi 'x-request-id'"
   check "Malformed JSON returns 400 (or 429 if rate-limited)" bash -c "STATUS=\$(curl -s -o /dev/null -w '%{http_code}' -X POST '$API_URL/api/auth/email/request' -H 'Content-Type: application/json' -d 'not-json'); [ \"\$STATUS\" = '400' ] || [ \"\$STATUS\" = '429' ]"
-  check "Metrics endpoint (Prometheus format)" bash -c "curl -sf '$API_URL/metrics' | grep -q 'helm_pilot_http_requests_total'"
+  if [ -n "${METRICS_AUTH_TOKEN:-}" ]; then
+    check "Metrics endpoint (Prometheus format)" bash -c "curl -sf -H 'Authorization: Bearer ${METRICS_AUTH_TOKEN}' '$API_URL/metrics' | grep -q 'helm_pilot_http_requests_total'"
+  else
+    check "Metrics endpoint (Prometheus format)" bash -c "curl -sf '$API_URL/metrics' | grep -q 'helm_pilot_http_requests_total'"
+  fi
   check "Oversized POST body returns 413" bash -c "BIG=\$(head -c 200000 /dev/urandom | base64); STATUS=\$(curl -s -o /dev/null -w '%{http_code}' -X POST '$API_URL/api/auth/email/request' -H 'Content-Type: application/json' -d \"\$BIG\"); [ \"\$STATUS\" = '413' ] || [ \"\$STATUS\" = '400' ]"
   check "Auth rate limit header" bash -c "curl -sf -D- '$API_URL/api/auth/email/request' -X POST -H 'Content-Type: application/json' -d '{\"email\":\"test\"}' | head -1"
 

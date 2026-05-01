@@ -45,7 +45,10 @@ if (health.body?.checks?.helm !== 'ok') {
   fail(`/health must report checks.helm="ok": ${JSON.stringify(health.body?.checks)}`);
 }
 
-const metrics = await fetch(`${apiUrl}/metrics`);
+const metricsHeaders = process.env.METRICS_AUTH_TOKEN
+  ? { Authorization: `Bearer ${process.env.METRICS_AUTH_TOKEN}` }
+  : {};
+const metrics = await fetch(`${apiUrl}/metrics`, { headers: metricsHeaders });
 const metricsText = await metrics.text();
 if (!metrics.ok || !metricsText.includes('helm_pilot_http_requests_total')) {
   fail('/metrics did not expose helm_pilot_http_requests_total');

@@ -4,7 +4,7 @@ Grafana dashboards + Prometheus alert rules for HELM Pilot.
 
 ## Sources
 
-HELM Pilot exposes Prometheus metrics on `GET /metrics` (served by the gateway on the same port as the HTTP API, default `3100`). In DigitalOcean production, Caddy proxies `/metrics` to the gateway and you can scrape the public HTTPS endpoint or an internal Docker-network target.
+HELM Pilot exposes Prometheus metrics on `GET /metrics` (served by the gateway on the same port as the HTTP API, default `3100`). In production, configure `METRICS_AUTH_TOKEN` and scrape the gateway on the private Docker network with a bearer token. Caddy deliberately returns `404` for public `/metrics`.
 
 Metrics prefix: `helm_pilot_*`
 
@@ -47,7 +47,7 @@ Wire Prometheus Alertmanager to your preferred channel (Slack, PagerDuty, Email)
 
 ## DigitalOcean scrape
 
-For the Droplet deployment, scrape the gateway service on the Docker network from a colocated Prometheus container or scrape the public Caddy endpoint if your monitoring stack is external.
+For the Droplet deployment, scrape the gateway service on the Docker network from a colocated Prometheus container. Do not scrape the public Caddy endpoint; it is intentionally disabled.
 
 ## Self-hosted scrape
 
@@ -71,4 +71,7 @@ scrape_configs:
   - job_name: 'helm-pilot'
     static_configs:
       - targets: ['helm-pilot:3100']
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/helm-pilot-metrics-token
 ```
