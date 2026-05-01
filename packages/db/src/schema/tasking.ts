@@ -47,6 +47,7 @@ export const taskRuns = pgTable('task_runs', {
   status: text('status').notNull().default('running'),
   actionTool: text('action_tool'),
   actionInput: jsonb('action_input'),
+  actionHash: text('action_hash'),
   actionOutput: jsonb('action_output'),
   verdict: text('verdict'),
   iterationsUsed: integer('iterations_used').default(0),

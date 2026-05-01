@@ -182,6 +182,7 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
           .map((r, i) => ({
             tool: r.actionTool ?? 'unknown',
             input: r.actionInput ?? {},
+            actionHash: r.actionHash ?? undefined,
             output: r.actionOutput ?? null,
             verdict: r.verdict ?? (r.status === 'awaiting_approval' ? 'require_approval' : 'allow'),
             iteration: r.iterationsUsed ?? i + 1,

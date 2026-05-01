@@ -194,7 +194,7 @@ export function createGateway(deps: GatewayDeps) {
     );
   });
 
-  // ─── Prometheus metrics endpoint (public, for scraping) ───
+  // ─── Prometheus metrics endpoint (token-gated in production) ───
   app.get('/metrics', metricsEndpoint());
 
   // ─── Auth routes (public) ───

@@ -1,14 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AgentLoop } from '../agent-loop.js';
+import { AgentLoop, computeActionHash } from '../agent-loop.js';
 
 vi.mock('@helm-pilot/db/schema', () => ({
   taskRuns: 'taskRuns',
-  approvals: 'approvals',
+  approvals: {
+    workspaceId: 'approvals.workspaceId',
+    taskId: 'approvals.taskId',
+    status: 'approvals.status',
+    actionHash: 'approvals.actionHash',
+  },
   operatorMemory: 'operatorMemory',
 }));
 
 vi.mock('@helm-pilot/shared/schemas', () => ({
   MAX_ITERATION_BUDGET: 200,
+}));
+
+vi.mock('drizzle-orm', () => ({
+  and: vi.fn((...conditions: unknown[]) => ({ conditions })),
+  eq: vi.fn((left: unknown, right: unknown) => ({ left, right })),
 }));
 
 const mockDb = {
@@ -33,6 +43,7 @@ const mockDb = {
 
 const mockTrust = {
   evaluate: vi.fn(() => ({ verdict: 'allow' })),
+  policyFingerprint: vi.fn(() => 'local:policy-v1'),
 } as any;
 
 const mockLlm = {
@@ -57,6 +68,8 @@ function baseParams() {
 describe('AgentLoop', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockTrust.evaluate.mockReturnValue({ verdict: 'allow' });
+    mockTrust.policyFingerprint.mockReturnValue('local:policy-v1');
   });
 
   it('execute() returns completed with 0 iterations when no LLM is set', async () => {
@@ -170,5 +183,72 @@ describe('AgentLoop', () => {
     expect(result.status).toBe('completed');
     expect(result.iterationsUsed).toBe(0);
     expect(result.error).toBe('No LLM configured');
+  });
+
+  it('resume() blocks a paused action without a matching approved action receipt', async () => {
+    const loop = new AgentLoop(mockDb, mockTrust);
+    loop.setLlm(mockLlm);
+    loop.setTools(mockTools);
+
+    const result = await loop.resume({
+      ...baseParams(),
+      priorActions: [
+        {
+          tool: 'search',
+          input: { workspaceId: 'ws-1' },
+          output: null,
+          verdict: 'require_approval',
+          iteration: 1,
+        },
+      ],
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.error).toBe(
+      'No approved action receipt matched this task, workspace, and action hash',
+    );
+    expect(mockTools.execute).not.toHaveBeenCalled();
+  });
+
+  it('resume() blocks an approved action when the local policy fingerprint changed', async () => {
+    const action = {
+      tool: 'search',
+      input: { workspaceId: 'ws-1', query: 'pricing' },
+      output: null,
+      verdict: 'require_approval',
+      iteration: 1,
+    };
+    const actionHash = computeActionHash(action);
+    const db = {
+      ...mockDb,
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => [
+              {
+                id: 'approval-1',
+                action: 'search',
+                actionHash,
+                policyVersion: 'local:policy-v0',
+                expiresAt: new Date(Date.now() + 60_000),
+              },
+            ]),
+          })),
+        })),
+      })),
+    } as any;
+    mockTrust.policyFingerprint.mockReturnValue('local:policy-v1');
+    const loop = new AgentLoop(db, mockTrust);
+    loop.setLlm(mockLlm);
+    loop.setTools(mockTools);
+
+    const result = await loop.resume({
+      ...baseParams(),
+      priorActions: [{ ...action, actionHash }],
+    });
+
+    expect(result.status).toBe('blocked');
+    expect(result.error).toBe('Local policy changed after approval was granted');
+    expect(mockTools.execute).not.toHaveBeenCalled();
   });
 });

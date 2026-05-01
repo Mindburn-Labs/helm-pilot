@@ -120,6 +120,13 @@
       "when": 1777305600000,
       "tag": "0015_managed_telegram_bots",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1777657000000,
+      "tag": "0016_action_integrity_and_metrics",
+      "breakpoints": true
     }
   ]
 }

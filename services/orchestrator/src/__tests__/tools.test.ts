@@ -227,6 +227,53 @@ describe('ToolRegistry', () => {
       expect(result).toEqual({ received: { msg: 'hello' } });
     });
 
+    it('overrides model-supplied workspace/task authority with server context', async () => {
+      const registry = createRegistry();
+      const executeFn = vi.fn(async (input: unknown) => ({ received: input }));
+
+      registry.register({
+        name: 'contextual',
+        description: 'Checks bound context',
+        execute: executeFn,
+      });
+
+      const result = await registry.execute(
+        'contextual',
+        {
+          workspaceId: 'spoofed-ws',
+          taskId: 'spoofed-task',
+          operatorId: 'spoofed-op',
+          value: 1,
+        },
+        {
+          workspaceId: 'server-ws',
+          taskId: 'server-task',
+          operatorId: 'server-op',
+          actionHash: 'sha256:action',
+          policyVersion: 'local:policy',
+        },
+      );
+
+      expect(executeFn).toHaveBeenCalledWith({
+        workspaceId: 'server-ws',
+        taskId: 'server-task',
+        operatorId: 'server-op',
+        value: 1,
+        actionHash: 'sha256:action',
+        policyVersion: 'local:policy',
+      });
+      expect(result).toEqual({
+        received: {
+          workspaceId: 'server-ws',
+          taskId: 'server-task',
+          operatorId: 'server-op',
+          value: 1,
+          actionHash: 'sha256:action',
+          policyVersion: 'local:policy',
+        },
+      });
+    });
+
     it('returns error object for unregistered tools', async () => {
       const registry = createRegistry();
       const result = await registry.execute('nonexistent_tool', {});
@@ -393,6 +440,24 @@ describe('ToolRegistry', () => {
       await registry.execute('search_knowledge', { query: 'test', limit: 10 });
 
       expect(mockMemory.search).toHaveBeenCalledWith('test', { limit: 10 });
+    });
+
+    it('uses server-bound workspace for memory retrieval when context is present', async () => {
+      const mockMemory = {
+        search: vi.fn(async () => []),
+      };
+      const registry = createRegistry({ memory: mockMemory });
+
+      await registry.execute(
+        'search_knowledge',
+        { query: 'test', workspaceId: 'spoofed-ws' },
+        { workspaceId: 'server-ws', taskId: 'server-task' },
+      );
+
+      expect(mockMemory.search).toHaveBeenCalledWith('test', {
+        limit: 5,
+        workspaceId: 'server-ws',
+      });
     });
   });
 

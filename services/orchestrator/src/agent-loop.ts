@@ -1,4 +1,5 @@
 import { type Db } from '@helm-pilot/db/client';
+import { createHash } from 'node:crypto';
 import { type LlmGovernance, type LlmProvider, type LlmUsage } from '@helm-pilot/shared/llm';
 import {
   HelmDeniedError,
@@ -12,7 +13,7 @@ import { captureException } from '@helm-pilot/shared/errors/sentry';
 import { MAX_ITERATION_BUDGET } from '@helm-pilot/shared/schemas';
 import { withAgentSpan, setLlmUsageAttributes, setHelmAttributes } from '@helm-pilot/shared/otel';
 import { type TrustBoundary } from './trust.js';
-import { type ToolRegistry } from './tools.js';
+import { type ToolExecutionContext, type ToolRegistry } from './tools.js';
 import { emitConductEvent } from './conduct-stream.js';
 import { validateL1 } from '@helm-pilot/shared/conformance';
 import { createLogger } from '@helm-pilot/shared/logger';
@@ -250,7 +251,7 @@ export class AgentLoop {
       }
 
       // 3. Execute action
-      const output = await this.executeAction(action);
+      const output = await this.executeAction(params, action);
       actions.push({ ...action, output, verdict: 'allow', iteration });
 
       // Persist action (A5 — task progress tracking)
@@ -315,7 +316,70 @@ export class AgentLoop {
     // Execute the previously-blocked action (it was approved)
     const lastAction = actions[actions.length - 1];
     if (lastAction && lastAction.verdict === 'require_approval') {
-      const output = await this.executeAction({ tool: lastAction.tool, input: lastAction.input });
+      const resumeApproval = await this.verifyResumeApproval(params, lastAction);
+      if (!resumeApproval.allowed) {
+        lastAction.output = { error: resumeApproval.reason };
+        lastAction.verdict = 'deny';
+        await this.persistAction(params.taskId, lastAction);
+        return this.result(
+          'blocked',
+          startIteration - 1,
+          maxIterations,
+          actions,
+          resumeApproval.reason,
+        );
+      }
+
+      const localVerdict = this.trust.evaluate({
+        tool: lastAction.tool,
+        content: typeof lastAction.input === 'string' ? lastAction.input : undefined,
+        workspaceId: params.workspaceId,
+        operatorId: params.operatorId,
+        estimatedCost: this.runCost,
+      });
+      if (localVerdict.verdict === 'deny') {
+        lastAction.output = { error: localVerdict.reason };
+        lastAction.verdict = 'deny';
+        await this.persistAction(params.taskId, lastAction);
+        return this.result(
+          'blocked',
+          startIteration - 1,
+          maxIterations,
+          actions,
+          localVerdict.reason,
+        );
+      }
+
+      const helmVerdict = await this.evaluateToolGovernance(params, {
+        tool: lastAction.tool,
+        input: lastAction.input,
+      });
+      if (helmVerdict.verdict === 'deny') {
+        lastAction.output = { error: helmVerdict.reason };
+        lastAction.verdict = 'deny';
+        await this.persistAction(params.taskId, lastAction);
+        return this.result(
+          'blocked',
+          startIteration - 1,
+          maxIterations,
+          actions,
+          helmVerdict.reason,
+        );
+      }
+      if (
+        helmVerdict.verdict === 'require_approval' &&
+        resumeApproval.policyVersion &&
+        this.lastToolGovernance?.policyVersion &&
+        resumeApproval.policyVersion !== this.lastToolGovernance.policyVersion
+      ) {
+        const reason = 'HELM policy changed after approval was granted';
+        lastAction.output = { error: reason };
+        lastAction.verdict = 'deny';
+        await this.persistAction(params.taskId, lastAction);
+        return this.result('blocked', startIteration - 1, maxIterations, actions, reason);
+      }
+
+      const output = await this.executeAction(params, lastAction, resumeApproval.approvalId);
       lastAction.output = output;
       lastAction.verdict = 'allow';
       await this.persistAction(params.taskId, lastAction);
@@ -397,7 +461,7 @@ export class AgentLoop {
         );
       }
 
-      const output = await this.executeAction(action);
+      const output = await this.executeAction(params, action);
       actions.push({ ...action, output, verdict: 'allow', iteration });
       await this.persistAction(params.taskId, { ...action, output, verdict: 'allow', iteration });
 
@@ -541,10 +605,99 @@ export class AgentLoop {
     );
   }
 
-  private async executeAction(action: Pick<ActionRecord, 'tool' | 'input'>): Promise<unknown> {
+  private localPolicyVersion(): string {
+    const fingerprint = (this.trust as unknown as { policyFingerprint?: () => string })
+      .policyFingerprint;
+    return typeof fingerprint === 'function' ? fingerprint.call(this.trust) : 'local:unknown';
+  }
+
+  private currentPolicyVersion(): string {
+    return (
+      this.lastToolGovernance?.policyVersion ??
+      this.lastGovernance?.policyVersion ??
+      this.localPolicyVersion()
+    );
+  }
+
+  private async verifyResumeApproval(
+    params: AgentRunParams,
+    action: ActionRecord,
+  ): Promise<ResumeApprovalCheck> {
+    const actionHash = computeActionHash(action);
+    if (action.actionHash && action.actionHash !== actionHash) {
+      return {
+        allowed: false,
+        reason: 'Approved action payload changed before resume',
+      };
+    }
+
+    try {
+      const { approvals } = await import('@helm-pilot/db/schema');
+      const { and, eq } = await import('drizzle-orm');
+      const rows = await this.db
+        .select()
+        .from(approvals)
+        .where(
+          and(
+            eq(approvals.workspaceId, params.workspaceId),
+            eq(approvals.taskId, params.taskId),
+            eq(approvals.status, 'approved'),
+            eq(approvals.actionHash, actionHash),
+          ),
+        )
+        .limit(1);
+      const approval = rows[0] as ApprovalResumeRow | undefined;
+      if (!approval) {
+        return {
+          allowed: false,
+          reason: 'No approved action receipt matched this task, workspace, and action hash',
+        };
+      }
+      if (approval.action !== action.tool) {
+        return { allowed: false, reason: 'Approved action tool did not match resume action' };
+      }
+      if (approval.actionHash && approval.actionHash !== actionHash) {
+        return { allowed: false, reason: 'Approved action hash did not match resume action' };
+      }
+      if (approval.expiresAt && new Date(approval.expiresAt).getTime() <= Date.now()) {
+        return { allowed: false, reason: 'Approval expired before resume' };
+      }
+      if (
+        approval.policyVersion?.startsWith('local:') &&
+        approval.policyVersion !== this.localPolicyVersion()
+      ) {
+        return { allowed: false, reason: 'Local policy changed after approval was granted' };
+      }
+      return {
+        allowed: true,
+        ...(approval.id ? { approvalId: approval.id } : {}),
+        ...(approval.policyVersion ? { policyVersion: approval.policyVersion } : {}),
+      };
+    } catch (err) {
+      captureException(err, {
+        tags: { source: 'verifyResumeApproval', taskId: params.taskId },
+        extra: { actionHash, tool: action.tool },
+      });
+      return { allowed: false, reason: 'Approval verification failed before resume' };
+    }
+  }
+
+  private async executeAction(
+    params: AgentRunParams,
+    action: Pick<ActionRecord, 'tool' | 'input'>,
+    approvalId?: string,
+  ): Promise<unknown> {
     if (!this.tools) return { error: 'No tool registry configured' };
     try {
-      return await this.tools.execute(action.tool, action.input);
+      const context: ToolExecutionContext = {
+        workspaceId: params.workspaceId,
+        taskId: params.taskId,
+        policyVersion: this.currentPolicyVersion(),
+        actionHash: computeActionHash(action),
+        ...(params.operatorId ? { operatorId: params.operatorId } : {}),
+        ...(approvalId ? { approvalId } : {}),
+      };
+      return await this.tools.execute(action.tool, action.input, context);
     } catch (err) {
       captureException(err, {
         tags: { tool: action.tool, source: 'executeAction' },
@@ -626,6 +779,7 @@ export class AgentLoop {
     const govResource = toolGov ? action.tool : this.runUsage.model || 'agent-loop';
     const workspaceId = this.currentWorkspaceId;
     const frame = this.currentSubagentFrame;
+    const actionHash = action.actionHash ?? computeActionHash(action);
     let taskRunId: string | undefined;
     try {
       const { taskRuns } = await import('@helm-pilot/db/schema');
@@ -636,6 +790,7 @@ export class AgentLoop {
           status: mapActionStatus(action),
           actionTool: action.tool,
           actionInput: toJsonValue(action.input),
+          actionHash,
           actionOutput: toJsonValue(action.output),
           verdict: action.verdict,
           iterationsUsed: action.iteration,
@@ -725,6 +880,7 @@ export class AgentLoop {
     reason: string,
   ): Promise<void> {
     let approvalId: string | undefined;
+    const actionHash = computeActionHash(action);
     try {
       const { approvals } = await import('@helm-pilot/db/schema');
       const [record] = await this.db
@@ -733,6 +889,15 @@ export class AgentLoop {
           workspaceId: params.workspaceId,
           taskId: params.taskId,
           action: action.tool,
+          actionInput: toJsonValue(action.input),
+          actionHash,
+          policyVersion: this.lastToolGovernance?.policyVersion ?? this.localPolicyVersion(),
+          approvalContext: {
+            taskId: params.taskId,
+            workspaceId: params.workspaceId,
+            operatorId: params.operatorId ?? null,
+            actionHash,
+          },
           reason,
           status: 'pending',
           requestedBy: params.operatorId ?? 'system',
@@ -941,6 +1106,22 @@ export interface ActionRecord {
   output: unknown;
   verdict: string;
   iteration: number;
+  actionHash?: string;
+}
+
+interface ResumeApprovalCheck {
+  allowed: boolean;
+  approvalId?: string;
+  policyVersion?: string;
+  reason?: string;
+}
+
+interface ApprovalResumeRow {
+  id?: string;
+  action: string;
+  actionHash?: string | null;
+  policyVersion?: string | null;
+  expiresAt?: Date | string | null;
 }
 
 /**
@@ -979,6 +1160,27 @@ function toJsonValue(value: unknown) {
   } catch {
     return String(value);
   }
+}
+
+export function computeActionHash(action: Pick<ActionRecord, 'tool' | 'input'>): string {
+  return `sha256:${createHash('sha256')
+    .update(stableJson({ tool: action.tool, input: toJsonValue(action.input) }))
+    .digest('hex')}`;
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(sortJson(value));
+}
+
+function sortJson(value: unknown): unknown {
+  if (value == null || typeof value !== 'object') return value;
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(sortJson);
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, child]) => [key, sortJson(child)]),
+  );
 }
 
 function toolArgs(input: unknown): Record<string, unknown> {

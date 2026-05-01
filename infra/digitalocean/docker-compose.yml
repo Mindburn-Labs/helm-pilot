@@ -39,7 +39,7 @@ services:
       HELM_REGION: ${HELM_REGION:-digitalocean}
       HELM_ENABLE_OPENAI_PROXY: '1'
       HELM_UPSTREAM_URL: ${HELM_UPSTREAM_URL:-https://openrouter.ai/api/v1}
-      EVIDENCE_SIGNING_KEY: ${EVIDENCE_SIGNING_KEY:-pilot-dev-ephemeral-key-change-me}
+      EVIDENCE_SIGNING_KEY: ${EVIDENCE_SIGNING_KEY:?set EVIDENCE_SIGNING_KEY in .env.production.helm}
       DATABASE_URL: postgres://${POSTGRES_USER:-helm}:${POSTGRES_PASSWORD:-helm}@postgres:5432/${HELM_POSTGRES_DB:-helm_governance}?sslmode=disable
       HELM_OSS_EVIDENCE_DIR: /home/helm/data/evidence
       HELM_OSS_RECEIPTS_DIR: /home/helm/data/receipts
@@ -81,6 +81,7 @@ services:
       HELM_HEALTH_URL: http://helm:8081
       HELM_FAIL_CLOSED: '1'
       HELM_EVALUATE_ENABLED: '1'
+      METRICS_AUTH_TOKEN: ${METRICS_AUTH_TOKEN:?set METRICS_AUTH_TOKEN in .env.production.pilot}
       RUN_MIGRATIONS_ON_STARTUP: ${RUN_MIGRATIONS_ON_STARTUP:-false}
     volumes:
       - app_storage:/app/data/storage
@@ -103,6 +104,10 @@ services:
       retries: 3
       start_period: 15s
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     logging:
       driver: json-file
       options:
@@ -123,6 +128,13 @@ services:
       helm-pilot:
         condition: service_healthy
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     logging:
       driver: json-file
       options:

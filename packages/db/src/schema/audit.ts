@@ -33,6 +33,10 @@ export const approvals = pgTable(
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     taskId: uuid('task_id'),
     action: text('action').notNull(),
+    actionInput: jsonb('action_input'),
+    actionHash: text('action_hash'),
+    policyVersion: text('policy_version'),
+    approvalContext: jsonb('approval_context').default({}),
     reason: text('reason').notNull(),
     status: text('status').notNull().default('pending'),
     requestedBy: text('requested_by').notNull(),
@@ -44,6 +48,7 @@ export const approvals = pgTable(
   (table) => [
     index('approvals_workspace_idx').on(table.workspaceId),
     index('approvals_status_idx').on(table.status),
+    index('approvals_action_hash_idx').on(table.workspaceId, table.taskId, table.actionHash),
   ],
 );
 

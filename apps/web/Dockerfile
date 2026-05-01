@@ -29,6 +29,10 @@ COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
 # The app does not use next/image; do not ship optional Sharp/libvips binaries.
 RUN rm -rf node_modules/sharp node_modules/@img/sharp-*
 
+RUN groupadd --system nextjs && useradd --system --gid nextjs --create-home nextjs \
+  && chown -R nextjs:nextjs /app
+USER nextjs
+
 EXPOSE 3000
 
 CMD ["node", "apps/web/server.js"]

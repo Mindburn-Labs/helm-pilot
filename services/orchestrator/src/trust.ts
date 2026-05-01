@@ -1,4 +1,5 @@
 import { type PolicyConfig, type TrustBoundaryResult, type Verdict } from '@helm-pilot/shared';
+import { createHash } from 'node:crypto';
 
 /**
  * Trust Boundary — fail-closed policy enforcement.
@@ -17,6 +18,14 @@ export class TrustBoundary {
   }
 
   /**
+   * Stable local-policy fingerprint used to bind approvals to the policy
+   * snapshot that originally required the pause.
+   */
+  policyFingerprint(): string {
+    return `local:${createHash('sha256').update(stableJson(this.policy)).digest('hex')}`;
+  }
+
+  /**
    * Evaluate whether an action should be allowed.
    */
   evaluate(action: ActionRequest): TrustBoundaryResult {
@@ -24,7 +33,11 @@ export class TrustBoundary {
 
     // Kill switch — blocks everything immediately
     if (this.policy.killSwitch) {
-      return { verdict: 'deny', reason: 'Kill switch is active — all actions blocked', checkedAt: now };
+      return {
+        verdict: 'deny',
+        reason: 'Kill switch is active — all actions blocked',
+        checkedAt: now,
+      };
     }
 
     // Fail-closed: if policy is invalid, deny all
@@ -69,7 +82,11 @@ export class TrustBoundary {
 
   private checkToolBlocklist(action: ActionRequest): CheckResult {
     if (this.policy.toolBlocklist.includes(action.tool)) {
-      return { verdict: 'deny', reason: `Tool "${action.tool}" is blocklisted`, policyRule: 'tool_blocklist' };
+      return {
+        verdict: 'deny',
+        reason: `Tool "${action.tool}" is blocklisted`,
+        policyRule: 'tool_blocklist',
+      };
     }
     return { verdict: 'allow' };
   }
@@ -126,6 +143,21 @@ export class TrustBoundary {
     }
     return { verdict: 'allow' };
   }
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(sortJson(value));
+}
+
+function sortJson(value: unknown): unknown {
+  if (value == null || typeof value !== 'object') return value;
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(sortJson);
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, child]) => [key, sortJson(child)]),
+  );
 }
 
 export interface ActionRequest {

@@ -176,19 +176,22 @@ export class ToolRegistry {
   }
 
   /** Execute a tool by name */
-  async execute(name: string, input: unknown): Promise<unknown> {
+  async execute(name: string, input: unknown, context?: ToolExecutionContext): Promise<unknown> {
     const tool = this.tools.get(name);
     if (!tool) return { error: `Unknown tool: ${name}` };
+    const boundInput =
+      context && !name.startsWith('mcp.') ? bindToolContext(input, context) : input;
     // Phase 13 (Track D) — emit an `execute_tool` OTel span. Best-effort
-    // conversation id pulled from input.taskId when the caller supplied it.
+    // conversation id pulled from server context first, then input.taskId.
     const conversationId =
-      typeof input === 'object' && input !== null && 'taskId' in input
-        ? String((input as { taskId: unknown }).taskId ?? '')
-        : '';
+      context?.taskId ??
+      (typeof boundInput === 'object' && boundInput !== null && 'taskId' in boundInput
+        ? String((boundInput as { taskId: unknown }).taskId ?? '')
+        : '');
     return withToolSpan({ toolName: name, conversationId }, async () => {
       let raw: unknown;
       try {
-        raw = await tool.execute(input);
+        raw = await tool.execute(boundInput);
       } catch (err) {
         return { error: err instanceof Error ? err.message : 'Tool execution failed' };
       }
@@ -237,9 +240,18 @@ export class ToolRegistry {
       modes: ['discover', 'build', 'launch', 'apply'],
       execute: async (input) => {
         const parsed = ScraplingFetchInput.safeParse(input);
-        if (!parsed.success) return { error: `invalid scrapling_fetch input: ${parsed.error.message}` };
-        const { url, selector, strategy, waitSelector, adaptiveDomain, limit, convertMarkdown, developmentMode } =
-          parsed.data;
+        if (!parsed.success)
+          return { error: `invalid scrapling_fetch input: ${parsed.error.message}` };
+        const {
+          url,
+          selector,
+          strategy,
+          waitSelector,
+          adaptiveDomain,
+          limit,
+          convertMarkdown,
+          developmentMode,
+        } = parsed.data;
 
         const { resolve } = await import('node:path');
         const { execFile } = await import('node:child_process');
@@ -1508,4 +1520,28 @@ export interface Tool {
   /** If set, tool is only available in these product modes. Unset = all modes. */
   modes?: string[];
   execute: (input: unknown) => Promise<unknown>;
+}
+
+export interface ToolExecutionContext {
+  workspaceId: string;
+  taskId: string;
+  userId?: string;
+  operatorId?: string;
+  approvalId?: string;
+  policyVersion?: string;
+  actionHash?: string;
+}
+
+function bindToolContext(input: unknown, context: ToolExecutionContext): unknown {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) return input;
+  return {
+    ...(input as Record<string, unknown>),
+    workspaceId: context.workspaceId,
+    taskId: context.taskId,
+    ...(context.userId ? { userId: context.userId } : {}),
+    ...(context.operatorId ? { operatorId: context.operatorId } : {}),
+    ...(context.approvalId ? { approvalId: context.approvalId } : {}),
+    ...(context.policyVersion ? { policyVersion: context.policyVersion } : {}),
+    ...(context.actionHash ? { actionHash: context.actionHash } : {}),
+  };
 }

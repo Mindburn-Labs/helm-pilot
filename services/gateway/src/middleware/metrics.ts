@@ -1,4 +1,5 @@
 import { type MiddlewareHandler } from 'hono';
+import { timingSafeEqual } from 'node:crypto';
 import client from 'prom-client';
 
 // ─── Metrics Registry ───
@@ -101,9 +102,44 @@ export function metricsMiddleware(): MiddlewareHandler {
  */
 export function metricsEndpoint(): MiddlewareHandler {
   return async (c) => {
+    const token = process.env['METRICS_AUTH_TOKEN'];
+    const allowPublic = process.env['METRICS_ALLOW_PUBLIC'] === '1';
+    const production = process.env['NODE_ENV'] === 'production';
+
+    if (token) {
+      const provided = readMetricsToken(
+        c.req.header('authorization'),
+        c.req.header('x-metrics-token'),
+      );
+      if (!provided) {
+        return c.text('Unauthorized', 401, {
+          'WWW-Authenticate': 'Bearer realm="metrics"',
+        });
+      }
+      if (!secureTokenEquals(provided, token)) {
+        return c.text('Forbidden', 403);
+      }
+    } else if (production && !allowPublic) {
+      return c.text('Not found', 404);
+    }
+
     const metrics = await register.metrics();
     return c.text(metrics, 200, {
       'Content-Type': register.contentType,
     });
   };
+}
+
+function readMetricsToken(authorization?: string, headerToken?: string): string | null {
+  if (headerToken) return headerToken;
+  if (!authorization) return null;
+  const [scheme, token] = authorization.split(/\s+/, 2);
+  if (scheme?.toLowerCase() !== 'bearer' || !token) return null;
+  return token;
+}
+
+function secureTokenEquals(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && timingSafeEqual(left, right);
 }

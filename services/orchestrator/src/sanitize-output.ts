@@ -30,7 +30,6 @@ export const TRUSTED_TOOLS: ReadonlySet<string> = new Set([
   'create_opportunity',
   'score_opportunity',
   'create_note',
-  'search_knowledge',
   'finish',
   'subagent.spawn',
   'subagent.parallel',
@@ -43,10 +42,7 @@ export interface SanitizeOutputResult {
   tainted: boolean;
 }
 
-export function sanitizeToolOutput(
-  result: unknown,
-  toolName: string,
-): SanitizeOutputResult {
+export function sanitizeToolOutput(result: unknown, toolName: string): SanitizeOutputResult {
   if (TRUSTED_TOOLS.has(toolName)) {
     return { sanitized: result, warnings: [], tainted: false };
   }
@@ -67,9 +63,7 @@ function walk(
     const result = sanitizeScrapingOutput(value);
     if (result.tainted) {
       state.tainted = true;
-      state.warnings.push(
-        `[${toolName}${path ? ' @ ' + path : ''}] ${result.warnings.join('; ')}`,
-      );
+      state.warnings.push(`[${toolName}${path ? ' @ ' + path : ''}] ${result.warnings.join('; ')}`);
     }
     return result.cleaned;
   }
