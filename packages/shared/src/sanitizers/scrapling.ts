@@ -23,12 +23,8 @@ export interface SanitizeResult {
 }
 
 function stripMatches(input: string, pattern: RegExp): { cleaned: string; count: number } {
-  let count = 0;
-  const cleaned = input.replace(pattern, () => {
-    count += 1;
-    return '';
-  });
-  return { cleaned, count };
+  const cleaned = input.replace(pattern, '');
+  return { cleaned, count: input.length - cleaned.length };
 }
 
 /**
