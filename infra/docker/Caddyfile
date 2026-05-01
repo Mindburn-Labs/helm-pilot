@@ -15,20 +15,6 @@
 		-Server
 	}
 
-	# API and health routes → gateway
-	handle /api/* {
-		reverse_proxy helm-pilot:3100
-	}
-
-	handle /health {
-		reverse_proxy helm-pilot:3100
-	}
-
-	# Telegram miniapp static assets
-	handle /app/* {
-		reverse_proxy helm-pilot:3100
-	}
-
 	# SSE events (longer timeouts)
 	handle /api/events/* {
 		reverse_proxy helm-pilot:3100 {
@@ -37,6 +23,24 @@
 				read_timeout 300s
 			}
 		}
+	}
+
+	# API, health, and metrics routes → gateway
+	handle /api/* {
+		reverse_proxy helm-pilot:3100
+	}
+
+	handle /health {
+		reverse_proxy helm-pilot:3100
+	}
+
+	handle /metrics {
+		reverse_proxy helm-pilot:3100
+	}
+
+	# Telegram miniapp static assets
+	handle /app/* {
+		reverse_proxy helm-pilot:3100
 	}
 
 	# Web app (Next.js)

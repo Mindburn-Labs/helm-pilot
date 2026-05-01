@@ -23,6 +23,7 @@ BEGIN
   END IF;
 
   CREATE EXTENSION IF NOT EXISTS vector;
+  ALTER EXTENSION vector UPDATE;
 
   SELECT extversion INTO vector_version
   FROM pg_extension

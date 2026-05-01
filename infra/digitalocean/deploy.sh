@@ -302,7 +302,7 @@ ensure_firewall() {
   [[ -n "$DO_FIREWALL_TAGS" ]] || die "DO_FIREWALL_TAGS is required for firewall attachment"
 
   inbound_rules="protocol:tcp,ports:22,address:$DO_SSH_CIDR protocol:tcp,ports:80,address:0.0.0.0/0 protocol:tcp,ports:443,address:0.0.0.0/0"
-  outbound_rules="protocol:tcp,ports:all,address:0.0.0.0/0 protocol:udp,ports:all,address:0.0.0.0/0 protocol:icmp,ports:all,address:0.0.0.0/0"
+  outbound_rules="protocol:tcp,ports:1-65535,address:0.0.0.0/0 protocol:udp,ports:1-65535,address:0.0.0.0/0 protocol:icmp,address:0.0.0.0/0"
 
   id="$(firewall_id)"
   if [[ -n "$id" ]]; then
@@ -423,6 +423,12 @@ deploy_to() {
     done
     COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml run --rm --no-deps helm-pilot node packages/db/dist/migrate-production.js
     COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml up -d
+    COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml up -d --no-deps --force-recreate caddy
+    COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml exec -T caddy caddy reload --config /etc/caddy/Caddyfile ||
+      COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml restart caddy
+    if [ -e '$REMOTE_DIR' ] && [ ! -L '$REMOTE_DIR' ]; then
+      mv '$REMOTE_DIR' '$REMOTE_DIR.bootstrap.\$(date -u +%Y%m%d%H%M%S)'
+    fi
     ln -sfnT '$release_dir' '$REMOTE_DIR'
     ls -1dt '$REMOTE_RELEASES_DIR'/* 2>/dev/null | tail -n +4 | xargs -r rm -rf
     COMPOSE_PROFILES='$COMPOSE_PROFILES' docker compose -p helm-pilot --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml ps
