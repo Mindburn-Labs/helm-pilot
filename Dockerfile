@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
 # ─── Stage 1: Build ───
-FROM node:22.22.2-slim AS builder
+FROM node:22.22.2-slim AS node-base
+
+FROM node-base AS builder
 WORKDIR /app
 
 # Copy workspace config
@@ -18,10 +20,10 @@ COPY apps/telegram-miniapp/ apps/telegram-miniapp/
 RUN npm ci --include=optional --ignore-scripts
 
 # Build everything (turbo handles topological ordering)
-RUN npx turbo build --filter=@helm-pilot/gateway --filter=@helm-pilot/telegram-bot --filter=@helm-pilot/telegram-miniapp
+RUN npx turbo build --concurrency=1 --filter=@helm-pilot/gateway --filter=@helm-pilot/telegram-bot --filter=@helm-pilot/telegram-miniapp
 
 # ─── Stage 2: Python Runtime ───
-FROM node:22.22.2-slim AS python-runtime
+FROM python:3.11-slim-bookworm AS python-runtime
 WORKDIR /app
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
@@ -30,24 +32,21 @@ ENV PATH=/opt/venv/bin:$PATH
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-    build-essential \
     ca-certificates \
-    python3 \
-    python3-dev \
-    python3-pip \
-    python3-venv \
   && rm -rf /var/lib/apt/lists/*
 
 COPY pipelines/requirements.txt pipelines/requirements.txt
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-  python3 -m venv "$VIRTUAL_ENV" \
+  python -m venv "$VIRTUAL_ENV" \
+  && pip install --timeout 180 --retries 10 --index-url https://download.pytorch.org/whl/cpu torch==2.6.0 \
   && pip install --timeout 180 --retries 10 -r pipelines/requirements.txt \
+  && pip install --timeout 180 --retries 10 awscli \
   && python -m playwright install chromium \
   && python -m patchright install chromium
 
 # ─── Stage 3: Production ───
-FROM node:22.22.2-slim AS runner
+FROM python:3.11-slim-bookworm AS runner
 WORKDIR /app
 
 LABEL org.opencontainers.image.title="HELM Pilot"
@@ -61,13 +60,15 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 
+COPY --from=node-base /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-base /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+  && ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+  && ln -sf ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack
+
 # Create non-root user
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-pip \
-    python3-venv \
-    awscli \
     ca-certificates \
     curl \
     git \
