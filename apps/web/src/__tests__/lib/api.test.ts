@@ -24,7 +24,8 @@ describe('apiFetch', () => {
 
     await apiFetch('/api/test');
 
-    const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toBe('/api/test');
     expect(init.headers['Authorization']).toBe('Bearer test-token-123');
   });
 

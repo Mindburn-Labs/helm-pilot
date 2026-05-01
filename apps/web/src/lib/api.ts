@@ -1,6 +1,6 @@
 'use client';
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3100';
+const API = process.env.NEXT_PUBLIC_API_URL ?? '';
 
 /**
  * Authenticated fetch wrapper. Adds Bearer token from localStorage.

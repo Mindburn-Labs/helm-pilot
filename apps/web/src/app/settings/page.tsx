@@ -621,7 +621,7 @@ export default function SettingsPage() {
         <h2 style={sectionTitle}>Info</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <SettingsRow label="Workspace" value={settings?.workspaceId ?? 'unknown'} />
-          <SettingsRow label="API Server" value={process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3100'} />
+          <SettingsRow label="API Server" value={process.env.NEXT_PUBLIC_API_URL ?? 'same-origin'} />
           <SettingsRow label="Version" value="0.1.0" />
         </div>
       </section>

@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import Link from 'next/link';
 import { isAuthenticated, logout } from '../lib/api';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3100';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'same-origin';
 
 export default function Home() {
   useEffect(() => {
