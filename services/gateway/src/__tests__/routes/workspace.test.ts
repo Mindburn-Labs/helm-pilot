@@ -1,14 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { workspaceRoutes } from '../../routes/workspace.js';
-import {
-  createMockDeps,
-  testApp,
-  expectJson,
-  mockWorkspace,
-  mockMembership,
-} from '../helpers.js';
+import { createMockDeps, testApp, expectJson, mockWorkspace, mockMembership } from '../helpers.js';
 
 describe('workspaceRoutes', () => {
+  const wsHeader = { 'X-Workspace-Id': 'ws-1' };
+
   // ─── GET /:id ───
 
   describe('GET /:id', () => {
@@ -17,7 +13,7 @@ describe('workspaceRoutes', () => {
       const ws = mockWorkspace();
       deps.db._setResult([ws]);
 
-      const res = await fetch('GET', '/ws-1');
+      const res = await fetch('GET', '/ws-1', undefined, wsHeader);
       const json = await expectJson<Record<string, unknown>>(res, 200);
       expect(json).toHaveProperty('id', 'ws-1');
       expect(json).toHaveProperty('members');
@@ -26,9 +22,16 @@ describe('workspaceRoutes', () => {
     it('returns 404 when workspace not found', async () => {
       const { fetch } = testApp(workspaceRoutes);
       // Default mock returns [] — no workspace found
-      const res = await fetch('GET', '/nonexistent');
+      const res = await fetch('GET', '/ws-1', undefined, wsHeader);
       const json = await expectJson(res, 404);
       expect(json).toHaveProperty('error', 'Workspace not found');
+    });
+
+    it('returns 403 when path workspace mismatches the bound workspace', async () => {
+      const { fetch } = testApp(workspaceRoutes);
+      const res = await fetch('GET', '/ws-2', undefined, wsHeader);
+      const json = await expectJson(res, 403);
+      expect(json).toHaveProperty('error', 'workspaceId does not match authenticated workspace');
     });
   });
 
@@ -38,7 +41,7 @@ describe('workspaceRoutes', () => {
     it('returns default settings when none exist', async () => {
       const { fetch } = testApp(workspaceRoutes);
       // Default mock returns [] — no settings row
-      const res = await fetch('GET', '/ws-1/settings');
+      const res = await fetch('GET', '/ws-1/settings', undefined, wsHeader);
       const json = await expectJson<Record<string, unknown>>(res, 200);
       expect(json).toHaveProperty('workspaceId', 'ws-1');
       expect(json).toHaveProperty('policyConfig');
@@ -51,13 +54,17 @@ describe('workspaceRoutes', () => {
       const settings = {
         id: 'set-1',
         workspaceId: 'ws-1',
-        policyConfig: { maxIterationBudget: 25, blockedTools: ['shell'], requireApprovalFor: ['send_notification'] },
+        policyConfig: {
+          maxIterationBudget: 25,
+          blockedTools: ['shell'],
+          requireApprovalFor: ['send_notification'],
+        },
         budgetConfig: { dailyTotalMax: 50, currency: 'EUR' },
         modelConfig: { provider: 'openrouter', model: 'gpt-4', temperature: 0.5 },
       };
       deps.db._setResult([settings]);
 
-      const res = await fetch('GET', '/ws-1/settings');
+      const res = await fetch('GET', '/ws-1/settings', undefined, wsHeader);
       const json = await expectJson<typeof settings>(res, 200);
       expect(json.policyConfig.maxIterationBudget).toBe(25);
       expect((json as any).policyConfig.toolBlocklist).toEqual(['shell']);
@@ -71,7 +78,7 @@ describe('workspaceRoutes', () => {
     it('returns 404 when workspace not found', async () => {
       const { fetch } = testApp(workspaceRoutes);
       // Default mock returns [] — workspace select fails
-      const res = await fetch('PUT', '/ws-1/settings', { policyConfig: {} });
+      const res = await fetch('PUT', '/ws-1/settings', { policyConfig: {} }, wsHeader);
       const json = await expectJson(res, 404);
       expect(json).toHaveProperty('error', 'Workspace not found');
     });
@@ -108,9 +115,14 @@ describe('workspaceRoutes', () => {
       })) as any;
 
       const { fetch } = testApp(workspaceRoutes, deps as any);
-      const res = await fetch('PUT', '/ws-1/settings', {
-        policyConfig: { maxIterationBudget: 50 },
-      });
+      const res = await fetch(
+        'PUT',
+        '/ws-1/settings',
+        {
+          policyConfig: { maxIterationBudget: 50 },
+        },
+        wsHeader,
+      );
       const json = await expectJson(res, 201);
       expect(json).toHaveProperty('workspaceId', 'ws-1');
     });
@@ -132,7 +144,9 @@ describe('workspaceRoutes', () => {
               selectCallCount++;
               // First select: workspace -> found
               // Second select: existing settings -> found
-              return { then: (r: any) => r(selectCallCount === 1 ? [mockWorkspace()] : [existingSettings]) };
+              return {
+                then: (r: any) => r(selectCallCount === 1 ? [mockWorkspace()] : [existingSettings]),
+              };
             }),
           })),
         })),
@@ -149,9 +163,14 @@ describe('workspaceRoutes', () => {
       })) as any;
 
       const { fetch } = testApp(workspaceRoutes, deps as any);
-      const res = await fetch('PUT', '/ws-1/settings', {
-        policyConfig: { maxIterationBudget: 10 },
-      });
+      const res = await fetch(
+        'PUT',
+        '/ws-1/settings',
+        {
+          policyConfig: { maxIterationBudget: 10 },
+        },
+        wsHeader,
+      );
       const json = await expectJson<typeof updatedSettings>(res, 200);
       expect(json.policyConfig.maxIterationBudget).toBe(10);
     });
@@ -162,7 +181,7 @@ describe('workspaceRoutes', () => {
   describe('PUT /:id/mode', () => {
     it('returns 400 for invalid mode', async () => {
       const { fetch } = testApp(workspaceRoutes);
-      const res = await fetch('PUT', '/ws-1/mode', { mode: 'invalid-mode' });
+      const res = await fetch('PUT', '/ws-1/mode', { mode: 'invalid-mode' }, wsHeader);
       const json = await expectJson(res, 400);
       expect(json).toHaveProperty('error');
       expect((json as { error: string }).error).toContain('Invalid mode');
@@ -181,7 +200,7 @@ describe('workspaceRoutes', () => {
       })) as any;
 
       const { fetch } = testApp(workspaceRoutes, deps as any);
-      const res = await fetch('PUT', '/ws-1/mode', { mode: 'launch' });
+      const res = await fetch('PUT', '/ws-1/mode', { mode: 'launch' }, wsHeader);
       const json = await expectJson<{ id: string; currentMode: string }>(res, 200);
       expect(json.currentMode).toBe('launch');
     });
@@ -198,7 +217,7 @@ describe('workspaceRoutes', () => {
       })) as any;
 
       const { fetch } = testApp(workspaceRoutes, deps as any);
-      const res = await fetch('PUT', '/ws-1/mode', { mode: 'build' });
+      const res = await fetch('PUT', '/ws-1/mode', { mode: 'build' }, wsHeader);
       const json = await expectJson(res, 404);
       expect(json).toHaveProperty('error', 'Workspace not found');
     });
@@ -210,7 +229,7 @@ describe('workspaceRoutes', () => {
     it('returns 404 when workspace not found', async () => {
       const { fetch } = testApp(workspaceRoutes);
       // Default mock returns [] — no workspace
-      const res = await fetch('POST', '/ws-1/invite', { role: 'member' });
+      const res = await fetch('POST', '/ws-1/invite', { role: 'member' }, wsHeader);
       const json = await expectJson(res, 404);
       expect(json).toHaveProperty('error', 'Workspace not found');
     });
@@ -219,7 +238,7 @@ describe('workspaceRoutes', () => {
       const { fetch, deps } = testApp(workspaceRoutes);
       deps.db._setResult([mockWorkspace()]);
 
-      const res = await fetch('POST', '/ws-1/invite', { role: 'member' });
+      const res = await fetch('POST', '/ws-1/invite', { role: 'member' }, wsHeader);
       const json = await expectJson<{ inviteUrl: string; role: string }>(res, 201);
       expect(json.inviteUrl).toContain('/invite/');
       expect(json.role).toBe('member');

@@ -10,7 +10,7 @@ import { eq } from 'drizzle-orm';
 import { users } from '@helm-pilot/db/schema';
 import { ManagedTelegramReplyInput } from '@helm-pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId } from '../lib/workspace.js';
+import { getWorkspaceId, workspaceIdMismatch } from '../lib/workspace.js';
 import { ManagedTelegramBotError } from '../services/managed-telegram-bots.js';
 
 export function launchRoutes(deps: GatewayDeps) {
@@ -127,7 +127,7 @@ export function launchRoutes(deps: GatewayDeps) {
 
   // GET /api/launch/artifacts?workspaceId=...
   app.get('/artifacts', async (c) => {
-    const workspaceId = c.get('workspaceId') ?? c.req.query('workspaceId');
+    const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
     const list = await engine.listArtifacts(workspaceId);
     return c.json(list);
@@ -135,14 +135,17 @@ export function launchRoutes(deps: GatewayDeps) {
 
   // GET /api/launch/artifacts/:id
   app.get('/artifacts/:id', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
     const artifact = await engine.getArtifact(c.req.param('id'));
-    if (!artifact) return c.json({ error: 'Not found' }, 404);
+    if (!artifact || artifact.workspaceId !== workspaceId)
+      return c.json({ error: 'Not found' }, 404);
     return c.json(artifact);
   });
 
   // GET /api/launch/deployments?workspaceId=...
   app.get('/deployments', async (c) => {
-    const workspaceId = c.get('workspaceId') ?? c.req.query('workspaceId');
+    const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
     const list = await engine.listDeployments(workspaceId);
     return c.json(list);
@@ -150,7 +153,7 @@ export function launchRoutes(deps: GatewayDeps) {
 
   // GET /api/launch/targets?workspaceId=...
   app.get('/targets', async (c) => {
-    const workspaceId = c.get('workspaceId') ?? c.req.query('workspaceId');
+    const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
     const targets = await engine.listDeployTargets(workspaceId);
     return c.json(targets);
@@ -165,7 +168,10 @@ export function launchRoutes(deps: GatewayDeps) {
       provider: string;
       config?: Record<string, unknown>;
     };
-    const workspaceId = c.get('workspaceId') ?? (body as { workspaceId?: string }).workspaceId;
+    const workspaceId = getWorkspaceId(c);
+    if (workspaceIdMismatch(c, (body as { workspaceId?: string }).workspaceId)) {
+      return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
+    }
     if (!workspaceId || !name || !provider) {
       return c.json({ error: 'workspaceId, name, and provider required' }, 400);
     }
@@ -186,7 +192,10 @@ export function launchRoutes(deps: GatewayDeps) {
       region?: string;
       envVars?: Record<string, string>;
     };
-    const workspaceId = c.get('workspaceId') ?? (body as { workspaceId?: string }).workspaceId;
+    const workspaceId = getWorkspaceId(c);
+    if (workspaceIdMismatch(c, (body as { workspaceId?: string }).workspaceId)) {
+      return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
+    }
     if (!workspaceId || !targetId) {
       return c.json({ error: 'workspaceId and targetId required' }, 400);
     }
@@ -227,9 +236,16 @@ export function launchRoutes(deps: GatewayDeps) {
 
   // PUT /api/launch/deployments/:id/status — Update deployment status
   app.put('/deployments/:id/status', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
     const { id } = c.req.param();
     const body = await c.req.json();
     const { status, url } = body as { status: string; url?: string };
+    const deployment = await engine.getDeployment(id);
+    if (!deployment || deployment.workspaceId !== workspaceId) {
+      return c.json({ error: 'Deployment not found' }, 404);
+    }
     const updated = await engine.updateDeploymentStatus(id, status, url);
     if (!updated) return c.json({ error: 'Deployment not found' }, 404);
     return c.json(updated);
@@ -237,11 +253,13 @@ export function launchRoutes(deps: GatewayDeps) {
 
   // POST /api/launch/deployments/:id/health — Run a provider health check
   app.post('/deployments/:id/health', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
     const { id } = c.req.param();
     const deployment = await engine.getDeployment(id);
     if (!deployment) return c.json({ error: 'Deployment not found' }, 404);
-    const workspaceId = c.get('workspaceId');
-    if (workspaceId && deployment.workspaceId !== workspaceId) {
+    if (deployment.workspaceId !== workspaceId) {
       return c.json({ error: 'Deployment not found' }, 404);
     }
     const target = await engine.getDeployTarget(deployment.targetId);
@@ -273,6 +291,9 @@ export function launchRoutes(deps: GatewayDeps) {
 
   // POST /api/launch/deployments/:id/rollback — Roll back a provider deployment
   app.post('/deployments/:id/rollback', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+
     const { id } = c.req.param();
     const body = await c.req.json();
     const { targetVersion } = body as { targetVersion?: string };
@@ -280,8 +301,7 @@ export function launchRoutes(deps: GatewayDeps) {
 
     const deployment = await engine.getDeployment(id);
     if (!deployment) return c.json({ error: 'Deployment not found' }, 404);
-    const workspaceId = c.get('workspaceId');
-    if (workspaceId && deployment.workspaceId !== workspaceId) {
+    if (deployment.workspaceId !== workspaceId) {
       return c.json({ error: 'Deployment not found' }, 404);
     }
     const target = await engine.getDeployTarget(deployment.targetId);

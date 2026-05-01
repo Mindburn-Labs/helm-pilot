@@ -15,7 +15,17 @@ export function createMockDb() {
 
   const chainable = (): Record<string, unknown> => {
     const chain: Record<string, unknown> = {};
-    const methods = ['from', 'where', 'orderBy', 'limit', 'offset', 'returning', 'onConflictDoNothing', 'onConflictDoUpdate'];
+    const methods = [
+      'from',
+      'innerJoin',
+      'where',
+      'orderBy',
+      'limit',
+      'offset',
+      'returning',
+      'onConflictDoNothing',
+      'onConflictDoUpdate',
+    ];
     for (const m of methods) {
       chain[m] = vi.fn(() => chainable());
     }
@@ -44,13 +54,22 @@ export function createMockDb() {
 
 // ─── Mock Deps ───
 
-export function createMockDeps(overrides?: Partial<GatewayDeps>): GatewayDeps & { db: ReturnType<typeof createMockDb> } {
+export function createMockDeps(
+  overrides?: Partial<GatewayDeps>,
+): GatewayDeps & { db: ReturnType<typeof createMockDb> } {
   const db = createMockDb();
   return {
     db: db as any,
     orchestrator: {
       boss: { send: vi.fn() } as any,
-      runTask: vi.fn(async () => ({ status: 'completed', iterationsUsed: 1, iterationBudget: 50, actions: [], tokensIn: 0, tokensOut: 0 })),
+      runTask: vi.fn(async () => ({
+        status: 'completed',
+        iterationsUsed: 1,
+        iterationBudget: 50,
+        actions: [],
+        tokensIn: 0,
+        tokensOut: 0,
+      })),
       trust: {} as any,
       agentLoop: {} as any,
       tools: {} as any,
@@ -95,12 +114,15 @@ export function createMockDeps(overrides?: Partial<GatewayDeps>): GatewayDeps & 
 /**
  * Mounts a route factory on a Hono app and returns a fetch helper.
  */
-export function testApp(
-  routeFactory: (deps: GatewayDeps) => Hono,
-  deps?: GatewayDeps,
-) {
+export function testApp(routeFactory: (deps: GatewayDeps) => Hono, deps?: GatewayDeps) {
   const d = deps ?? createMockDeps();
   const app = new Hono();
+  app.use('*', async (c, next) => {
+    const workspaceId = c.req.header('X-Workspace-Id') ?? c.req.query('workspaceId');
+    if (workspaceId) c.set('workspaceId', workspaceId);
+    c.set('userId', c.req.header('X-User-Id') ?? 'user-1');
+    await next();
+  });
   app.route('/', routeFactory(d));
 
   return {

@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit migrate",
+    "migrate:production": "node dist/migrate-production.js",
     "studio": "drizzle-kit studio",
     "test": "vitest run --passWithNoTests",
     "test:coverage": "vitest run --coverage --passWithNoTests"

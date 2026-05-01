@@ -3,16 +3,19 @@ import { governanceRoutes } from '../../routes/governance.js';
 import { testApp, expectJson, createMockDeps } from '../helpers.js';
 
 describe('governanceRoutes', () => {
+  const wsHeader = { 'X-Workspace-Id': 'ws-1' };
+
   // ── GET /status ──
 
   describe('GET /status', () => {
     it('reports helmConfigured=false when no helm-client is provided', async () => {
       const { fetch } = testApp(governanceRoutes);
       const res = await fetch('GET', '/status');
-      const body = await expectJson<{ helmConfigured: boolean; live: unknown; latestSnapshot: unknown }>(
-        res,
-        200,
-      );
+      const body = await expectJson<{
+        helmConfigured: boolean;
+        live: unknown;
+        latestSnapshot: unknown;
+      }>(res, 200);
       expect(body.helmConfigured).toBe(false);
       expect(body.live).toBeNull();
     });
@@ -92,7 +95,7 @@ describe('governanceRoutes', () => {
       ]);
 
       const { fetch } = testApp(governanceRoutes, deps);
-      const res = await fetch('GET', '/receipts?workspaceId=ws-1');
+      const res = await fetch('GET', '/receipts', undefined, wsHeader);
       const body = await expectJson<{
         receipts: Array<{ decisionId: string; verdict: string }>;
         nextCursor: string | null;
@@ -123,7 +126,7 @@ describe('governanceRoutes', () => {
       deps.db._setResult(receipts);
 
       const { fetch } = testApp(governanceRoutes, deps);
-      const res = await fetch('GET', '/receipts?workspaceId=ws-1&limit=25');
+      const res = await fetch('GET', '/receipts?limit=25', undefined, wsHeader);
       const body = await expectJson<{ nextCursor: string | null }>(res, 200);
       expect(body.nextCursor).not.toBeNull();
     });
@@ -143,7 +146,7 @@ describe('governanceRoutes', () => {
       const deps = createMockDeps();
       deps.db._setResult([]);
       const { fetch } = testApp(governanceRoutes, deps);
-      const res = await fetch('GET', '/receipts/dec-unknown?workspaceId=ws-1');
+      const res = await fetch('GET', '/receipts/dec-unknown', undefined, wsHeader);
       await expectJson(res, 404);
     });
 
@@ -169,7 +172,7 @@ describe('governanceRoutes', () => {
       deps.db._setResult([row]);
 
       const { fetch } = testApp(governanceRoutes, deps);
-      const res = await fetch('GET', '/receipts/dec-42?workspaceId=ws-1');
+      const res = await fetch('GET', '/receipts/dec-42', undefined, wsHeader);
       const body = await expectJson<{
         receipt: { decisionId: string; verdict: string };
         signedBlob: { signature: string };

@@ -5,6 +5,8 @@ import { testApp, expectJson, mockOperator, createMockDeps } from '../helpers.js
 describe('operatorRoutes', () => {
   let deps: ReturnType<typeof createMockDeps>;
   let fetch: ReturnType<typeof testApp>['fetch'];
+  const workspaceId = '00000000-0000-4000-8000-000000000001';
+  const wsHeader = { 'X-Workspace-Id': workspaceId };
 
   beforeEach(() => {
     const t = testApp(operatorRoutes);
@@ -27,7 +29,7 @@ describe('operatorRoutes', () => {
       const ops = [mockOperator(), mockOperator({ id: 'op-2', name: 'Second' })];
       deps.db._setResult(ops);
 
-      const res = await fetch('GET', '/?workspaceId=ws-1');
+      const res = await fetch('GET', '/', undefined, wsHeader);
       const json = await expectJson<unknown[]>(res, 200);
 
       expect(json).toHaveLength(2);
@@ -40,10 +42,15 @@ describe('operatorRoutes', () => {
 
   describe('POST /', () => {
     it('returns 400 on invalid body', async () => {
-      const res = await fetch('POST', '/', {
-        // missing required fields: workspaceId, name, role, goal
-        name: 'Incomplete',
-      });
+      const res = await fetch(
+        'POST',
+        '/',
+        {
+          // missing required fields: workspaceId, name, role, goal
+          name: 'Incomplete',
+        },
+        wsHeader,
+      );
       const json = await expectJson<{ error: string }>(res, 400);
 
       expect(json.error).toBe('Validation failed');
@@ -71,12 +78,17 @@ describe('operatorRoutes', () => {
         };
       }) as any;
 
-      const res = await fetch('POST', '/', {
-        workspaceId: '00000000-0000-0000-0000-000000000001',
-        name: 'Builder Bot',
-        role: 'engineering',
-        goal: 'Ship fast',
-      });
+      const res = await fetch(
+        'POST',
+        '/',
+        {
+          workspaceId,
+          name: 'Builder Bot',
+          role: 'engineering',
+          goal: 'Ship fast',
+        },
+        wsHeader,
+      );
       const json = await expectJson<Record<string, unknown>>(res, 201);
 
       expect(json.name).toBe('Builder Bot');

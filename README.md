@@ -71,16 +71,16 @@ npm run dev
 
 The gateway starts on `http://localhost:3100` and the web app on `http://localhost:3000`. The Telegram bot connects via long polling in dev mode.
 
-## Self-Hosting with Docker Compose
+## Development Docker Compose
 
 ```bash
 cp .env.example .env
-# Edit .env with your production values
+# Edit .env with local development values
 
 docker compose -f infra/docker/docker-compose.yml up -d
 ```
 
-This starts PostgreSQL, the gateway on port `3100`, and the web app on port `3000`. The compose file now points the browser at `http://localhost:3100`, not an internal Docker hostname.
+This dev-only stack starts PostgreSQL, the gateway on port `3100`, and the web app on port `3000`. PostgreSQL and pgAdmin bind to localhost. Use the DigitalOcean stack below for production.
 
 ## Deploy to DigitalOcean
 
@@ -90,8 +90,8 @@ HELM Pilot deploys to DigitalOcean as one Docker Compose stack on a Droplet: Pos
 cp infra/digitalocean/env.production.shared.example .env.production.shared
 cp infra/digitalocean/env.production.helm.example .env.production.helm
 cp infra/digitalocean/env.production.pilot.example .env.production.pilot
-# Fill DOMAIN, APP_URL, secrets, Resend email, DO Spaces backup settings,
-# HELM_IMAGE, and the sidecar's upstream provider key.
+# Fill DOMAIN, APP_URL, secrets, pinned images, Resend email,
+# DO Spaces backup settings, and the sidecar's upstream provider key.
 
 export DO_SSH_KEYS=<digitalocean-ssh-key-id-or-fingerprint>
 export DO_REGION=fra1

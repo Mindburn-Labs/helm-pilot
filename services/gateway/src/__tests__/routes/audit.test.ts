@@ -3,6 +3,8 @@ import { auditRoutes } from '../../routes/audit.js';
 import { testApp, expectJson, createMockDeps } from '../helpers.js';
 
 describe('auditRoutes', () => {
+  const wsHeader = { 'X-Workspace-Id': 'ws-1' };
+
   // ── GET / ──
 
   describe('GET /', () => {
@@ -16,13 +18,23 @@ describe('auditRoutes', () => {
     it('returns audit entries for a workspace', async () => {
       const deps = createMockDeps();
       const entries = [
-        { id: 'al-1', workspaceId: 'ws-1', action: 'task.created', createdAt: new Date().toISOString() },
-        { id: 'al-2', workspaceId: 'ws-1', action: 'task.completed', createdAt: new Date().toISOString() },
+        {
+          id: 'al-1',
+          workspaceId: 'ws-1',
+          action: 'task.created',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'al-2',
+          workspaceId: 'ws-1',
+          action: 'task.completed',
+          createdAt: new Date().toISOString(),
+        },
       ];
       deps.db._setResult(entries);
 
       const { fetch } = testApp(auditRoutes, deps);
-      const res = await fetch('GET', '/?workspaceId=ws-1');
+      const res = await fetch('GET', '/', undefined, wsHeader);
       const body = await expectJson<unknown[]>(res, 200);
       expect(body).toEqual(entries);
     });
@@ -46,7 +58,7 @@ describe('auditRoutes', () => {
       deps.db._setResult(approvalsList);
 
       const { fetch } = testApp(auditRoutes, deps);
-      const res = await fetch('GET', '/approvals?workspaceId=ws-1');
+      const res = await fetch('GET', '/approvals', undefined, wsHeader);
       const body = await expectJson<unknown[]>(res, 200);
       expect(body).toEqual(approvalsList);
     });
@@ -57,7 +69,7 @@ describe('auditRoutes', () => {
   describe('PUT /approvals/:id', () => {
     it('returns 400 for invalid status', async () => {
       const { fetch } = testApp(auditRoutes);
-      const res = await fetch('PUT', '/approvals/appr-1', { status: 'maybe' });
+      const res = await fetch('PUT', '/approvals/appr-1', { status: 'maybe' }, wsHeader);
       const body = await expectJson<{ error: string }>(res, 400);
       expect(body.error).toContain('approved or rejected');
     });
@@ -74,7 +86,7 @@ describe('auditRoutes', () => {
       })) as any;
 
       const { fetch } = testApp(auditRoutes, deps);
-      const res = await fetch('PUT', '/approvals/appr-missing', { status: 'approved' });
+      const res = await fetch('PUT', '/approvals/appr-missing', { status: 'approved' }, wsHeader);
       const body = await expectJson<{ error: string }>(res, 404);
       expect(body.error).toContain('not found');
     });
@@ -101,7 +113,7 @@ describe('auditRoutes', () => {
       })) as any;
 
       const { fetch } = testApp(auditRoutes, deps);
-      const res = await fetch('PUT', '/approvals/appr-1', { status: 'approved' });
+      const res = await fetch('PUT', '/approvals/appr-1', { status: 'approved' }, wsHeader);
       await expectJson(res, 200);
 
       expect(deps.orchestrator.boss.send).toHaveBeenCalledWith('task.resume', {
@@ -133,7 +145,7 @@ describe('auditRoutes', () => {
       })) as any;
 
       const { fetch } = testApp(auditRoutes, deps);
-      const res = await fetch('PUT', '/approvals/appr-1', { status: 'rejected' });
+      const res = await fetch('PUT', '/approvals/appr-1', { status: 'rejected' }, wsHeader);
       await expectJson(res, 200);
 
       expect(deps.orchestrator.boss.send).not.toHaveBeenCalled();
@@ -158,7 +170,7 @@ describe('auditRoutes', () => {
       deps.db._setResult(violations);
 
       const { fetch } = testApp(auditRoutes, deps);
-      const res = await fetch('GET', '/violations?workspaceId=ws-1');
+      const res = await fetch('GET', '/violations', undefined, wsHeader);
       const body = await expectJson<unknown[]>(res, 200);
       expect(body).toEqual(violations);
     });

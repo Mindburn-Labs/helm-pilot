@@ -27,6 +27,22 @@ import { initSentry, flushSentry } from '@helm-pilot/shared/errors/sentry';
 
 const log = createLogger('helm-pilot');
 
+const PLACEHOLDER_SECRET_VALUES = new Set([
+  'change-me-in-production',
+  'change-me-with-openssl-rand-hex-32',
+  'dev-state-secret-change-me',
+  'dev-encryption-key-change-me',
+  'pilot-dev-ephemeral-key-change-me',
+]);
+
+function requireProductionSecret(name: string) {
+  const value = process.env[name];
+  if (!value || PLACEHOLDER_SECRET_VALUES.has(value) || value.startsWith('change-me')) {
+    log.fatal({ name }, `${name} must be set to a non-placeholder production secret`);
+    process.exit(1);
+  }
+}
+
 async function main() {
   // Initialize Sentry first — captures errors even during startup
   await initSentry();
@@ -37,6 +53,16 @@ async function main() {
     process.exit(1);
   }
   if (process.env['NODE_ENV'] === 'production') {
+    requireProductionSecret('SESSION_SECRET');
+    requireProductionSecret('ENCRYPTION_KEY');
+    const evidenceSigningKey = process.env['EVIDENCE_SIGNING_KEY'];
+    if (evidenceSigningKey && PLACEHOLDER_SECRET_VALUES.has(evidenceSigningKey)) {
+      log.fatal('EVIDENCE_SIGNING_KEY must not be a placeholder in production');
+      process.exit(1);
+    }
+    if (process.env['TELEGRAM_BOT_TOKEN']) {
+      requireProductionSecret('TELEGRAM_WEBHOOK_SECRET');
+    }
     if (!process.env['HELM_GOVERNANCE_URL']) {
       log.fatal('HELM_GOVERNANCE_URL is required in production');
       process.exit(1);

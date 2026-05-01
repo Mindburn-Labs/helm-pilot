@@ -1,20 +1,29 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { eq } from 'drizzle-orm';
 import { workspaces, workspaceSettings, workspaceMembers, sessions } from '@helm-pilot/db/schema';
 import { generateToken } from '../middleware/auth.js';
 import { type GatewayDeps } from '../index.js';
+import { getWorkspaceId } from '../lib/workspace.js';
 
 export function workspaceRoutes(deps: GatewayDeps) {
   const app = new Hono();
 
+  const assertWorkspacePath = (c: Context, id: string) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    if (workspaceId !== id) {
+      return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
+    }
+    return null;
+  };
+
   // GET /api/workspace/:id — Get workspace details
   app.get('/:id', async (c) => {
     const { id } = c.req.param();
-    const [ws] = await deps.db
-      .select()
-      .from(workspaces)
-      .where(eq(workspaces.id, id))
-      .limit(1);
+    const mismatch = assertWorkspacePath(c, id);
+    if (mismatch) return mismatch;
+
+    const [ws] = await deps.db.select().from(workspaces).where(eq(workspaces.id, id)).limit(1);
     if (!ws) return c.json({ error: 'Workspace not found' }, 404);
 
     const members = await deps.db
@@ -28,6 +37,8 @@ export function workspaceRoutes(deps: GatewayDeps) {
   // GET /api/workspace/:id/settings — Get workspace settings
   app.get('/:id/settings', async (c) => {
     const { id } = c.req.param();
+    const mismatch = assertWorkspacePath(c, id);
+    if (mismatch) return mismatch;
 
     const [settings] = await deps.db
       .select()
@@ -45,6 +56,9 @@ export function workspaceRoutes(deps: GatewayDeps) {
   // PUT /api/workspace/:id/settings — Update workspace settings
   app.put('/:id/settings', async (c) => {
     const { id } = c.req.param();
+    const mismatch = assertWorkspacePath(c, id);
+    if (mismatch) return mismatch;
+
     const body = await c.req.json();
     const { policyConfig, budgetConfig, modelConfig } = body as {
       policyConfig?: Record<string, unknown>;
@@ -53,11 +67,7 @@ export function workspaceRoutes(deps: GatewayDeps) {
     };
 
     // Verify workspace exists
-    const [ws] = await deps.db
-      .select()
-      .from(workspaces)
-      .where(eq(workspaces.id, id))
-      .limit(1);
+    const [ws] = await deps.db.select().from(workspaces).where(eq(workspaces.id, id)).limit(1);
     if (!ws) return c.json({ error: 'Workspace not found' }, 404);
 
     // Upsert settings
@@ -96,6 +106,9 @@ export function workspaceRoutes(deps: GatewayDeps) {
   // PUT /api/workspace/:id/mode — Switch workspace mode
   app.put('/:id/mode', async (c) => {
     const { id } = c.req.param();
+    const mismatch = assertWorkspacePath(c, id);
+    if (mismatch) return mismatch;
+
     const body = await c.req.json();
     const { mode } = body as { mode: string };
 
@@ -117,6 +130,9 @@ export function workspaceRoutes(deps: GatewayDeps) {
   // POST /api/workspace/:id/invite — Generate invite link
   app.post('/:id/invite', async (c) => {
     const { id } = c.req.param();
+    const mismatch = assertWorkspacePath(c, id);
+    if (mismatch) return mismatch;
+
     const body = await c.req.json();
     const { role, email } = body as { role?: string; email?: string };
 
@@ -124,11 +140,7 @@ export function workspaceRoutes(deps: GatewayDeps) {
     const inviteRole = validRoles.includes(role ?? '') ? role! : 'member';
 
     // Verify workspace exists
-    const [ws] = await deps.db
-      .select()
-      .from(workspaces)
-      .where(eq(workspaces.id, id))
-      .limit(1);
+    const [ws] = await deps.db.select().from(workspaces).where(eq(workspaces.id, id)).limit(1);
     if (!ws) return c.json({ error: 'Workspace not found' }, 404);
 
     // Generate invite token
@@ -147,13 +159,16 @@ export function workspaceRoutes(deps: GatewayDeps) {
     const appUrl = process.env['APP_URL'] ?? 'http://localhost:3000';
     const inviteUrl = `${appUrl}/invite/${inviteToken}`;
 
-    return c.json({
-      inviteUrl,
-      inviteToken,
-      role: inviteRole,
-      expiresIn: '7 days',
-      ...(email ? { sentTo: email } : {}),
-    }, 201);
+    return c.json(
+      {
+        inviteUrl,
+        inviteToken,
+        role: inviteRole,
+        expiresIn: '7 days',
+        ...(email ? { sentTo: email } : {}),
+      },
+      201,
+    );
   });
 
   return app;
@@ -228,9 +243,7 @@ function normalizeModelConfig(modelConfig: unknown) {
   return {
     provider: typeof config['provider'] === 'string' ? config['provider'] : 'openrouter',
     model:
-      typeof config['model'] === 'string'
-        ? config['model']
-        : 'anthropic/claude-sonnet-4-20250514',
+      typeof config['model'] === 'string' ? config['model'] : 'anthropic/claude-sonnet-4-20250514',
     temperature: toNumber(config['temperature'], 0.7),
   };
 }

@@ -66,6 +66,8 @@ beforeEach(() => {
 });
 
 describe('launchRoutes', () => {
+  const wsHeader = { 'X-Workspace-Id': 'ws-1' };
+
   // ─── GET /artifacts ───
 
   describe('GET /artifacts', () => {
@@ -81,7 +83,7 @@ describe('launchRoutes', () => {
       mockEngine.listArtifacts.mockResolvedValueOnce(artifacts);
 
       const { fetch } = testApp(launchRoutes);
-      const res = await fetch('GET', '/artifacts?workspaceId=ws-1');
+      const res = await fetch('GET', '/artifacts', undefined, wsHeader);
       const json = await expectJson(res, 200);
 
       expect(mockEngine.listArtifacts).toHaveBeenCalledWith('ws-1');
@@ -96,17 +98,17 @@ describe('launchRoutes', () => {
       mockEngine.getArtifact.mockResolvedValueOnce(null);
 
       const { fetch } = testApp(launchRoutes);
-      const res = await fetch('GET', '/artifacts/art-999');
+      const res = await fetch('GET', '/artifacts/art-999', undefined, wsHeader);
       const json = await expectJson(res, 404);
       expect(json).toHaveProperty('error', 'Not found');
     });
 
     it('returns 200 when artifact found', async () => {
-      const artifact = { id: 'art-1', name: 'bundle.zip', size: 1024 };
+      const artifact = { id: 'art-1', workspaceId: 'ws-1', name: 'bundle.zip', size: 1024 };
       mockEngine.getArtifact.mockResolvedValueOnce(artifact);
 
       const { fetch } = testApp(launchRoutes);
-      const res = await fetch('GET', '/artifacts/art-1');
+      const res = await fetch('GET', '/artifacts/art-1', undefined, wsHeader);
       const json = await expectJson(res, 200);
       expect(json).toEqual(artifact);
     });
@@ -127,7 +129,7 @@ describe('launchRoutes', () => {
       mockEngine.listDeployments.mockResolvedValueOnce(deployments);
 
       const { fetch } = testApp(launchRoutes);
-      const res = await fetch('GET', '/deployments?workspaceId=ws-1');
+      const res = await fetch('GET', '/deployments', undefined, wsHeader);
       const json = await expectJson(res, 200);
 
       expect(mockEngine.listDeployments).toHaveBeenCalledWith('ws-1');
@@ -150,7 +152,7 @@ describe('launchRoutes', () => {
       mockEngine.listDeployTargets.mockResolvedValueOnce(targets);
 
       const { fetch } = testApp(launchRoutes);
-      const res = await fetch('GET', '/targets?workspaceId=ws-1');
+      const res = await fetch('GET', '/targets', undefined, wsHeader);
       const json = await expectJson(res, 200);
 
       expect(mockEngine.listDeployTargets).toHaveBeenCalledWith('ws-1');
@@ -163,18 +165,39 @@ describe('launchRoutes', () => {
   describe('POST /targets', () => {
     it('returns 400 when required fields are missing', async () => {
       const { fetch } = testApp(launchRoutes);
-      const res = await fetch('POST', '/targets', { workspaceId: 'ws-1' });
+      const res = await fetch('POST', '/targets', { workspaceId: 'ws-1' }, wsHeader);
       const json = await expectJson(res, 400);
       expect(json).toHaveProperty('error', 'workspaceId, name, and provider required');
     });
 
+    it('returns 403 when body workspaceId mismatches the bound workspace', async () => {
+      const { fetch } = testApp(launchRoutes);
+      const res = await fetch(
+        'POST',
+        '/targets',
+        {
+          workspaceId: 'ws-2',
+          name: 'prod',
+          provider: 'digitalocean',
+        },
+        wsHeader,
+      );
+      const json = await expectJson(res, 403);
+      expect(json).toHaveProperty('error', 'workspaceId does not match authenticated workspace');
+    });
+
     it('returns 201 on success', async () => {
       const { fetch } = testApp(launchRoutes);
-      const res = await fetch('POST', '/targets', {
-        workspaceId: 'ws-1',
-        name: 'prod',
-        provider: 'digitalocean',
-      });
+      const res = await fetch(
+        'POST',
+        '/targets',
+        {
+          workspaceId: 'ws-1',
+          name: 'prod',
+          provider: 'digitalocean',
+        },
+        wsHeader,
+      );
       const json = await expectJson(res, 201);
 
       expect(mockEngine.createDeployTarget).toHaveBeenCalledWith('ws-1', {
@@ -191,18 +214,23 @@ describe('launchRoutes', () => {
   describe('POST /deployments', () => {
     it('returns 400 when required fields are missing', async () => {
       const { fetch } = testApp(launchRoutes);
-      const res = await fetch('POST', '/deployments', { workspaceId: 'ws-1' });
+      const res = await fetch('POST', '/deployments', { workspaceId: 'ws-1' }, wsHeader);
       const json = await expectJson(res, 400);
       expect(json).toHaveProperty('error', 'workspaceId and targetId required');
     });
 
     it('returns 201 on success', async () => {
       const { fetch } = testApp(launchRoutes);
-      const res = await fetch('POST', '/deployments', {
-        workspaceId: 'ws-1',
-        targetId: 'target-1',
-        image: 'registry.example.com/app:v1',
-      });
+      const res = await fetch(
+        'POST',
+        '/deployments',
+        {
+          workspaceId: 'ws-1',
+          targetId: 'target-1',
+          image: 'registry.example.com/app:v1',
+        },
+        wsHeader,
+      );
       const json = await expectJson(res, 201);
 
       expect(mockEngine.deployToTarget).toHaveBeenCalledWith(
@@ -229,7 +257,12 @@ describe('launchRoutes', () => {
       mockEngine.updateDeploymentStatus.mockResolvedValueOnce(null);
 
       const { fetch } = testApp(launchRoutes);
-      const res = await fetch('PUT', '/deployments/dep-999/status', { status: 'running' });
+      const res = await fetch(
+        'PUT',
+        '/deployments/dep-999/status',
+        { status: 'running' },
+        wsHeader,
+      );
       const json = await expectJson(res, 404);
       expect(json).toHaveProperty('error', 'Deployment not found');
     });
@@ -239,10 +272,15 @@ describe('launchRoutes', () => {
       mockEngine.updateDeploymentStatus.mockResolvedValueOnce(updated);
 
       const { fetch } = testApp(launchRoutes);
-      const res = await fetch('PUT', '/deployments/dep-1/status', {
-        status: 'running',
-        url: 'https://app.ondigitalocean.app',
-      });
+      const res = await fetch(
+        'PUT',
+        '/deployments/dep-1/status',
+        {
+          status: 'running',
+          url: 'https://app.ondigitalocean.app',
+        },
+        wsHeader,
+      );
       const json = await expectJson(res, 200);
 
       expect(mockEngine.updateDeploymentStatus).toHaveBeenCalledWith(
@@ -259,7 +297,7 @@ describe('launchRoutes', () => {
   describe('POST /deployments/:id/health', () => {
     it('returns 201 on success', async () => {
       const { fetch } = testApp(launchRoutes);
-      const res = await fetch('POST', '/deployments/dep-1/health');
+      const res = await fetch('POST', '/deployments/dep-1/health', undefined, wsHeader);
       const json = await expectJson(res, 201);
 
       expect(mockEngine.runDeploymentHealthCheck).toHaveBeenCalledWith(

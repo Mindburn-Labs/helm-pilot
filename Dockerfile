@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 # ─── Stage 1: Build ───
 FROM node:22.22.2-slim AS builder
 WORKDIR /app
@@ -11,13 +13,40 @@ COPY services/ services/
 COPY apps/telegram-bot/ apps/telegram-bot/
 COPY apps/telegram-miniapp/ apps/telegram-miniapp/
 
-# Install all dependencies
-RUN npm ci --ignore-scripts
+# Install all dependencies, including platform-native optional packages used by
+# Vite/esbuild during production image builds.
+RUN npm ci --include=optional --ignore-scripts
 
 # Build everything (turbo handles topological ordering)
 RUN npx turbo build --filter=@helm-pilot/gateway --filter=@helm-pilot/telegram-bot --filter=@helm-pilot/telegram-miniapp
 
-# ─── Stage 2: Production ───
+# ─── Stage 2: Python Runtime ───
+FROM node:22.22.2-slim AS python-runtime
+WORKDIR /app
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    python3 \
+    python3-dev \
+    python3-pip \
+    python3-venv \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY pipelines/requirements.txt pipelines/requirements.txt
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+  python3 -m venv "$VIRTUAL_ENV" \
+  && pip install --timeout 180 --retries 10 -r pipelines/requirements.txt \
+  && python -m playwright install chromium \
+  && python -m patchright install chromium
+
+# ─── Stage 3: Production ───
 FROM node:22.22.2-slim AS runner
 WORKDIR /app
 
@@ -29,7 +58,8 @@ LABEL org.opencontainers.image.license="MIT"
 
 ENV NODE_ENV=production
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-ENV PATCHRIGHT_BROWSERS_PATH=/ms-patchright
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH=/opt/venv/bin:$PATH
 
 # Create non-root user
 RUN apt-get update \
@@ -82,14 +112,14 @@ COPY pipelines/ pipelines/
 COPY scripts/ scripts/
 
 # Install production dependencies only
-RUN npm ci --omit=dev --ignore-scripts
-RUN pip3 install --no-cache-dir -r pipelines/requirements.txt \
-  && python3 -m playwright install chromium \
-  && python3 -m patchright install chromium
+RUN npm ci --omit=dev --include=optional --ignore-scripts
+
+COPY --from=python-runtime /opt/venv /opt/venv
+COPY --from=python-runtime /ms-playwright /ms-playwright
 
 # Create data directories with correct ownership
-RUN mkdir -p /app/data/storage /app/backups /ms-playwright /ms-patchright \
-  && chown -R helm:helm /app/data /app/backups /ms-playwright /ms-patchright
+RUN mkdir -p /app/data/storage /app/backups /ms-playwright \
+  && chown -R helm:helm /app/data /app/backups /ms-playwright
 
 # Switch to non-root user
 USER helm
