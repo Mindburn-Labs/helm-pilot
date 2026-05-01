@@ -41,6 +41,7 @@ export default function LoginPage() {
     try {
       const res = await fetch(`${API}/api/auth/email/verify`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, code }),
       });
@@ -50,7 +51,6 @@ export default function LoginPage() {
         return;
       }
       // Store auth data
-      localStorage.setItem('helm_token', data.token);
       localStorage.setItem('helm_user', JSON.stringify(data.user));
       if (data.workspace) {
         localStorage.setItem('helm_workspace', JSON.stringify(data.workspace));
@@ -69,7 +69,15 @@ export default function LoginPage() {
       <p style={{ color: '#888', marginBottom: '2rem' }}>Sign in to your founder workspace</p>
 
       {error && (
-        <div style={{ color: '#f44', marginBottom: '1rem', padding: '0.5rem', border: '1px solid #f44', borderRadius: 4 }}>
+        <div
+          style={{
+            color: '#f44',
+            marginBottom: '1rem',
+            padding: '0.5rem',
+            border: '1px solid #f44',
+            borderRadius: 4,
+          }}
+        >
           {error}
         </div>
       )}
@@ -101,12 +109,24 @@ export default function LoginPage() {
             onChange={(e) => setCode(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && verifyCode()}
             maxLength={6}
-            style={{ ...inputStyle, textAlign: 'center', fontSize: '1.5rem', letterSpacing: '0.5rem' }}
+            style={{
+              ...inputStyle,
+              textAlign: 'center',
+              fontSize: '1.5rem',
+              letterSpacing: '0.5rem',
+            }}
           />
           <button onClick={verifyCode} disabled={loading || code.length !== 6} style={buttonStyle}>
             {loading ? 'Verifying...' : 'Verify Code'}
           </button>
-          <button onClick={() => { setStep('email'); setCode(''); setDevCode(''); }} style={{ ...buttonStyle, background: 'transparent', border: '1px solid #555' }}>
+          <button
+            onClick={() => {
+              setStep('email');
+              setCode('');
+              setDevCode('');
+            }}
+            style={{ ...buttonStyle, background: 'transparent', border: '1px solid #555' }}
+          >
             Back
           </button>
         </div>

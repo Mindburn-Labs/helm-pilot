@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { getCookie } from 'hono/cookie';
 import { eq } from 'drizzle-orm';
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import {
@@ -9,7 +10,14 @@ import {
   workspaceMembers,
   auditLog,
 } from '@helm-pilot/db/schema';
-import { generateToken, generateApiKey, hashApiKey } from '../middleware/auth.js';
+import {
+  clearSessionCookies,
+  generateApiKey,
+  generateToken,
+  hashApiKey,
+  SESSION_COOKIE_NAME,
+  setSessionCookies,
+} from '../middleware/auth.js';
 import { type GatewayDeps } from '../index.js';
 
 const TELEGRAM_AUTH_MAX_AGE_SECONDS = 24 * 60 * 60;
@@ -84,6 +92,7 @@ export function authRoutes(deps: GatewayDeps) {
       channel: 'telegram',
       expiresAt,
     });
+    const csrfToken = setSessionCookies(c, token, expiresAt);
 
     // Resolve workspace name for the response
     let workspaceName = 'Workspace';
@@ -98,6 +107,7 @@ export function authRoutes(deps: GatewayDeps) {
 
     return c.json({
       token,
+      csrfToken,
       user: { id: user.id, name: user.name, telegramId },
       workspace: membership ? { id: membership.workspaceId, name: workspaceName } : null,
       expiresAt: expiresAt.toISOString(),
@@ -244,6 +254,7 @@ export function authRoutes(deps: GatewayDeps) {
       channel: 'email',
       expiresAt,
     });
+    const csrfToken = setSessionCookies(c, token, expiresAt);
     await recordAuthAudit(deps, {
       action: 'auth.email.verify',
       actor: email,
@@ -263,6 +274,7 @@ export function authRoutes(deps: GatewayDeps) {
 
     return c.json({
       token,
+      csrfToken,
       user: { id: user.id, name: user.name, email },
       workspace: membership ? { id: membership.workspaceId, name: workspaceName } : null,
       expiresAt: expiresAt.toISOString(),
@@ -272,11 +284,14 @@ export function authRoutes(deps: GatewayDeps) {
   // DELETE /api/auth/session — Logout
   app.delete('/session', async (c) => {
     const authHeader = c.req.header('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
+    const cookieToken = getCookie(c, SESSION_COOKIE_NAME);
+    if (!authHeader?.startsWith('Bearer ') && !cookieToken) {
       return c.json({ error: 'No session' }, 400);
     }
-    const token = authHeader.slice(7);
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : cookieToken;
+    if (!token) return c.json({ error: 'No session' }, 400);
     await deps.db.delete(sessions).where(eq(sessions.token, token));
+    clearSessionCookies(c);
     return c.json({ ok: true });
   });
 
@@ -340,9 +355,12 @@ export function authRoutes(deps: GatewayDeps) {
       channel: 'email',
       expiresAt,
     });
+    const csrfToken = setSessionCookies(c, sessionToken, expiresAt);
 
     return c.json({
       token: sessionToken,
+      csrfToken,
+      user: { id: user.id, name: user.name, email: user.email },
       workspaceId,
       role,
     });

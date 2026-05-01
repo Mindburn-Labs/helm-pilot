@@ -16,22 +16,41 @@ beforeEach(async () => {
 });
 
 describe('apiFetch', () => {
-  it('adds Bearer token from localStorage', async () => {
-    localStorage.setItem('helm_token', 'test-token-123');
+  it('sends cookie credentials without exposing a Bearer token from localStorage', async () => {
+    localStorage.setItem('helm_token', 'legacy-token-that-should-not-be-used');
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-      new Response(JSON.stringify({ ok: true }), { headers: { 'content-type': 'application/json' } }),
+      new Response(JSON.stringify({ ok: true }), {
+        headers: { 'content-type': 'application/json' },
+      }),
     );
 
     await apiFetch('/api/test');
 
     const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(url).toBe('/api/test');
-    expect(init.headers['Authorization']).toBe('Bearer test-token-123');
+    expect(init.credentials).toBe('include');
+    expect(init.headers['Authorization']).toBeUndefined();
+  });
+
+  it('adds CSRF header for mutating cookie-authenticated requests', async () => {
+    document.cookie = 'helm_csrf=csrf-token';
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), {
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    await apiFetch('/api/test', { method: 'POST', body: JSON.stringify({ ok: true }) });
+
+    const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(init.headers['X-CSRF-Token']).toBe('csrf-token');
   });
 
   it('works without token', async () => {
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-      new Response(JSON.stringify({ data: 1 }), { headers: { 'content-type': 'application/json' } }),
+      new Response(JSON.stringify({ data: 1 }), {
+        headers: { 'content-type': 'application/json' },
+      }),
     );
 
     const result = await apiFetch('/api/test');
@@ -61,7 +80,9 @@ describe('apiFetch', () => {
 
   it('returns JSON on success', async () => {
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-      new Response(JSON.stringify({ users: [1, 2] }), { headers: { 'content-type': 'application/json' } }),
+      new Response(JSON.stringify({ users: [1, 2] }), {
+        headers: { 'content-type': 'application/json' },
+      }),
     );
 
     const result = await apiFetch<{ users: number[] }>('/api/users');
@@ -100,12 +121,12 @@ describe('getWorkspaceId', () => {
 });
 
 describe('isAuthenticated', () => {
-  it('returns true when token exists', () => {
-    localStorage.setItem('helm_token', 'abc');
+  it('returns true when browser user state exists', () => {
+    localStorage.setItem('helm_user', '{}');
     expect(isAuthenticated()).toBe(true);
   });
 
-  it('returns false without token', () => {
+  it('returns false without browser user state', () => {
     expect(isAuthenticated()).toBe(false);
   });
 });
@@ -118,6 +139,13 @@ describe('logout', () => {
 
     logout();
 
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/auth/session',
+      expect.objectContaining({
+        credentials: 'include',
+        method: 'DELETE',
+      }),
+    );
     expect(localStorage.getItem('helm_token')).toBeNull();
     expect(localStorage.getItem('helm_workspace')).toBeNull();
     expect(localStorage.getItem('helm_user')).toBeNull();

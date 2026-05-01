@@ -105,9 +105,16 @@ export function createGateway(deps: GatewayDeps) {
   app.use(
     '/api/*',
     cors({
-      origin: origins.length > 0 ? origins : '*',
+      origin: origins.length > 0 ? origins : (origin) => origin || '*',
       allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-Workspace-Id'],
+      allowHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-API-Key',
+        'X-Workspace-Id',
+        'X-CSRF-Token',
+      ],
+      credentials: true,
     }),
   );
 

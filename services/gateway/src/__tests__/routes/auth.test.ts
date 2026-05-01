@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { createHmac } from 'node:crypto';
 import { authenticatedAuthRoutes, authRoutes } from '../../routes/auth.js';
 import { createGateway } from '../../index.js';
+import { requireAuth } from '../../middleware/auth.js';
 import {
   createMockDeps,
   testApp,
@@ -131,6 +132,39 @@ describe('authRoutes', () => {
       const json = await expectJson<{ key: string; name: string; expiresAt: string }>(res, 201);
       expect(json.key).toMatch(/^hp_/);
       expect(json.name).toBe('full-gateway-key');
+    });
+
+    it('requires CSRF header for mutating cookie-authenticated requests', async () => {
+      const deps = createMockDeps();
+      deps.db._setResult([mockSession({ token: 'cookie-session', createdAt: new Date() })]);
+      const app = new Hono();
+      app.use('*', requireAuth(deps.db as any));
+      app.post('/protected', (c) => c.json({ userId: c.get('userId') }));
+
+      const missingCsrf = await app.fetch(
+        new Request('http://localhost/protected', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Cookie: 'helm_session=cookie-session',
+          },
+        }),
+      );
+
+      expect(missingCsrf.status).toBe(403);
+
+      const ok = await app.fetch(
+        new Request('http://localhost/protected', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Cookie: 'helm_session=cookie-session; helm_csrf=csrf-token',
+            'X-CSRF-Token': 'csrf-token',
+          },
+        }),
+      );
+      const json = await expectJson<{ userId: string }>(ok, 200);
+      expect(json.userId).toBe('user-1');
     });
   });
 
@@ -343,8 +377,10 @@ describe('authRoutes', () => {
         }),
       );
 
-      const verifyJson = await expectJson<{ token: string }>(verifyRes, 200);
+      const verifyJson = await expectJson<{ token: string; csrfToken: string }>(verifyRes, 200);
       expect(verifyJson.token).toMatch(/^[a-f0-9]{64}$/);
+      expect(verifyJson.csrfToken).toMatch(/^[a-f0-9]{64}$/);
+      expect(verifyRes.headers.get('set-cookie') ?? '').toContain('helm_session=');
       expect(deps.db.delete).toHaveBeenCalled();
     });
 
