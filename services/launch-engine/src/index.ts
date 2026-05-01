@@ -1,4 +1,4 @@
-import { eq, desc } from 'drizzle-orm';
+import { and, eq, desc } from 'drizzle-orm';
 import { type Db } from '@helm-pilot/db/client';
 import {
   artifacts,
@@ -28,8 +28,16 @@ export class LaunchEngine {
       .orderBy(desc(artifacts.updatedAt));
   }
 
-  async getArtifact(id: string) {
-    const [artifact] = await this.db.select().from(artifacts).where(eq(artifacts.id, id)).limit(1);
+  async getArtifact(id: string, workspaceId?: string) {
+    const [artifact] = await this.db
+      .select()
+      .from(artifacts)
+      .where(
+        workspaceId
+          ? and(eq(artifacts.id, id), eq(artifacts.workspaceId, workspaceId))
+          : eq(artifacts.id, id),
+      )
+      .limit(1);
     if (!artifact) return null;
 
     const versions = await this.db
@@ -47,11 +55,15 @@ export class LaunchEngine {
     return this.db.select().from(deployTargets).where(eq(deployTargets.workspaceId, workspaceId));
   }
 
-  async getDeployTarget(id: string) {
+  async getDeployTarget(id: string, workspaceId?: string) {
     const [target] = await this.db
       .select()
       .from(deployTargets)
-      .where(eq(deployTargets.id, id))
+      .where(
+        workspaceId
+          ? and(eq(deployTargets.id, id), eq(deployTargets.workspaceId, workspaceId))
+          : eq(deployTargets.id, id),
+      )
       .limit(1);
     return target ?? null;
   }
@@ -95,11 +107,15 @@ export class LaunchEngine {
       .orderBy(desc(deployments.startedAt));
   }
 
-  async getDeployment(id: string) {
+  async getDeployment(id: string, workspaceId?: string) {
     const [deployment] = await this.db
       .select()
       .from(deployments)
-      .where(eq(deployments.id, id))
+      .where(
+        workspaceId
+          ? and(eq(deployments.id, id), eq(deployments.workspaceId, workspaceId))
+          : eq(deployments.id, id),
+      )
       .limit(1);
     return deployment ?? null;
   }
@@ -131,6 +147,7 @@ export class LaunchEngine {
     status: string,
     url?: string,
     metadata?: Record<string, unknown>,
+    workspaceId?: string,
   ) {
     const values: Record<string, unknown> = { status };
     if (url) values['url'] = url;
@@ -141,7 +158,11 @@ export class LaunchEngine {
     const [updated] = await this.db
       .update(deployments)
       .set(values)
-      .where(eq(deployments.id, deploymentId))
+      .where(
+        workspaceId
+          ? and(eq(deployments.id, deploymentId), eq(deployments.workspaceId, workspaceId))
+          : eq(deployments.id, deploymentId),
+      )
       .returning();
     return updated ?? null;
   }
@@ -163,8 +184,8 @@ export class LaunchEngine {
     provision?: ProvisionResult;
     providerDeployment: DeployResult;
   }> {
-    const target = await this.getDeployTarget(input.targetId);
-    if (!target || target.workspaceId !== workspaceId) {
+    const target = await this.getDeployTarget(input.targetId, workspaceId);
+    if (!target) {
       throw new Error('deploy target not found for workspace');
     }
     if (target.provider !== provider.name) {
@@ -206,7 +227,13 @@ export class LaunchEngine {
       });
     }
 
-    await this.updateDeploymentStatus(deployment.id, 'deploying');
+    await this.updateDeploymentStatus(
+      deployment.id,
+      'deploying',
+      undefined,
+      undefined,
+      workspaceId,
+    );
     const providerDeployment = await provider.deploy({
       providerId,
       image,
@@ -227,6 +254,7 @@ export class LaunchEngine {
       providerDeployment.status,
       providerDeployment.url,
       metadata,
+      workspaceId,
     );
     if (!updated) throw new Error('deployment disappeared during provider deploy');
     return { deployment: updated, provision, providerDeployment };
@@ -268,11 +296,12 @@ export class LaunchEngine {
   async runDeploymentHealthCheck(
     deploymentId: string,
     provider: DeployProvider,
+    workspaceId?: string,
   ): Promise<{
     check: typeof deployHealth.$inferSelect;
     result: HealthCheckResult;
   }> {
-    const deployment = await this.getDeployment(deploymentId);
+    const deployment = await this.getDeployment(deploymentId, workspaceId);
     if (!deployment) throw new Error('deployment not found');
     const metadata = asRecord(deployment.metadata) ?? {};
     const providerId = stringValue(metadata['providerId']);
@@ -295,11 +324,12 @@ export class LaunchEngine {
     deploymentId: string,
     targetVersion: string,
     provider: DeployProvider,
+    workspaceId?: string,
   ): Promise<{
     deployment: typeof deployments.$inferSelect | null;
     result: RollbackResult;
   }> {
-    const deployment = await this.getDeployment(deploymentId);
+    const deployment = await this.getDeployment(deploymentId, workspaceId);
     if (!deployment) throw new Error('deployment not found');
     const metadata = asRecord(deployment.metadata) ?? {};
     const providerId = stringValue(metadata['providerId']);
@@ -320,6 +350,7 @@ export class LaunchEngine {
         ...metadata,
         rollback: result,
       },
+      workspaceId,
     );
     return { deployment: updated ?? null, result };
   }

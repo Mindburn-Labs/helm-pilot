@@ -117,6 +117,7 @@ describe('productRoutes', () => {
         'plan-1',
         'Alpha',
         'First alpha release',
+        'ws-1',
       );
       expect(json).toEqual({ id: 'ms-1', title: 'Alpha', planId: 'plan-1' });
     });

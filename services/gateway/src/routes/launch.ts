@@ -137,9 +137,8 @@ export function launchRoutes(deps: GatewayDeps) {
   app.get('/artifacts/:id', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
-    const artifact = await engine.getArtifact(c.req.param('id'));
-    if (!artifact || artifact.workspaceId !== workspaceId)
-      return c.json({ error: 'Not found' }, 404);
+    const artifact = await engine.getArtifact(c.req.param('id'), workspaceId);
+    if (!artifact) return c.json({ error: 'Not found' }, 404);
     return c.json(artifact);
   });
 
@@ -199,8 +198,8 @@ export function launchRoutes(deps: GatewayDeps) {
     if (!workspaceId || !targetId) {
       return c.json({ error: 'workspaceId and targetId required' }, 400);
     }
-    const target = await engine.getDeployTarget(targetId);
-    if (!target || target.workspaceId !== workspaceId) {
+    const target = await engine.getDeployTarget(targetId, workspaceId);
+    if (!target) {
       return c.json({ error: 'Deploy target not found' }, 404);
     }
     const provider = providerFor(target.provider);
@@ -242,11 +241,11 @@ export function launchRoutes(deps: GatewayDeps) {
     const { id } = c.req.param();
     const body = await c.req.json();
     const { status, url } = body as { status: string; url?: string };
-    const deployment = await engine.getDeployment(id);
-    if (!deployment || deployment.workspaceId !== workspaceId) {
+    const deployment = await engine.getDeployment(id, workspaceId);
+    if (!deployment) {
       return c.json({ error: 'Deployment not found' }, 404);
     }
-    const updated = await engine.updateDeploymentStatus(id, status, url);
+    const updated = await engine.updateDeploymentStatus(id, status, url, undefined, workspaceId);
     if (!updated) return c.json({ error: 'Deployment not found' }, 404);
     return c.json(updated);
   });
@@ -257,12 +256,9 @@ export function launchRoutes(deps: GatewayDeps) {
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
 
     const { id } = c.req.param();
-    const deployment = await engine.getDeployment(id);
+    const deployment = await engine.getDeployment(id, workspaceId);
     if (!deployment) return c.json({ error: 'Deployment not found' }, 404);
-    if (deployment.workspaceId !== workspaceId) {
-      return c.json({ error: 'Deployment not found' }, 404);
-    }
-    const target = await engine.getDeployTarget(deployment.targetId);
+    const target = await engine.getDeployTarget(deployment.targetId, workspaceId);
     if (!target) return c.json({ error: 'Deploy target not found' }, 404);
     const provider = providerFor(target.provider);
     if (!provider) return c.json({ error: `Unsupported deploy provider: ${target.provider}` }, 400);
@@ -276,7 +272,7 @@ export function launchRoutes(deps: GatewayDeps) {
     if (governed instanceof Response) return governed;
 
     try {
-      const result = await engine.runDeploymentHealthCheck(id, provider);
+      const result = await engine.runDeploymentHealthCheck(id, provider, workspaceId);
       return c.json({ ...result, helmReceipt: governed?.receipt }, 201);
     } catch (err) {
       return c.json(
@@ -299,12 +295,9 @@ export function launchRoutes(deps: GatewayDeps) {
     const { targetVersion } = body as { targetVersion?: string };
     if (!targetVersion) return c.json({ error: 'targetVersion required' }, 400);
 
-    const deployment = await engine.getDeployment(id);
+    const deployment = await engine.getDeployment(id, workspaceId);
     if (!deployment) return c.json({ error: 'Deployment not found' }, 404);
-    if (deployment.workspaceId !== workspaceId) {
-      return c.json({ error: 'Deployment not found' }, 404);
-    }
-    const target = await engine.getDeployTarget(deployment.targetId);
+    const target = await engine.getDeployTarget(deployment.targetId, workspaceId);
     if (!target) return c.json({ error: 'Deploy target not found' }, 404);
     const provider = providerFor(target.provider);
     if (!provider) return c.json({ error: `Unsupported deploy provider: ${target.provider}` }, 400);
@@ -318,7 +311,7 @@ export function launchRoutes(deps: GatewayDeps) {
     if (governed instanceof Response) return governed;
 
     try {
-      const result = await engine.rollbackDeployment(id, targetVersion, provider);
+      const result = await engine.rollbackDeployment(id, targetVersion, provider, workspaceId);
       return c.json({ ...result, helmReceipt: governed?.receipt });
     } catch (err) {
       return c.json(

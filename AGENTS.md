@@ -12,7 +12,7 @@ HELM Pilot is an open-source, self-hostable autonomous founder operating system:
 - NOT a multi-tenant SaaS. Self-hostable single-founder deployment is the target shape.
 - NOT a general scraping framework. Ingestion is Scrapling-first and session-backed.
 - NOT a playground for new ORMs or runtimes — Drizzle + Node 22 + pg-boss are fixed.
-- NOT a rewrite of the old `_archive/openclaw/` system — archive lives for reference only.
+- NOT a rewrite of the old OpenClaw import — historical imports live outside the active repo for reference only.
 
 ## Build / test / lint
 
@@ -38,7 +38,7 @@ docker compose -f infra/docker/docker-compose.yml up -d postgres
 - `packages/shared/` — Zod schemas, config, logger, LLM provider
 - `packages/connectors/` — external service integrations
 - `packages/helm-client/` — HELM trust-boundary client
-- `packages/legacy-audit/` — migration trail from `_archive/openclaw`
+- `packages/legacy-audit/` — migration trail from externalized legacy imports
 - `pipelines/` — Scrapling-backed ingestion
 - `infra/docker/docker-compose.yml` — local stack + self-host shape
 
@@ -50,7 +50,7 @@ docker compose -f infra/docker/docker-compose.yml up -d postgres
 - MUST use Drizzle for all DB access; no raw SQL outside `packages/db/migrations`.
 - MUST validate every inbound and outbound payload with Zod from `packages/shared`.
 - MUST NOT commit `.env` or any OAuth client secret. Use `.env.example` patterns.
-- MUST NOT modify `_archive/openclaw/` or `_archive/money-engine/` — archive only.
+- MUST NOT reintroduce vendored legacy imports into the active repo.
 - MUST NOT downgrade `helm-client` to bypass the trust boundary.
 
 ## Design system

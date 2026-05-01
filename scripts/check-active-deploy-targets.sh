@@ -2,7 +2,6 @@
 set -euo pipefail
 
 if rg -n \
-  --glob '!_archive/**' \
   --glob '!package-lock.json' \
   --glob '!scripts/check-active-deploy-targets.sh' \
   '(flyctl|Fly\.io|superfly|FLY_API_TOKEN|infra/fly|\.fly\.dev)' \

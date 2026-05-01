@@ -54,7 +54,7 @@ jobs:
                - Ingestion must use Scrapling; flag any raw `fetch`, `axios`, or `puppeteer` use inside `services/` or `pipelines/`.
                - Database access must use Drizzle; flag any raw SQL outside `packages/db/migrations`.
                - Every inbound/outbound payload must be Zod-validated via `packages/shared`.
-               - `_archive/openclaw` and `_archive/money-engine` must not be modified.
+               - Vendored legacy imports must not be reintroduced into the active repo.
             3. If the PR has the `needs-ultrareview` label, run `/ultrareview` (remote sandbox, parallel reviewer fleet) instead of `/review`.
             4. Post the consolidated verdict as a PR comment. Block merge via a review-request-changes comment on any CRITICAL finding, failing test, kernel-guardian escalation, or invariant violation above.
 

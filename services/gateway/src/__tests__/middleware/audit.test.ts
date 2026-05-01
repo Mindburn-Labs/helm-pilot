@@ -25,6 +25,11 @@ describe('auditMiddleware', () => {
     db = { insert: mock.insertFn } as any;
 
     app = new Hono();
+    app.use('*', async (c, next) => {
+      const workspaceId = c.req.header('X-Bound-Workspace-Id');
+      if (workspaceId) c.set('workspaceId', workspaceId);
+      await next();
+    });
     app.use('*', auditMiddleware(db as any));
 
     // Test routes
@@ -96,17 +101,27 @@ describe('auditMiddleware', () => {
     expect(res.status).toBe(201);
   });
 
-  it('captures workspaceId from query param', async () => {
+  it('does not trust unbound workspaceId from query param', async () => {
     await app.fetch(new Request('http://localhost/api/items?workspaceId=ws-1', { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' } }));
     const values = mock.valuesFn.mock.calls[0]?.[0];
-    expect(values.workspaceId).toBe('ws-1');
+    expect(values.workspaceId).toBeNull();
   });
 
-  it('captures workspaceId from X-Workspace-Id header', async () => {
+  it('does not trust unbound workspaceId from X-Workspace-Id header', async () => {
     await app.fetch(new Request('http://localhost/api/items', {
       method: 'POST',
       body: '{}',
       headers: { 'Content-Type': 'application/json', 'X-Workspace-Id': 'ws-2' },
+    }));
+    const values = mock.valuesFn.mock.calls[0]?.[0];
+    expect(values.workspaceId).toBeNull();
+  });
+
+  it('captures workspaceId from bound auth context', async () => {
+    await app.fetch(new Request('http://localhost/api/items', {
+      method: 'POST',
+      body: '{}',
+      headers: { 'Content-Type': 'application/json', 'X-Bound-Workspace-Id': 'ws-2' },
     }));
     const values = mock.valuesFn.mock.calls[0]?.[0];
     expect(values.workspaceId).toBe('ws-2');

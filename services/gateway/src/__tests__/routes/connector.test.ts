@@ -95,7 +95,7 @@ describe('connectorRoutes', () => {
         grantedAt: new Date('2026-04-15T00:00:00Z'),
       });
       connectors.getTokenRecord.mockResolvedValue({
-        expiresAt: new Date('2026-05-01T00:00:00Z'),
+        expiresAt: new Date('2027-05-01T00:00:00Z'),
         updatedAt: new Date('2026-04-15T00:00:00Z'),
       });
       const deps = createMockDeps({ connectors: connectors as any });
