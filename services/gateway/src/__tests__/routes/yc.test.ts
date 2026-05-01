@@ -140,9 +140,13 @@ describe('ycRoutes', () => {
 
   describe('POST /ingestion/private', () => {
     it('queues private yc sync job', async () => {
-      const deps = createMockDeps();
-      const { fetch } = testApp(ycRoutes, deps);
       const grantId = '00000000-0000-4000-8000-000000000001';
+      const deps = createMockDeps({
+        connectors: {
+          getGrantByWorkspaceConnector: vi.fn(async () => ({ id: grantId, workspaceId: 'ws-1' })),
+        } as any,
+      });
+      const { fetch } = testApp(ycRoutes, deps);
 
       const res = await fetch(
         'POST',

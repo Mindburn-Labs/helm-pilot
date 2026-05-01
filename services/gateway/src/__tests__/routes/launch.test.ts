@@ -287,6 +287,8 @@ describe('launchRoutes', () => {
         'dep-1',
         'running',
         'https://app.ondigitalocean.app',
+        undefined,
+        'ws-1',
       );
       expect(json).toEqual(updated);
     });
@@ -303,6 +305,7 @@ describe('launchRoutes', () => {
       expect(mockEngine.runDeploymentHealthCheck).toHaveBeenCalledWith(
         'dep-1',
         expect.objectContaining({ name: 'digitalocean' }),
+        'ws-1',
       );
       expect(json.check).toEqual({ id: 'hc-1', status: 'healthy' });
     });

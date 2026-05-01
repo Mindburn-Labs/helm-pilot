@@ -88,6 +88,23 @@ require_file() {
   [[ -f "$1" ]] || die "required env file not found: $1"
 }
 
+abs_path() {
+  local path="$1"
+  local dir base
+  dir="$(dirname "$path")"
+  base="$(basename "$path")"
+  printf '%s/%s' "$(cd "$dir" && pwd -P)" "$base"
+}
+
+copy_env_if_needed() {
+  local src="$1"
+  local dst="$2"
+  if [[ -f "$dst" && "$(abs_path "$src")" == "$(abs_path "$dst")" ]]; then
+    return 0
+  fi
+  cp "$src" "$dst"
+}
+
 require_value() {
   local file="$1"
   local key="$2"
@@ -190,9 +207,9 @@ validate_env_files() {
 compose_doctor() {
   validate_env_files
   require_cmd docker
-  cp "$ENV_SHARED_FILE" .env.production.shared
-  cp "$ENV_HELM_FILE" .env.production.helm
-  cp "$ENV_PILOT_FILE" .env.production.pilot
+  copy_env_if_needed "$ENV_SHARED_FILE" .env.production.shared
+  copy_env_if_needed "$ENV_HELM_FILE" .env.production.helm
+  copy_env_if_needed "$ENV_PILOT_FILE" .env.production.pilot
   COMPOSE_PROFILES="$COMPOSE_PROFILES" "${COMPOSE[@]}" config >/dev/null
   echo "DigitalOcean production doctor passed."
 }

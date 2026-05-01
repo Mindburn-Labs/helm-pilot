@@ -1,4 +1,4 @@
-import { eq, desc } from 'drizzle-orm';
+import { and, eq, desc } from 'drizzle-orm';
 import { type Db } from '@helm-pilot/db/client';
 import { plans, milestones, tasks } from '@helm-pilot/db/schema';
 
@@ -13,11 +13,11 @@ export class ProductFactory {
       .orderBy(desc(plans.createdAt));
   }
 
-  async getPlan(planId: string) {
+  async getPlan(planId: string, workspaceId?: string) {
     const [plan] = await this.db
       .select()
       .from(plans)
-      .where(eq(plans.id, planId))
+      .where(workspaceId ? and(eq(plans.id, planId), eq(plans.workspaceId, workspaceId)) : eq(plans.id, planId))
       .limit(1);
     if (!plan) return null;
 
@@ -38,7 +38,16 @@ export class ProductFactory {
     return plan;
   }
 
-  async addMilestone(planId: string, title: string, description?: string) {
+  async addMilestone(planId: string, title: string, description?: string, workspaceId?: string) {
+    if (workspaceId) {
+      const [plan] = await this.db
+        .select({ id: plans.id })
+        .from(plans)
+        .where(and(eq(plans.id, planId), eq(plans.workspaceId, workspaceId)))
+        .limit(1);
+      if (!plan) return null;
+    }
+
     const existing = await this.db
       .select()
       .from(milestones)

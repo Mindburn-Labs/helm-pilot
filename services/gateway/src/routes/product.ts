@@ -19,8 +19,8 @@ export function productRoutes(deps: GatewayDeps) {
   app.get('/plans/:id', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
-    const plan = await factory.getPlan(c.req.param('id'));
-    if (!plan || plan.workspaceId !== workspaceId) return c.json({ error: 'Not found' }, 404);
+    const plan = await factory.getPlan(c.req.param('id'), workspaceId);
+    if (!plan) return c.json({ error: 'Not found' }, 404);
     return c.json(plan);
   });
 
@@ -37,10 +37,16 @@ export function productRoutes(deps: GatewayDeps) {
   app.post('/plans/:id/milestones', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
-    const plan = await factory.getPlan(c.req.param('id'));
-    if (!plan || plan.workspaceId !== workspaceId) return c.json({ error: 'Not found' }, 404);
+    const plan = await factory.getPlan(c.req.param('id'), workspaceId);
+    if (!plan) return c.json({ error: 'Not found' }, 404);
     const body = await c.req.json();
-    const ms = await factory.addMilestone(c.req.param('id'), body.title, body.description);
+    const ms = await factory.addMilestone(
+      c.req.param('id'),
+      body.title,
+      body.description,
+      workspaceId,
+    );
+    if (!ms) return c.json({ error: 'Not found' }, 404);
     return c.json(ms, 201);
   });
 

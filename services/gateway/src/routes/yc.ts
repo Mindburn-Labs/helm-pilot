@@ -107,6 +107,7 @@ export function ycRoutes(deps: GatewayDeps) {
 
   app.post('/ingestion/private', async (c) => {
     if (!deps.orchestrator.boss) return c.json({ error: 'Background jobs unavailable' }, 503);
+    if (!deps.connectors) return c.json({ error: 'Connectors not configured' }, 503);
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
 
@@ -114,6 +115,11 @@ export function ycRoutes(deps: GatewayDeps) {
     const parsed = YcPrivateIngestionInput.safeParse(raw);
     if (!parsed.success) {
       return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
+    }
+
+    const grant = await deps.connectors.getGrantByWorkspaceConnector(workspaceId, 'yc');
+    if (!grant || grant.id !== parsed.data.grantId) {
+      return c.json({ error: 'Connector grant not found' }, 404);
     }
 
     const jobId = await deps.orchestrator.boss.send('pipeline.yc-private', {

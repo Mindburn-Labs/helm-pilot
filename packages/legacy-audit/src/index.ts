@@ -14,11 +14,11 @@
  * These adapters are transitional. They will be removed as each
  * legacy module is fully migrated to the new architecture.
  *
- * Archive reference: _archive/ contains the original source files.
+ * Historical source imports are externalized outside the active repository.
  */
 
 export interface LegacyBridgeConfig {
-  archivePath: string; // path to _archive/ for reference reads
+  archivePath: string; // externalized historical import path for reference reads
   databaseUrl: string; // Postgres URL for writing migrated data
 }
 

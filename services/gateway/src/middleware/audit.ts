@@ -1,6 +1,7 @@
 import { type Context, type Next } from 'hono';
 import { auditLog } from '@helm-pilot/db/schema';
 import { type Db } from '@helm-pilot/db/client';
+import { getWorkspaceId } from '../lib/workspace.js';
 
 /**
  * Audit middleware — logs every mutating API request (POST, PUT, DELETE)
@@ -14,7 +15,7 @@ export function auditMiddleware(db: Db) {
     if (method !== 'POST' && method !== 'PUT' && method !== 'DELETE') return;
 
     const userId = c.get('userId') as string | undefined;
-    const workspaceId = (c.get('workspaceId') as string | undefined) ?? c.req.query('workspaceId') ?? c.req.header('X-Workspace-Id') ?? undefined;
+    const workspaceId = getWorkspaceId(c);
 
     // Fire-and-forget — never block the response
     db.insert(auditLog)

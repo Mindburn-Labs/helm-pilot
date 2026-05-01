@@ -95,7 +95,7 @@
 **Mitigation:**
 1. Write a one-time Python migration script that validates each row before INSERT.
 2. Log every skipped/malformed row for manual review.
-3. Keep original JSONL files in an `archive/` directory after migration.
+3. Keep original JSONL files in externalized historical storage after migration.
 4. For playbook.md: manually extract key sections into seed knowledge entries.
 5. Run migration in a transaction — all or nothing.
 

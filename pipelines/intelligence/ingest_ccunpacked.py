@@ -5,13 +5,13 @@ HELM Pilot — ccunpacked Knowledge Ingestion (Phase 2.2)
 Ingests the ccunpacked Claude Code architecture reference into the
 knowledge layer (pages + content_chunks tables).
 
-Source: _archive/ccunpacked_scrape/output/ (606 files)
+Source: externalized ccunpacked scrape output
 Target: knowledge.pages (type='concept') + knowledge.content_chunks
 
 Tracks provenance per Section 39.4.
 
 Usage:
-    python ingest_ccunpacked.py                         # Ingest all
+    HELM_PILOT_CCUNPACKED_SOURCE=/path/to/ccunpacked_scrape python ingest_ccunpacked.py
     python ingest_ccunpacked.py --source-dir /path/to   # Custom source
     python ingest_ccunpacked.py --dry-run               # Print without DB writes
     python ingest_ccunpacked.py --reference-only         # Ingest compiled reference only
@@ -42,9 +42,7 @@ CATEGORY_MAP = {
     "hidden_features": ["claude-code", "features", "undocumented"],
 }
 
-DEFAULT_SOURCE = os.path.join(
-    os.path.dirname(__file__), "..", "..", "_archive", "ccunpacked_scrape"
-)
+DEFAULT_SOURCE = os.environ.get("HELM_PILOT_CCUNPACKED_SOURCE", "")
 
 
 def get_db():
@@ -199,10 +197,17 @@ def log_ingestion(cur, source: str, item_count: int, status: str, error: str | N
 
 def main():
     parser = argparse.ArgumentParser(description="Ingest ccunpacked into knowledge layer")
-    parser.add_argument("--source-dir", default=DEFAULT_SOURCE, help="Path to ccunpacked_scrape/")
+    parser.add_argument(
+        "--source-dir",
+        default=DEFAULT_SOURCE,
+        help="Path to externalized ccunpacked_scrape/ source",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--reference-only", action="store_true", help="Only ingest compiled reference")
     args = parser.parse_args()
+
+    if not args.source_dir:
+        parser.error("--source-dir or HELM_PILOT_CCUNPACKED_SOURCE is required")
 
     source_dir = os.path.abspath(args.source_dir)
     output_dir = os.path.join(source_dir, "output")

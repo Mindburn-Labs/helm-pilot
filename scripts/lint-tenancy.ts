@@ -141,7 +141,6 @@ const SKIP_PATH_PATTERNS: RegExp[] = [
   /\/db\/src\/client\.ts$/,
   /\/db\/src\/index\.ts$/,
   /\/routes\/admin\.ts$/, // admin routes are platform-scoped by design
-  /\/_archive\//,
   /\/node_modules\//,
   /\/dist\//,
   /\/\.turbo\//,
@@ -240,7 +239,7 @@ function hasWorkspacePredicate(window: string, table: string): boolean {
 
 // ─── Entry point ─────────────────────────────────────────────────────────
 
-const DIR_PRUNE = new Set(['node_modules', 'dist', '.turbo', '.next', '_archive', '.git']);
+const DIR_PRUNE = new Set(['node_modules', 'dist', '.turbo', '.next', '.git']);
 
 function collectTsFiles(dir: string, out: string[]): void {
   let entries: string[];
@@ -267,8 +266,8 @@ function collectTsFiles(dir: string, out: string[]): void {
 }
 
 function main(): void {
-  // Scope the scan to the first-party source roots so we skip node_modules /
-  // dist / .turbo / _archive without walking them at all.
+  // Scope the scan to the first-party source roots so we skip node_modules,
+  // dist, and .turbo without walking them at all.
   const roots = ['apps', 'services', 'packages', 'scripts'].map((r) => resolve(REPO_ROOT, r));
   const sourceFiles: string[] = [];
   for (const root of roots) collectTsFiles(root, sourceFiles);
