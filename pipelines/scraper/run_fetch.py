@@ -34,6 +34,7 @@ def main() -> None:
     parser.add_argument("--adaptive-domain", help="Optional canonical domain for adaptive storage")
     parser.add_argument("--limit", type=int, default=5, help="Maximum selected nodes to return")
     parser.add_argument("--convert-markdown", action="store_true", help="Convert fetched HTML to markdown via markitdown")
+    parser.add_argument("--development-mode", action="store_true", help="Enable Scrapling spider dev cache outside production")
     args = parser.parse_args()
 
     response = fetch_html(
@@ -71,6 +72,8 @@ def main() -> None:
         "selected": selected,
         "textPreview": text[:6000],
         "capturePath": capture_path,
+        "redirectMode": "safe",
+        "developmentMode": bool(args.development_mode),
     }
     if args.convert_markdown:
         md = html_to_markdown(response.html_content, source_url=response.url)

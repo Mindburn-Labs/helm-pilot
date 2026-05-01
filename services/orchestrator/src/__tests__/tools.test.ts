@@ -6,9 +6,12 @@ import { ToolRegistry, type Tool } from '../tools.js';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockDb = {} as any;
 
-function createRegistry(opts: { memory?: unknown } = {}) {
+function createRegistry(opts: { memory?: unknown; helmClient?: unknown } = {}) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new ToolRegistry(mockDb as any, opts.memory as any);
+  return new ToolRegistry(mockDb as any, opts.memory as any, {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    helmClient: opts.helmClient as any,
+  });
 }
 
 describe('ToolRegistry', () => {
@@ -77,6 +80,7 @@ describe('ToolRegistry', () => {
       expect(names).toContain('search_knowledge');
       expect(names).toContain('create_note');
       expect(names).toContain('scrapling_fetch');
+      expect(names).toContain('operator.computer_use');
       expect(names).toContain('draft_text');
       expect(names).toContain('analyze');
       expect(names).toContain('get_workspace_context');
@@ -103,8 +107,8 @@ describe('ToolRegistry', () => {
 
       expect(names).toContain('slack_workspace_agent_reply');
 
-      // Phase 15 Track I + K plus Workspace Agents: 46 connector tools + 2 multimodal.
-      expect(tools.length).toBe(48);
+      // Phase 15 Track I + K plus Workspace Agents: 46 connector tools + 2 multimodal + Operator CUA.
+      expect(tools.length).toBe(49);
     });
   });
 
@@ -120,6 +124,7 @@ describe('ToolRegistry', () => {
       expect(names).toContain('search_knowledge');
       expect(names).toContain('create_note');
       expect(names).toContain('scrapling_fetch');
+      expect(names).toContain('operator.computer_use');
       expect(names).toContain('draft_text');
       expect(names).toContain('analyze');
       expect(names).toContain('get_workspace_context');
@@ -148,6 +153,7 @@ describe('ToolRegistry', () => {
       expect(names).toContain('create_plan');
       expect(names).toContain('create_artifact');
       expect(names).toContain('scrapling_fetch');
+      expect(names).toContain('operator.computer_use');
       expect(names).toContain('slack_workspace_agent_reply');
 
       // Should NOT include discover-only tools
@@ -164,6 +170,7 @@ describe('ToolRegistry', () => {
       expect(names).toContain('create_application_draft');
       expect(names).toContain('search_yc');
       expect(names).toContain('scrapling_fetch');
+      expect(names).toContain('operator.computer_use');
       expect(names).toContain('draft_text');
 
       // Should NOT include build-only tools
@@ -191,6 +198,7 @@ describe('ToolRegistry', () => {
       expect(names).toContain('create_artifact');
       expect(names).toContain('list_tasks');
       expect(names).toContain('scrapling_fetch');
+      expect(names).toContain('operator.computer_use');
       expect(names).toContain('send_notification');
 
       // Should NOT include discover-only or apply-only tools
@@ -308,6 +316,51 @@ describe('ToolRegistry', () => {
 
       const result = await registry.execute('analyze', input);
       expect(result).toEqual(input);
+    });
+  });
+
+  describe('built-in: operator.computer_use', () => {
+    it('fails closed when helm-client is not wired', async () => {
+      const registry = createRegistry();
+      const result = await registry.execute('operator.computer_use', {
+        workspaceId: '00000000-0000-4000-8000-000000000001',
+        objective: 'Open the YC directory',
+      });
+
+      expect(result).toEqual({
+        error:
+          'operator.computer_use requires packages/helm-client wiring; refusing to create an out-of-band computer-use path',
+      });
+    });
+
+    it('uses the helm-client adapter when wired', async () => {
+      const helmClient = {
+        evaluateOperatorComputerUse: vi.fn(async () => ({
+          status: 'approved_for_execution',
+          receipt: { decisionId: 'dec-1' },
+        })),
+      };
+      const registry = createRegistry({ helmClient });
+
+      const result = await registry.execute('operator.computer_use', {
+        workspaceId: '00000000-0000-4000-8000-000000000001',
+        taskId: '00000000-0000-4000-8000-000000000002',
+        objective: 'Open the YC directory',
+        targetUrl: 'https://www.ycombinator.com/companies',
+      });
+
+      expect(helmClient.evaluateOperatorComputerUse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          principal: 'workspace:00000000-0000-4000-8000-000000000001/operator:agent',
+          objective: 'Open the YC directory',
+          environment: 'browser',
+          maxSteps: 12,
+        }),
+      );
+      expect(result).toEqual({
+        status: 'approved_for_execution',
+        receipt: { decisionId: 'dec-1' },
+      });
     });
   });
 

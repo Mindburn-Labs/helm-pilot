@@ -19,6 +19,8 @@ import type {
   ContextBundleListResult,
   EconomicChargesResult,
   EconomicAllocationsResult,
+  OperatorComputerUseRequest,
+  OperatorComputerUseResult,
 } from './types.js';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -219,6 +221,56 @@ export class HelmClient {
       stringField(body, 'evidence_pack_id') ??
       stringField(body, 'evidencePackId');
     return { receipt: effectiveReceipt, evidencePackId };
+  }
+
+  /**
+   * Govern a computer-use/Operator request before any browser or desktop
+   * action is executed. This adapter intentionally stops at the HELM verdict;
+   * callers must wire the actual computer-use runtime separately and keep
+   * every resulting action inside the same trust-boundary flow.
+   */
+  async evaluateOperatorComputerUse(
+    req: OperatorComputerUseRequest,
+  ): Promise<OperatorComputerUseResult> {
+    const environment = req.environment ?? 'browser';
+    const maxSteps = req.maxSteps ?? 12;
+    const result = await this.evaluate({
+      principal: req.principal,
+      action: 'OPERATOR_COMPUTER_USE',
+      resource: req.targetUrl ?? environment,
+      effectLevel: 'E3',
+      sessionId: req.taskId,
+      args: {
+        workspaceId: req.workspaceId,
+        objective: req.objective,
+        targetUrl: req.targetUrl,
+        environment,
+        maxSteps,
+        approvalCheckpoint: req.approvalCheckpoint,
+        evidencePackId: req.evidencePackId,
+      },
+      context: {
+        workspaceId: req.workspaceId,
+        taskId: req.taskId,
+        operatorId: req.operatorId,
+        source: '@helm-pilot/helm-client.evaluateOperatorComputerUse',
+      },
+    });
+    return {
+      status: 'approved_for_execution',
+      receipt: result.receipt,
+      evidencePackId: result.evidencePackId,
+      request: {
+        workspaceId: req.workspaceId,
+        objective: req.objective,
+        targetUrl: req.targetUrl,
+        environment,
+        maxSteps,
+        taskId: req.taskId,
+        operatorId: req.operatorId,
+        approvalCheckpoint: req.approvalCheckpoint,
+      },
+    };
   }
 
   // ─── Phase 14 Track F — helm-oss endpoint integration ───

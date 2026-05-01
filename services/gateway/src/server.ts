@@ -307,6 +307,28 @@ async function main() {
       runConduct: (params) => orchestrator.runConduct(params),
       createLaunchBotProvisioning: (params) => managedTelegram.createProvisioningRequest(params),
       claimLaunchBot: (params) => managedTelegram.claimManagedBot(params),
+      resolveApproval: async ({ approvalId, workspaceId, status, resolvedBy }) => {
+        const { approvals, tasks } = await import('@helm-pilot/db/schema');
+        const { and, eq } = await import('drizzle-orm');
+        const [updated] = await db
+          .update(approvals)
+          .set({ status, resolvedBy, resolvedAt: new Date() })
+          .where(and(eq(approvals.id, approvalId), eq(approvals.workspaceId, workspaceId)))
+          .returning();
+        if (!updated) throw new Error('Approval not found');
+        if (status === 'approved' && updated.taskId) {
+          const [task] = await db.select().from(tasks).where(eq(tasks.id, updated.taskId)).limit(1);
+          await boss.send('task.resume', {
+            taskId: updated.taskId,
+            workspaceId: updated.workspaceId,
+            operatorId: task?.operatorId ?? undefined,
+            context: task?.description ?? `Resumed after approval of: ${updated.action}`,
+          });
+        }
+        if (status === 'approved' && !updated.taskId) {
+          await managedTelegram.sendApprovedMessage(updated.id).catch(() => {});
+        }
+      },
     });
     await bot.init();
     managedTelegram.setManagerBotUsername(bot.botInfo.username);

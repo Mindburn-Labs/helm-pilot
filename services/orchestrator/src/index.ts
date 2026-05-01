@@ -93,7 +93,7 @@ export class Orchestrator {
     this.fallbackLlm = config.llm;
     this.basePolicy = config.policy;
     this.trust = new TrustBoundary(config.policy);
-    this.tools = new ToolRegistry(config.db, config.memory);
+    this.tools = new ToolRegistry(config.db, config.memory, { helmClient: config.helmClient });
     this.agentLoop = new AgentLoop(config.db, this.trust, config.helmClient);
 
     // Wire LLM + tools into agent loop if available. This is the baseline

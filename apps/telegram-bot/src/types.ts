@@ -34,6 +34,13 @@ export interface BotDeps {
     creatorTelegramId: string;
     bot: { id: number | string; username?: string; firstName?: string };
   }) => Promise<{ id: string; telegramBotUsername: string; status: string }>;
+  /** Resolve an approval and trigger any deployment-specific resume hook. */
+  resolveApproval?: (params: {
+    approvalId: string;
+    workspaceId: string;
+    status: 'approved' | 'rejected';
+    resolvedBy: string;
+  }) => Promise<void>;
 }
 
 export interface OrchestratorRunParams {

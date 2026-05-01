@@ -18,7 +18,7 @@ if str(PIPELINES_ROOT) not in sys.path:
 from scrapling.fetchers import AsyncDynamicSession  # noqa: E402
 from scrapling.spiders.request import Request  # noqa: E402
 from scrapling.spiders.spider import Spider  # noqa: E402
-from scraper.lib.scrapling_adapter import selector_config  # noqa: E402
+from scraper.lib.scrapling_adapter import selector_config, spider_development_mode  # noqa: E402
 
 from common import (  # noqa: E402
     create_crawl_run,
@@ -52,10 +52,11 @@ class YcLibrarySpider(Spider):
     concurrent_requests = 4
     download_delay = 0.1
 
-    def __init__(self, *, limit: int | None, crawldir: str):
+    def __init__(self, *, limit: int | None, crawldir: str, development_mode: bool = False):
         self.limit = limit
         self.scheduled = 0
         self.seen: set[str] = set()
+        self.development_mode = spider_development_mode(development_mode)
         super().__init__(crawldir=crawldir)
 
     def configure_sessions(self, manager) -> None:
@@ -182,13 +183,18 @@ def main() -> None:
     parser.add_argument("--replay", help="Replay from a raw JSON capture")
     parser.add_argument("--dry-run", action="store_true", help="Print without DB writes")
     parser.add_argument("--workspace-id", help="Optional workspace id for provenance")
+    parser.add_argument("--development-mode", action="store_true", help="Use Scrapling dev cache outside production")
     args = parser.parse_args()
 
     if args.replay:
         items = json.loads(Path(args.replay).read_text())
         raw_path = args.replay
     else:
-        spider = YcLibrarySpider(limit=args.limit, crawldir=crawl_dir("yc-library"))
+        spider = YcLibrarySpider(
+            limit=args.limit,
+            crawldir=crawl_dir("yc-library"),
+            development_mode=args.development_mode,
+        )
         result = spider.start()
         items = result.items
         raw_path = None

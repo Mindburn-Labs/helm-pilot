@@ -110,6 +110,35 @@ export interface EvaluateResult {
   evidencePackId?: string;
 }
 
+export interface OperatorComputerUseRequest {
+  principal: string;
+  workspaceId: string;
+  objective: string;
+  targetUrl?: string;
+  environment?: 'browser' | 'desktop';
+  maxSteps?: number;
+  taskId?: string;
+  operatorId?: string;
+  approvalCheckpoint?: string;
+  evidencePackId?: string;
+}
+
+export interface OperatorComputerUseResult {
+  status: 'approved_for_execution';
+  receipt: HelmReceipt;
+  evidencePackId?: string;
+  request: {
+    workspaceId: string;
+    objective: string;
+    targetUrl?: string;
+    environment: 'browser' | 'desktop';
+    maxSteps: number;
+    taskId?: string;
+    operatorId?: string;
+    approvalCheckpoint?: string;
+  };
+}
+
 export interface HelmClientConfig {
   /** Base URL of HELM's governed API, e.g. http://helm:8080 */
   baseUrl: string;

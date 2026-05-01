@@ -69,7 +69,7 @@ export function createBot(token: string, db: Db, deps?: Partial<BotDeps>) {
   const handleProfileInput = registerOnboarding(bot, db, deps);
   const handleOperatorChat = registerOperatorChat(bot, db, deps);
   registerCandidates(bot, db);
-  registerApprovals(bot, db);
+  registerApprovals(bot, db, deps);
 
   // ─── Core / Global Commands ───
 

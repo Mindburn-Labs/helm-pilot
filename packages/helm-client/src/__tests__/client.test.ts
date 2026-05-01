@@ -311,6 +311,46 @@ describe('HelmClient.evaluate', () => {
   });
 });
 
+describe('HelmClient.evaluateOperatorComputerUse', () => {
+  it('routes Operator computer-use requests through HELM evaluate', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      makeResponse({
+        status: 200,
+        body: {
+          allow: true,
+          verdict: 'ALLOW',
+          receipt_id: 'rcpt-operator',
+          decision_id: 'dec-operator',
+          decision_hash: 'sha256:operator',
+          policy_ref: 'founder-ops-v1',
+          evidence_pack_id: 'pack-operator',
+        },
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = new HelmClient({ baseUrl: 'http://helm:8080', fetchImpl: fetchMock });
+
+    const result = await client.evaluateOperatorComputerUse({
+      principal: 'workspace:ws-1/operator:agent',
+      workspaceId: 'ws-1',
+      taskId: 'task-1',
+      objective: 'Inspect YC company profile',
+      targetUrl: 'https://www.ycombinator.com/companies',
+      maxSteps: 8,
+      approvalCheckpoint: 'before submitting forms',
+    });
+
+    expect(result.status).toBe('approved_for_execution');
+    expect(result.receipt.decisionId).toBe('dec-operator');
+    expect(result.evidencePackId).toBe('pack-operator');
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.tool).toBe('OPERATOR_COMPUTER_USE');
+    expect(body.effect_level).toBe('E3');
+    expect(body.context.source).toBe('@helm-pilot/helm-client.evaluateOperatorComputerUse');
+  });
+});
+
 describe('parseReceiptHeaders', () => {
   it('parses a full set of headers', () => {
     const headers = new Headers({
