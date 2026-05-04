@@ -19,7 +19,7 @@ What did you expect?
 
 **Environment.**
 
-- HELM Pilot version / commit:
+- Pilot version / commit:
 - Deploy target (local / Docker Compose / DigitalOcean / self-host):
 - Node.js version:
 - Postgres version:

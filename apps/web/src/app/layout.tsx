@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './ds.css';
 
 export const metadata: Metadata = {
-  title: 'HELM Pilot',
+  title: 'Pilot',
   description: 'Open-source autonomous founder operating system',
 };
 

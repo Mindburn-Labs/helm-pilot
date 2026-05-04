@@ -10,7 +10,7 @@ import {
 // ─── Skill Registry (Phase 14 Track E) ───
 //
 // Loads `packs/skills/<name>/SKILL.md` (repo-bundled) + optional
-// `~/.helm-pilot/skills/<name>/SKILL.md` (user overrides). Each file is
+// `~/.pilot/skills/<name>/SKILL.md` (user overrides). Each file is
 // YAML frontmatter + Markdown body, same format as subagent defs.
 //
 // Entry points:
@@ -30,7 +30,7 @@ export class SkillRegistry {
 
   /**
    * Load from disk. Scans `packsDir` (default: `<cwd>/packs/skills`) and
-   * optionally the user override dir `~/.helm-pilot/skills`. User dir
+   * optionally the user override dir `~/.pilot/skills`. User dir
    * takes precedence when both define the same skill name.
    */
   static loadFromDisk(opts?: {
@@ -43,7 +43,7 @@ export class SkillRegistry {
     const userDir = opts?.userDir
       ? resolve(opts.userDir)
       : process.env['HOME']
-        ? join(process.env['HOME'], '.helm-pilot', 'skills')
+        ? join(process.env['HOME'], '.pilot', 'skills')
         : undefined;
 
     const defs: SkillDefinition[] = [];

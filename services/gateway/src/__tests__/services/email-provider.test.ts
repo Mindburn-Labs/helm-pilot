@@ -65,7 +65,7 @@ describe('ResendProvider', () => {
     const provider = createEmailProvider({
       provider: 'resend',
       resendApiKey: 're_test',
-      from: 'test@helm-pilot.dev',
+      from: 'test@pilot.dev',
     });
 
     await provider.sendMagicLink({
@@ -77,7 +77,7 @@ describe('ResendProvider', () => {
     expect(mockSend).toHaveBeenCalledOnce();
     const payload = mockSend.mock.calls[0]![0] as Record<string, string>;
     expect(payload.to).toBe('user@example.com');
-    expect(payload.from).toBe('test@helm-pilot.dev');
+    expect(payload.from).toBe('test@pilot.dev');
     expect(payload.subject).toContain('654321');
     expect(payload.html).toContain('654321');
     expect(payload.text).toContain('https://app.example.com/login');
@@ -120,7 +120,7 @@ describe('SmtpProvider', () => {
     const provider = createEmailProvider({
       provider: 'smtp',
       smtp: { host: 'smtp.example.com', port: 587, user: 'u', pass: 'p' },
-      from: 'test@helm-pilot.dev',
+      from: 'test@pilot.dev',
     });
 
     await provider.sendMagicLink({

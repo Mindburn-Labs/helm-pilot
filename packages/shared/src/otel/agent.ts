@@ -37,7 +37,7 @@ import {
 // returns a no-op tracer and all wrappers become pass-throughs with zero
 // runtime overhead.
 
-const TRACER_NAME = '@helm-pilot/orchestrator';
+const TRACER_NAME = '@pilot/orchestrator';
 const TRACER_VERSION = '0.1.0';
 
 function agentTracer(): Tracer {

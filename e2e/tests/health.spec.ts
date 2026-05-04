@@ -6,7 +6,7 @@ test.describe('Health & Public Endpoints', () => {
     expect(response.status()).toBeLessThanOrEqual(503); // 200 or 503
     const body = await response.json();
     expect(body).toHaveProperty('status');
-    expect(body).toHaveProperty('service', 'helm-pilot');
+    expect(body).toHaveProperty('service', 'pilot');
     expect(body).toHaveProperty('version');
     expect(body).toHaveProperty('checks');
     expect(body.checks).toHaveProperty('db');
@@ -16,7 +16,7 @@ test.describe('Health & Public Endpoints', () => {
     const response = await request.get('/');
     expect(response.status()).toBe(200);
     const body = await response.json();
-    expect(body).toHaveProperty('name', 'helm-pilot');
+    expect(body).toHaveProperty('name', 'pilot');
     expect(body).toHaveProperty('version');
   });
 
@@ -24,7 +24,7 @@ test.describe('Health & Public Endpoints', () => {
     const response = await request.get('/metrics');
     expect(response.status()).toBe(200);
     const text = await response.text();
-    expect(text).toContain('helm_pilot_http_requests_total');
+    expect(text).toContain('pilot_http_requests_total');
     expect(text).toContain('# TYPE');
   });
 

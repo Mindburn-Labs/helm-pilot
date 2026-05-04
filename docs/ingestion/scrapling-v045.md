@@ -1,6 +1,6 @@
 # Scrapling 0.4.5 Ingestion Upgrade
 
-Status: implemented behind the existing HELM Pilot ingestion boundary.
+Status: implemented behind the existing Pilot ingestion boundary.
 
 Linear: MIN-254, MIN-245
 
@@ -8,7 +8,7 @@ Linear: MIN-254, MIN-245
 
 - Scrapling 0.4.x adds the MCP server and anti-bot/Turnstile-oriented fetch surface used by the Pilot bridge.
 - Scrapling 0.4.5 changes redirect handling so safe redirects reject loopback, private, and link-local targets by default.
-- 0.4.5 also adds spider development mode. HELM Pilot exposes it only through explicit development flags and disables the env override in production.
+- 0.4.5 also adds spider development mode. Pilot exposes it only through explicit development flags and disables the env override in production.
 
 Primary sources:
 

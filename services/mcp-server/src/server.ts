@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server';
-import { createDb } from '@helm-pilot/db/client';
-import { MemoryService } from '@helm-pilot/memory';
-import { createLogger } from '@helm-pilot/shared/logger';
+import { createDb } from '@pilot/db/client';
+import { MemoryService } from '@pilot/memory';
+import { createLogger } from '@pilot/shared/logger';
 import { createMcpApp } from './app.js';
 
 // ─── Standalone Pilot MCP server (Phase 14 Track A) ───

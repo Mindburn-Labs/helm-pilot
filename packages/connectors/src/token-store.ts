@@ -21,9 +21,9 @@ function deriveKey(): Buffer {
       );
     }
     // Dev-only fallback — NOT safe for production
-    return scryptSync('helm-pilot-dev-key-do-not-use-in-prod', 'helm-pilot-salt', 32);
+    return scryptSync('pilot-dev-key-do-not-use-in-prod', 'pilot-salt', 32);
   }
-  return scryptSync(raw, 'helm-pilot-salt', 32);
+  return scryptSync(raw, 'pilot-salt', 32);
 }
 
 /**
@@ -67,8 +67,8 @@ export function rotateTokenCiphertext(
   oldKeyRaw: string,
   newKeyRaw: string,
 ): string {
-  const oldKey = scryptSync(oldKeyRaw, 'helm-pilot-salt', 32);
-  const newKey = scryptSync(newKeyRaw, 'helm-pilot-salt', 32);
+  const oldKey = scryptSync(oldKeyRaw, 'pilot-salt', 32);
+  const newKey = scryptSync(newKeyRaw, 'pilot-salt', 32);
   const data = Buffer.from(encoded, 'base64');
   const iv = data.subarray(0, IV_LENGTH);
   const tag = data.subarray(IV_LENGTH, IV_LENGTH + TAG_LENGTH);

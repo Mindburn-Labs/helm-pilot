@@ -1,4 +1,4 @@
-# HELM Pilot — shared Python runtime
+# Pilot — shared Python runtime
 # Python 3.10+
 
 scrapling[ai]==0.4.5

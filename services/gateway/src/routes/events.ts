@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { and, eq, desc, inArray } from 'drizzle-orm';
-import { tasks } from '@helm-pilot/db/schema';
-import { conductStream, type ConductEvent } from '@helm-pilot/orchestrator';
+import { tasks } from '@pilot/db/schema';
+import { conductStream, type ConductEvent } from '@pilot/orchestrator';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId } from '../lib/workspace.js';
 

@@ -27,15 +27,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Build workspace packages
-        run: npx turbo run build --filter='@helm-pilot/shared' --filter='@helm-pilot/mcp-server'
+        run: npx turbo run build --filter='@pilot/shared' --filter='@pilot/mcp-server'
       - name: Run sanitizer unit tests
-        run: npm test -w @helm-pilot/shared -- src/__tests__/sanitizers.test.ts
+        run: npm test -w @pilot/shared -- src/__tests__/sanitizers.test.ts
       - name: Run OWASP LLM Top 10 regression suite
-        run: npm test -w @helm-pilot/shared -- src/__tests__/owasp-llm-top10.test.ts
+        run: npm test -w @pilot/shared -- src/__tests__/owasp-llm-top10.test.ts
       - name: Run MCP transport tests (injection vectors through MCP)
-        run: npm test -w @helm-pilot/shared -- src/__tests__/mcp-client.test.ts src/__tests__/mcp-registry.test.ts
+        run: npm test -w @pilot/shared -- src/__tests__/mcp-client.test.ts src/__tests__/mcp-registry.test.ts
       - name: Run MCP provider auth tests
-        run: npm test -w @helm-pilot/mcp-server -- src/__tests__/app.test.ts
+        run: npm test -w @pilot/mcp-server -- src/__tests__/app.test.ts
 
   secrets-scan:
     name: gitleaks

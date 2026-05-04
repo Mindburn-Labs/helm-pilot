@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { CreateKnowledgePageInput, CreateTimelineEntryInput } from '@helm-pilot/shared/schemas';
+import { CreateKnowledgePageInput, CreateTimelineEntryInput } from '@pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId, workspaceIdMismatch } from '../lib/workspace.js';
 

@@ -1,6 +1,6 @@
 import { eq, ilike, desc, count, sql } from 'drizzle-orm';
-import { type Db } from '@helm-pilot/db/client';
-import { ycCompanies, ycBatches, ycAdvice, ycFounders, ingestionRecords, ycCourses } from '@helm-pilot/db/schema';
+import { type Db } from '@pilot/db/client';
+import { ycCompanies, ycBatches, ycAdvice, ycFounders, ingestionRecords, ycCourses } from '@pilot/db/schema';
 
 export class YcIntelService {
   constructor(private readonly db: Db) {}

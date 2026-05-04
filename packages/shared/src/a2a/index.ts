@@ -1,7 +1,7 @@
 // ─── A2A public surface (Phase 15 Track J) ───
 //
 // Import example:
-//   import { A2AClient, buildPilotAgentCard, type AgentCard } from '@helm-pilot/shared/a2a';
+//   import { A2AClient, buildPilotAgentCard, type AgentCard } from '@pilot/shared/a2a';
 
 export {
   A2A_PROTOCOL_VERSION,

@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { type Context, type MiddlewareHandler, type Next } from 'hono';
-import { type Db } from '@helm-pilot/db/client';
-import { createLogger } from '@helm-pilot/shared/logger';
+import { type Db } from '@pilot/db/client';
+import { createLogger } from '@pilot/shared/logger';
 
 const log = createLogger('rate-limit-pg');
 

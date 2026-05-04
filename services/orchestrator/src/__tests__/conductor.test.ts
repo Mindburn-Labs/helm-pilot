@@ -1,23 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Conductor, type ParentContext } from '../conductor.js';
 import { ToolRegistry } from '../tools.js';
-import type { PolicyConfig } from '@helm-pilot/shared/schemas';
-import type { LlmProvider } from '@helm-pilot/shared/llm';
+import type { PolicyConfig } from '@pilot/shared/schemas';
+import type { LlmProvider } from '@pilot/shared/llm';
 import {
   SubagentRegistry,
   type SubagentDefinition,
-} from '@helm-pilot/shared/subagents';
+} from '@pilot/shared/subagents';
 
-vi.mock('@helm-pilot/db/schema', () => ({
+vi.mock('@pilot/db/schema', () => ({
   taskRuns: 'taskRuns',
   evidencePacks: 'evidencePacks',
   approvals: 'approvals',
   operatorMemory: 'operatorMemory',
 }));
 
-vi.mock('@helm-pilot/shared/schemas', async () => {
-  const actual = await vi.importActual<typeof import('@helm-pilot/shared/schemas')>(
-    '@helm-pilot/shared/schemas',
+vi.mock('@pilot/shared/schemas', async () => {
+  const actual = await vi.importActual<typeof import('@pilot/shared/schemas')>(
+    '@pilot/shared/schemas',
   );
   return { ...actual, MAX_ITERATION_BUDGET: 200 };
 });

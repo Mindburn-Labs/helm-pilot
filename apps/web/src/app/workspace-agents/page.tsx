@@ -2,7 +2,7 @@ import Link from 'next/link';
 import type { CSSProperties } from 'react';
 
 export const metadata = {
-  title: 'Self-hostable Workspace Agents | HELM Pilot',
+  title: 'Self-hostable Workspace Agents | Pilot',
   description:
     'Run shared founder operators from Slack with self-hosted state, HELM-governed approvals, and signed receipt trails.',
 };
@@ -108,7 +108,7 @@ export default function WorkspaceAgentsPage() {
           }}
         >
           <Link href="/" style={{ color: '#f0ead9', textDecoration: 'none', fontWeight: 800 }}>
-            HELM Pilot
+            Pilot
           </Link>
           <Link href="/settings" style={{ color: '#c9c2b0', textDecoration: 'none' }}>
             Connect Slack
@@ -127,7 +127,7 @@ export default function WorkspaceAgentsPage() {
             <p style={eyebrow}>Self-hostable Workspace Agents</p>
             <h1 style={h1}>Founder operators that live in Slack and answer to HELM.</h1>
             <p style={lead}>
-              HELM Pilot turns repeatable founder workflows into shared Slack agents backed by
+              Pilot turns repeatable founder workflows into shared Slack agents backed by
               Postgres state, local deployment, human approvals, and signed HELM receipt trails.
             </p>
             <div style={buttonRow}>
@@ -232,7 +232,7 @@ function AgentConsolePreview() {
         }}
       >
         <span>#founder-os</span>
-        <span>HELM Pilot</span>
+        <span>Pilot</span>
       </div>
       <div style={{ padding: 16, display: 'grid', gap: 12 }}>
         <PreviewLine speaker="/pilot" text="Prepare launch brief and queue investor follow-up" />

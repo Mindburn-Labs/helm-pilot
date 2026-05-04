@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
-import { TenantSecretStore } from '@helm-pilot/db/tenant-secret-store';
-import { SECRET_KINDS, type SecretKind, SecretDecryptionError } from '@helm-pilot/shared/secrets';
+import { TenantSecretStore } from '@pilot/db/tenant-secret-store';
+import { SECRET_KINDS, type SecretKind, SecretDecryptionError } from '@pilot/shared/secrets';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId } from '../lib/workspace.js';
 

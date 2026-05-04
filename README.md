@@ -1,6 +1,6 @@
-# HELM Pilot
+# Pilot
 
-Open-source, self-hostable autonomous founder operating system. HELM Pilot helps founders assess fit, discover opportunities, evaluate real co-founder candidates, coordinate digital operators, build, launch, and apply, all behind a governed trust boundary.
+Open-source, self-hostable autonomous founder operating system. Pilot helps founders assess fit, discover opportunities, evaluate real co-founder candidates, coordinate digital operators, build, launch, and apply, all behind a governed trust boundary.
 
 The ingestion and browser-automation layer is now Scrapling-first: public YC ingestion, session-backed YC matching sync, and operator-triggered fetch/extract work all run through the shared Scrapling runtime.
 
@@ -45,8 +45,8 @@ packages/
 
 ```bash
 # Clone
-git clone https://github.com/Mindburn-Labs/helm-pilot.git
-cd helm-pilot
+git clone https://github.com/Mindburn-Labs/pilot.git
+cd pilot
 
 # Configure
 cp .env.example .env
@@ -84,7 +84,7 @@ This dev-only stack starts PostgreSQL, the gateway on port `3100`, and the web a
 
 ## Deploy to DigitalOcean
 
-HELM Pilot deploys to DigitalOcean as one Docker Compose stack on a Droplet: PostgreSQL, the private HELM governance sidecar, the Pilot gateway, the web app, Caddy TLS, and optional backup scheduling. See [`infra/digitalocean/README.md`](infra/digitalocean/README.md) for the full runbook.
+Pilot deploys to DigitalOcean as one Docker Compose stack on a Droplet: PostgreSQL, the private HELM governance sidecar, the Pilot gateway, the web app, Caddy TLS, and optional backup scheduling. See [`infra/digitalocean/README.md`](infra/digitalocean/README.md) for the full runbook.
 
 ```bash
 cp infra/digitalocean/env.production.shared.example .env.production.shared

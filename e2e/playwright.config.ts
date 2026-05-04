@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
 /**
- * Playwright config for HELM Pilot E2E tests.
+ * Playwright config for Pilot E2E tests.
  *
  * Tests expect a running gateway on BASE_URL (default http://localhost:3100).
  * In CI, the workflow spins up postgres + gateway via docker-compose before running.

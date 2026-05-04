@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { registerJobHandlers } from '../jobs.js';
 
-vi.mock('@helm-pilot/db/schema', () => ({
+vi.mock('@pilot/db/schema', () => ({
   opportunities: 'opportunities',
   opportunityScores: 'opportunityScores',
   taskRuns: 'taskRuns',
@@ -11,7 +11,7 @@ vi.mock('drizzle-orm', () => ({
   eq: vi.fn((_col: any, val: any) => ({ col: _col, val })),
 }));
 
-vi.mock('@helm-pilot/shared/logger', () => ({
+vi.mock('@pilot/shared/logger', () => ({
   createLogger: () => ({
     info: vi.fn(),
     warn: vi.fn(),

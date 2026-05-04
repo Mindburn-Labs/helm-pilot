@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════════════
-# HELM Pilot — per-tenant backup (Phase 2d)
+# Pilot — per-tenant backup (Phase 2d)
 #
 # Dumps a single workspace's rows across workspace-scoped tables and direct
 # child tables into a tarball that `scripts/restore-tenant.sh` can restore

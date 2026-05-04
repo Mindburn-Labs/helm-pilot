@@ -11,5 +11,5 @@ labels: question
 Commands run, docs read, paths explored.
 
 **Environment.**
-- HELM Pilot version / commit:
+- Pilot version / commit:
 - Deploy target:

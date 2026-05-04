@@ -9,7 +9,7 @@ import {
   operators,
   tasks,
   workspaces,
-} from '@helm-pilot/db/schema';
+} from '@pilot/db/schema';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId } from '../lib/workspace.js';
 

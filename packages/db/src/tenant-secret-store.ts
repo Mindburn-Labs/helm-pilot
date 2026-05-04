@@ -5,7 +5,7 @@ import {
   encryptSecret,
   type SecretEnvelope,
   type SecretKind,
-} from '@helm-pilot/shared/secrets';
+} from '@pilot/shared/secrets';
 import type { Db } from './client.js';
 import { tenantSecrets } from './schema/index.js';
 

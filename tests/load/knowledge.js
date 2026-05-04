@@ -33,7 +33,7 @@ export function setup() {
 }
 
 function authenticate() {
-  const email = `kb-load-${randomString(10)}@helm-pilot.test`;
+  const email = `kb-load-${randomString(10)}@pilot.test`;
   const reqResp = http.post(
     `${BASE_URL}/api/auth/email/request`,
     JSON.stringify({ email }),

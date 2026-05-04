@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Active pack surface for the `helm-pilot` project.
+Active pack surface for the `pilot` project.
 
 ## Canonical Interface
 

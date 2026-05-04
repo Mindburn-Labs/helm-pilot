@@ -1,6 +1,6 @@
-# Self-Hosting HELM Pilot
+# Self-Hosting Pilot
 
-HELM Pilot is designed to run on your own infrastructure. This guide covers setup from zero to running.
+Pilot is designed to run on your own infrastructure. This guide covers setup from zero to running.
 
 ## Prerequisites
 
@@ -16,8 +16,8 @@ HELM Pilot is designed to run on your own infrastructure. This guide covers setu
 We provide an interactive setup script for first-time deployments.
 
 ```bash
-git clone https://github.com/mindburn-labs/helm-pilot.git
-cd helm-pilot
+git clone https://github.com/mindburn-labs/pilot.git
+cd pilot
 
 # Run the interactive setup script
 bash scripts/setup.sh
@@ -29,7 +29,7 @@ The gateway runs on port **3100**, the web UI on **3000**.
 
 ## Python / Scrapling Runtime
 
-HELM Pilot uses a local Python runtime for Scrapling-backed ingestion, YC sync, and operator-triggered fetch/extract work.
+Pilot uses a local Python runtime for Scrapling-backed ingestion, YC sync, and operator-triggered fetch/extract work.
 
 For local installs:
 
@@ -59,7 +59,7 @@ bash scripts/install-python-runtime.sh
 docker compose -f infra/docker/docker-compose.yml up -d postgres
 
 # Set DATABASE_URL
-export DATABASE_URL=postgresql://helm:helm@localhost:5432/helm_pilot
+export DATABASE_URL=postgresql://helm:helm@localhost:5432/pilot
 
 # Run migrations
 npm run db:push
@@ -88,7 +88,7 @@ PYTHON_BIN=./.venv-pipelines/bin/python ./scripts/launch-gate.sh
 
 ### Founder-Owned Launch/Support Bot
 
-HELM Pilot can provision one founder-owned child bot through Telegram Managed Bots.
+Pilot can provision one founder-owned child bot through Telegram Managed Bots.
 
 1. Open the main bot in BotFather's Mini App and enable **Bot Management Mode**.
 2. Ensure `APP_URL` is the public HTTPS gateway URL.
@@ -132,7 +132,7 @@ app.your-domain.com {
 
 ## DigitalOcean Deployment
 
-HELM Pilot ships on DigitalOcean as a Docker Compose stack on one Droplet. The HELM sidecar stays private on the Docker network, Pilot talks to `http://helm:8080`, and production remains fail-closed with `HELM_FAIL_CLOSED=1`.
+Pilot ships on DigitalOcean as a Docker Compose stack on one Droplet. The HELM sidecar stays private on the Docker network, Pilot talks to `http://helm:8080`, and production remains fail-closed with `HELM_FAIL_CLOSED=1`.
 
 ```bash
 cp infra/digitalocean/env.production.shared.example .env.production.shared
@@ -156,7 +156,7 @@ See [infra/digitalocean/README.md](../infra/digitalocean/README.md) for the full
 
 ## Database
 
-HELM Pilot uses PostgreSQL 17 with pgvector for knowledge base search. The schema is managed by Drizzle ORM.
+Pilot uses PostgreSQL 17 with pgvector for knowledge base search. The schema is managed by Drizzle ORM.
 
 ```bash
 # Push schema to database
@@ -177,7 +177,7 @@ For local database inspection, start the dev-only Docker stack's debug profile:
 docker compose -f infra/docker/docker-compose.yml --profile debug up -d
 ```
 
-pgAdmin will be available at http://localhost:5050 (admin@helm-pilot.local / admin).
+pgAdmin will be available at http://localhost:5050 (admin@pilot.local / admin).
 
 ## Backup & Restore
 
@@ -191,10 +191,10 @@ bash scripts/backup.sh create-and-upload
 bash scripts/backup.sh list
 
 # Verify a backup
-bash scripts/backup.sh verify backups/helm_pilot_YYYY...sql.gz.gpg
+bash scripts/backup.sh verify backups/pilot_YYYY...sql.gz.gpg
 
 # Restore from a backup
-bash scripts/backup.sh restore backups/helm_pilot_YYYY...sql.gz.gpg
+bash scripts/backup.sh restore backups/pilot_YYYY...sql.gz.gpg
 ```
 
 Production uploads must be encrypted. The deploy doctor requires DO Spaces settings and `BACKUP_ENCRYPTION_PASSPHRASE`.
@@ -202,7 +202,7 @@ Production uploads must be encrypted. The deploy doctor requires DO Spaces setti
 In addition to the database backup, preserve local storage when using the default filesystem backend:
 
 ```bash
-tar -czf helm_pilot_storage_$(date +%Y%m%d_%H%M%S).tar.gz data/storage
+tar -czf pilot_storage_$(date +%Y%m%d_%H%M%S).tar.gz data/storage
 ```
 
 That archive contains:
@@ -220,7 +220,7 @@ git pull
 docker compose -f infra/docker/docker-compose.yml build
 docker compose -f infra/docker/docker-compose.yml up -d
 # Run any new migrations
-docker compose -f infra/docker/docker-compose.yml exec helm-pilot npx drizzle-kit push
+docker compose -f infra/docker/docker-compose.yml exec pilot npx drizzle-kit push
 ```
 
 ## Troubleshooting

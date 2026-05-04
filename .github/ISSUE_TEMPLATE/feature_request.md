@@ -9,7 +9,7 @@ labels: enhancement
 What's the founder-facing problem?
 
 **Proposed solution.**
-What would you like HELM Pilot to do?
+What would you like Pilot to do?
 
 **Governance implications.**
 Would this introduce new tool calls, new connectors, new decision paths? Any HELM policy bundle changes required?

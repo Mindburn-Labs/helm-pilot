@@ -1,4 +1,4 @@
-// HELM Pilot — 50-founder baseline (Phase 13 Track F2)
+// Pilot — 50-founder baseline (Phase 13 Track F2)
 //
 // k6 v0.50+ script simulating 50 concurrent founders hitting the
 // gateway's no-auth read surface (health, governance status, subagent
@@ -9,7 +9,7 @@
 // task-loop throughput will be worse.
 //
 // Usage:
-//   BASE_URL=https://staging.helm-pilot.dev k6 run loadtests/k6/founder-50.js
+//   BASE_URL=https://staging.pilot.dev k6 run loadtests/k6/founder-50.js
 //   k6 run -e BASE_URL=http://localhost:3100 loadtests/k6/founder-50.js
 //
 // Pass criteria (from approved Phase 13 plan):
@@ -53,7 +53,7 @@ export default function () {
       'health status 200 or 503': (r) => r.status === 200 || r.status === 503,
       'health has service field': (r) => {
         try {
-          return JSON.parse(r.body).service === 'helm-pilot';
+          return JSON.parse(r.body).service === 'pilot';
         } catch {
           return false;
         }

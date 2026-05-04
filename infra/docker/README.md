@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Active infrastructure surface for the `helm-pilot` project.
+Active infrastructure surface for the `pilot` project.
 
 ## Canonical Interface
 

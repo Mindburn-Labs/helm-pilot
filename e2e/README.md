@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Active test surface for the helm-pilot project.
+Active test surface for the pilot project.
 
 ## Canonical Interface
 
 - Source path: `e2e`
-- Package: `@helm-pilot/e2e`.
+- Package: `@pilot/e2e`.
 - Coverage record: `docs/documentation-coverage.csv`
 
 ## Local Commands

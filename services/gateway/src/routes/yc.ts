@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
-import { YcIntelService } from '@helm-pilot/yc-intel';
+import { YcIntelService } from '@pilot/yc-intel';
 import {
   YcPrivateIngestionInput,
   YcPublicIngestionInput,
   YcReplayIngestionInput,
-} from '@helm-pilot/shared/schemas';
+} from '@pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId } from '../lib/workspace.js';
 

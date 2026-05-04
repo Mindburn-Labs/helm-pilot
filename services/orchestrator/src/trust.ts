@@ -1,4 +1,4 @@
-import { type PolicyConfig, type TrustBoundaryResult, type Verdict } from '@helm-pilot/shared';
+import { type PolicyConfig, type TrustBoundaryResult, type Verdict } from '@pilot/shared';
 import { createHash } from 'node:crypto';
 
 /**

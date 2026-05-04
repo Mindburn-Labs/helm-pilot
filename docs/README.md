@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Active documentation-system surface for the `helm-pilot` project.
+Active documentation-system surface for the `pilot` project.
 
 ## Canonical Interface
 

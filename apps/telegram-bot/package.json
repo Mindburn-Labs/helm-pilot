@@ -1,5 +1,5 @@
 {
-  "name": "@helm-pilot/telegram-bot",
+  "name": "@pilot/telegram-bot",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -16,9 +16,9 @@
     "test:coverage": "vitest run --coverage --passWithNoTests"
   },
   "dependencies": {
-    "@helm-pilot/db": "*",
-    "@helm-pilot/founder-intel": "*",
-    "@helm-pilot/shared": "*",
+    "@pilot/db": "*",
+    "@pilot/founder-intel": "*",
+    "@pilot/shared": "*",
     "@sentry/node": "^10.48.0",
     "drizzle-orm": "^0.45.2",
     "grammy": "^1.35.0",

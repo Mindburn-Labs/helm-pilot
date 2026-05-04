@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { Bot, InlineKeyboard, type Context } from 'grammy';
 import { and, desc, eq, gt, lt } from 'drizzle-orm';
-import { TenantSecretStore } from '@helm-pilot/db/tenant-secret-store';
+import { TenantSecretStore } from '@pilot/db/tenant-secret-store';
 import {
   approvals,
   managedTelegramBotLeads,
@@ -10,21 +10,21 @@ import {
   managedTelegramBots,
   workspaces,
   workspaceMembers,
-} from '@helm-pilot/db/schema';
-import { type Db } from '@helm-pilot/db/client';
+} from '@pilot/db/schema';
+import { type Db } from '@pilot/db/client';
 import {
   HelmDeniedError,
   HelmEscalationError,
   HelmUnreachableError,
   type HelmClient,
   type EvaluateResult,
-} from '@helm-pilot/helm-client';
+} from '@pilot/helm-client';
 import {
   type ManagedTelegramBotResponseMode,
   ManagedTelegramBotSettingsInput,
-} from '@helm-pilot/shared/schemas';
-import { type LlmProvider } from '@helm-pilot/shared/llm';
-import { type SecretKind } from '@helm-pilot/shared/secrets';
+} from '@pilot/shared/schemas';
+import { type LlmProvider } from '@pilot/shared/llm';
+import { type SecretKind } from '@pilot/shared/secrets';
 
 const DEFAULT_WELCOME = 'Welcome. Join the launch list or send a support message.';
 const DEFAULT_SUPPORT_PROMPT = 'Send your question and we will follow up.';

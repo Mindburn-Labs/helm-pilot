@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import postgres from 'postgres';
-import { createLogger } from '@helm-pilot/shared/logger';
+import { createLogger } from '@pilot/shared/logger';
 
 const log = createLogger('event-bus');
 
@@ -55,12 +55,12 @@ export class EventBus extends EventEmitter {
         max: 1,
         idle_timeout: 0,
         connect_timeout: 10,
-        connection: { application_name: 'helm-pilot-event-bus' },
+        connection: { application_name: 'pilot-event-bus' },
         onnotice: () => {}, // suppress notices
       });
 
       await this.client.listen(
-        'helm_pilot_events',
+        'pilot_events',
         (payload: string) => {
           try {
             const event = JSON.parse(payload) as DbEvent;
@@ -80,7 +80,7 @@ export class EventBus extends EventEmitter {
             log.info('Event bus reconnected');
             this.emit('reconnected');
           } else {
-            log.info('Subscribed to helm_pilot_events channel');
+            log.info('Subscribed to pilot_events channel');
           }
         },
       );

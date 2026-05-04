@@ -89,7 +89,7 @@ describe('knowledgeRoutes', () => {
         {
           type: 'doc',
           title: 'Getting Started',
-          content: 'Welcome to HELM Pilot.',
+          content: 'Welcome to Pilot.',
         },
         wsHeader,
       );
@@ -101,7 +101,7 @@ describe('knowledgeRoutes', () => {
           workspaceId,
           type: 'doc',
           title: 'Getting Started',
-          content: 'Welcome to HELM Pilot.',
+          content: 'Welcome to Pilot.',
         }),
       );
     });

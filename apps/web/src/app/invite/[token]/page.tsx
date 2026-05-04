@@ -43,7 +43,7 @@ export default function InvitePage() {
     <main style={{ maxWidth: 400, margin: '0 auto', padding: '4rem 2rem', textAlign: 'center' }}>
       <h1>Join Workspace</h1>
       <p style={{ color: '#888', marginBottom: '2rem' }}>
-        You've been invited to join a HELM Pilot workspace
+        You've been invited to join a Pilot workspace
       </p>
 
       {error && (

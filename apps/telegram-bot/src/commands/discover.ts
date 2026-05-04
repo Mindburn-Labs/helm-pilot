@@ -1,12 +1,12 @@
 import { Bot, InlineKeyboard } from 'grammy';
 import { desc, eq, and } from 'drizzle-orm';
-import { type Db } from '@helm-pilot/db/client';
+import { type Db } from '@pilot/db/client';
 import {
   opportunities,
   opportunityClusters,
   opportunityClusterMembers,
   opportunityScores,
-} from '@helm-pilot/db/schema';
+} from '@pilot/db/schema';
 import { type BotContext } from '../types.js';
 
 /**

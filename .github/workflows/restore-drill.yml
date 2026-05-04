@@ -124,5 +124,5 @@ jobs:
         if: failure() && vars.SLACK_WEBHOOK_URL != ''
         run: |
           curl -X POST -H 'Content-Type: application/json' \
-            --data "{\"text\": \"🚨 HELM Pilot restore drill FAILED for backup ${{ steps.backup.outputs.key }} on $(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" \
+            --data "{\"text\": \"🚨 Pilot restore drill FAILED for backup ${{ steps.backup.outputs.key }} on $(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" \
             "${{ vars.SLACK_WEBHOOK_URL }}"

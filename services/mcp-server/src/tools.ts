@@ -1,6 +1,6 @@
-import { type Db } from '@helm-pilot/db/client';
-import { type MemoryService } from '@helm-pilot/memory';
-import type { McpTool, McpToolCallResult } from '@helm-pilot/shared/mcp';
+import { type Db } from '@pilot/db/client';
+import { type MemoryService } from '@pilot/memory';
+import type { McpTool, McpToolCallResult } from '@pilot/shared/mcp';
 
 // ─── Pilot-as-MCP-server tool surface (Phase 14 Track A) ───
 //
@@ -52,7 +52,7 @@ export const PILOT_MCP_TOOLS: ExposedTool[] = [
       const workspaceId = args['workspaceId'];
       if (typeof workspaceId !== 'string') return err('workspaceId is required');
       const limit = Math.max(1, Math.min(50, Number(args['limit'] ?? 20)));
-      const { opportunities } = await import('@helm-pilot/db/schema');
+      const { opportunities } = await import('@pilot/db/schema');
       const { eq, desc } = await import('drizzle-orm');
       const rows = await db
         .select()
@@ -76,7 +76,7 @@ export const PILOT_MCP_TOOLS: ExposedTool[] = [
     async handler(args, { db }) {
       const opportunityId = args['opportunityId'];
       if (typeof opportunityId !== 'string') return err('opportunityId required');
-      const { opportunities } = await import('@helm-pilot/db/schema');
+      const { opportunities } = await import('@pilot/db/schema');
       const { eq } = await import('drizzle-orm');
       const [opp] = await db
         .select()
@@ -125,7 +125,7 @@ export const PILOT_MCP_TOOLS: ExposedTool[] = [
       const workspaceId = args['workspaceId'];
       if (typeof workspaceId !== 'string') return err('workspaceId required');
       const { workspaces, workspaceMembers, tasks } = await import(
-        '@helm-pilot/db/schema'
+        '@pilot/db/schema'
       );
       const { eq, and, count } = await import('drizzle-orm');
       const [ws] = await db
@@ -178,7 +178,7 @@ export const PILOT_MCP_TOOLS: ExposedTool[] = [
         typeof args['description'] === 'string' ? args['description'] : '';
       const mode = typeof args['mode'] === 'string' ? args['mode'] : 'build';
       const priority = Number(args['priority'] ?? 0);
-      const { tasks } = await import('@helm-pilot/db/schema');
+      const { tasks } = await import('@pilot/db/schema');
       const [row] = await db
         .insert(tasks)
         .values({
@@ -225,7 +225,7 @@ export const PILOT_MCP_TOOLS: ExposedTool[] = [
       const description =
         typeof args['description'] === 'string' ? args['description'] : '';
       const content = typeof args['content'] === 'string' ? args['content'] : '';
-      const { artifacts, artifactVersions } = await import('@helm-pilot/db/schema');
+      const { artifacts, artifactVersions } = await import('@pilot/db/schema');
       const storagePath = `inline://${name}`;
       const [row] = await db
         .insert(artifacts)

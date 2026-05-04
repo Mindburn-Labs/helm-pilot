@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Active package surface for the helm-pilot project.
+Active package surface for the pilot project.
 
 ## Canonical Interface
 
 - Source path: `packages/connectors`
-- Package: `@helm-pilot/connectors`.
+- Package: `@pilot/connectors`.
 - Coverage record: `docs/documentation-coverage.csv`
 
 ## Local Commands

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Active package surface for the helm-pilot project.
+Active package surface for the pilot project.
 
 ## Canonical Interface
 

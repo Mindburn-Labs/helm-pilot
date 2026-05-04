@@ -23,7 +23,7 @@
       "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
       "targets": [
         {
-          "expr": "sum(increase(helm_pilot_llm_cost_usd_total[7d]))",
+          "expr": "sum(increase(pilot_llm_cost_usd_total[7d]))",
           "refId": "A"
         }
       ],
@@ -49,7 +49,7 @@
       "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
       "targets": [
         {
-          "expr": "sum(increase(helm_pilot_llm_cache_savings_usd_total[7d]))",
+          "expr": "sum(increase(pilot_llm_cache_savings_usd_total[7d]))",
           "refId": "A"
         }
       ],
@@ -65,7 +65,7 @@
       "description": "Linear forecast: (last-7d spend) × 30/7. Crude but calibrated enough for budget alerts.",
       "targets": [
         {
-          "expr": "sum(increase(helm_pilot_llm_cost_usd_total[7d])) * 30 / 7",
+          "expr": "sum(increase(pilot_llm_cost_usd_total[7d])) * 30 / 7",
           "refId": "A"
         }
       ],
@@ -91,7 +91,7 @@
       "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
       "targets": [
         {
-          "expr": "sum(rate(helm_pilot_llm_cache_hit_total[1h])) / sum(rate(helm_pilot_llm_calls_total[1h]))",
+          "expr": "sum(rate(pilot_llm_cache_hit_total[1h])) / sum(rate(pilot_llm_calls_total[1h]))",
           "refId": "A"
         }
       ],
@@ -117,7 +117,7 @@
       "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
       "targets": [
         {
-          "expr": "sum by (workspace) (rate(helm_pilot_llm_cost_usd_total[5m]))",
+          "expr": "sum by (workspace) (rate(pilot_llm_cost_usd_total[5m]))",
           "legendFormat": "{{workspace}}",
           "refId": "A"
         }
@@ -131,7 +131,7 @@
       "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
       "targets": [
         {
-          "expr": "sum by (subagent) (rate(helm_pilot_llm_cost_usd_total[5m]))",
+          "expr": "sum by (subagent) (rate(pilot_llm_cost_usd_total[5m]))",
           "legendFormat": "{{subagent}}",
           "refId": "A"
         }
@@ -145,7 +145,7 @@
       "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
       "targets": [
         {
-          "expr": "sum by (provider) (increase(helm_pilot_llm_cost_usd_total[24h]))",
+          "expr": "sum by (provider) (increase(pilot_llm_cost_usd_total[24h]))",
           "refId": "A",
           "legendFormat": "{{provider}}"
         }
@@ -160,7 +160,7 @@
       "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
       "targets": [
         {
-          "expr": "topk(10, sum by (subagent, workspace) (increase(helm_pilot_llm_cost_usd_total[24h])))",
+          "expr": "topk(10, sum by (subagent, workspace) (increase(pilot_llm_cost_usd_total[24h])))",
           "instant": true,
           "format": "table",
           "refId": "A"
@@ -172,7 +172,7 @@
   "tags": ["cost", "phase-16", "track-o"],
   "time": { "from": "now-7d", "to": "now" },
   "timezone": "",
-  "title": "HELM Pilot — Cost Attribution",
-  "uid": "helm-pilot-cost",
+  "title": "Pilot — Cost Attribution",
+  "uid": "pilot-cost",
   "version": 1
 }

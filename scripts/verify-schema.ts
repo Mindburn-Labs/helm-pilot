@@ -106,7 +106,7 @@ const checks: Check[] = [
     },
   },
   {
-    name: 'tasks triggers notify helm_pilot_events',
+    name: 'tasks triggers notify pilot_events',
     run: async (sql) => {
       const rows = await sql<{ trigger_name: string }[]>`
         SELECT trigger_name FROM information_schema.triggers

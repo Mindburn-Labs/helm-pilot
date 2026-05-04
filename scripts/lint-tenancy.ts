@@ -298,7 +298,7 @@ function main(): void {
     'Every query against a workspace-scoped table must either\n' +
       '  - include a `TABLE.workspaceId` predicate (for select / update),\n' +
       '  - include `workspaceId` in the .values() call (for insert), or\n' +
-      '  - call `currentWorkspaceId()` from @helm-pilot/gateway/middleware/workspace.\n' +
+      '  - call `currentWorkspaceId()` from @pilot/gateway/middleware/workspace.\n' +
       'If this is a legitimate platform-admin query, move it to services/gateway/src/routes/admin.ts\n' +
       'which is exempt by design.',
   );

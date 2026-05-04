@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════════════
-# HELM Pilot — per-tenant restore (Phase 2d)
+# Pilot — per-tenant restore (Phase 2d)
 #
 # Re-imports a single workspace dumped by `scripts/backup-tenant.sh`. Safe to
 # run against a live database only when the captured workspace id is absent;

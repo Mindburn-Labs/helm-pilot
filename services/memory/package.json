@@ -1,5 +1,5 @@
 {
-  "name": "@helm-pilot/memory",
+  "name": "@pilot/memory",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -15,8 +15,8 @@
     "test:coverage": "vitest run --coverage --passWithNoTests"
   },
   "dependencies": {
-    "@helm-pilot/shared": "*",
-    "@helm-pilot/db": "*",
+    "@pilot/shared": "*",
+    "@pilot/db": "*",
     "pino": "^9.6.0"
   },
   "devDependencies": {

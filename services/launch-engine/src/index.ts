@@ -1,12 +1,12 @@
 import { and, eq, desc } from 'drizzle-orm';
-import { type Db } from '@helm-pilot/db/client';
+import { type Db } from '@pilot/db/client';
 import {
   artifacts,
   artifactVersions,
   deployments,
   deployTargets,
   deployHealth,
-} from '@helm-pilot/db/schema';
+} from '@pilot/db/schema';
 import type {
   DeployProvider,
   DeployResult,
@@ -211,9 +211,7 @@ export class LaunchEngine {
     if (!providerId) {
       provision = await provider.provision({
         appName:
-          input.appName ??
-          stringValue(config['appName']) ??
-          `helm-pilot-${workspaceId.slice(0, 8)}`,
+          input.appName ?? stringValue(config['appName']) ?? `pilot-${workspaceId.slice(0, 8)}`,
         region: input.region ?? stringValue(config['region']) ?? 'nyc3',
         config,
       });

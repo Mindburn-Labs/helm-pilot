@@ -1,44 +1,44 @@
 groups:
-  - name: helm_pilot_api
+  - name: pilot_api
     interval: 30s
     rules:
       - alert: HighErrorRate
         expr: |
-          sum(rate(helm_pilot_http_errors_total[5m]))
-          / sum(rate(helm_pilot_http_requests_total[5m])) > 0.05
+          sum(rate(pilot_http_errors_total[5m]))
+          / sum(rate(pilot_http_requests_total[5m])) > 0.05
         for: 5m
         labels:
           severity: page
         annotations:
-          summary: "HELM Pilot error rate > 5%"
+          summary: "Pilot error rate > 5%"
           description: "Error rate has exceeded 5% for 5 minutes. Current: {{ $value | humanizePercentage }}."
 
       - alert: HighP95Latency
         expr: |
           histogram_quantile(0.95,
-            sum by (le) (rate(helm_pilot_http_request_duration_seconds_bucket[5m]))
+            sum by (le) (rate(pilot_http_request_duration_seconds_bucket[5m]))
           ) > 2
         for: 10m
         labels:
           severity: ticket
         annotations:
-          summary: "HELM Pilot p95 latency > 2s"
+          summary: "Pilot p95 latency > 2s"
           description: "p95 request latency has exceeded 2s for 10 minutes."
 
       - alert: HealthCheckFailing
-        expr: up{job="helm-pilot"} == 0
+        expr: up{job="pilot"} == 0
         for: 2m
         labels:
           severity: page
         annotations:
-          summary: "HELM Pilot is unreachable"
+          summary: "Pilot is unreachable"
           description: "Prometheus cannot scrape the gateway /metrics endpoint."
 
-  - name: helm_pilot_orchestrator
+  - name: pilot_orchestrator
     interval: 30s
     rules:
       - alert: JobQueueBacklog
-        expr: helm_pilot_job_queue_depth > 500
+        expr: pilot_job_queue_depth > 500
         for: 10m
         labels:
           severity: ticket
@@ -48,7 +48,7 @@ groups:
 
       - alert: AgentLoopCostSpike
         expr: |
-          rate(helm_pilot_llm_tokens_total{direction="out"}[15m]) > 100000
+          rate(pilot_llm_tokens_total{direction="out"}[15m]) > 100000
         for: 15m
         labels:
           severity: ticket
@@ -56,11 +56,11 @@ groups:
           summary: "LLM output tokens rate > 100K/min"
           description: "Unusual agent loop activity. Check for runaway tasks or abuse."
 
-  - name: helm_pilot_infrastructure
+  - name: pilot_infrastructure
     interval: 30s
     rules:
       - alert: ProcessMemoryHigh
-        expr: process_resident_memory_bytes{job="helm-pilot"} > 800 * 1024 * 1024
+        expr: process_resident_memory_bytes{job="pilot"} > 800 * 1024 * 1024
         for: 10m
         labels:
           severity: ticket
@@ -69,7 +69,7 @@ groups:
           description: "Process RSS is {{ $value | humanize1024 }}B. Possible memory leak."
 
       - alert: EventLoopLagHigh
-        expr: helm_pilot_nodejs_eventloop_lag_p95_seconds > 0.1
+        expr: pilot_nodejs_eventloop_lag_p95_seconds > 0.1
         for: 5m
         labels:
           severity: warning
@@ -78,7 +78,7 @@ groups:
           description: "Node.js event loop is saturating. Check for CPU-bound work in hot path."
 
   # ─── Phase 13 (Track D) — governance + data-plane alerts ───
-  - name: helm_pilot_governance
+  - name: pilot_governance
     interval: 30s
     rules:
       - alert: HelmUnavailable
@@ -89,12 +89,12 @@ groups:
         annotations:
           summary: "HELM governance sidecar is down"
           description: "Every tool call is failing closed. Agent loops are blocked. Restart the helm-sidecar container or check its logs."
-          runbook: https://github.com/Mindburn-Labs/helm-pilot/blob/main/docs/runbook.md#helm-sidecar-down
+          runbook: https://github.com/Mindburn-Labs/pilot/blob/main/docs/runbook.md#helm-sidecar-down
 
       - alert: ConductorSpawnFailureRate
         expr: |
-          sum(rate(helm_pilot_subagent_spawn_total{verdict="FAIL"}[15m]))
-          / clamp_min(sum(rate(helm_pilot_subagent_spawn_total[15m])), 1) > 0.10
+          sum(rate(pilot_subagent_spawn_total{verdict="FAIL"}[15m]))
+          / clamp_min(sum(rate(pilot_subagent_spawn_total[15m])), 1) > 0.10
         for: 15m
         labels:
           severity: warning
@@ -102,37 +102,37 @@ groups:
           summary: "Conductor subagent spawn failure rate > 10%"
           description: "More than 10% of `subagent.spawn` attempts have failed over the last 15 minutes. Check the registry, HELM policy, or operator budget."
 
-  - name: helm_pilot_data
+  - name: pilot_data
     interval: 30s
     rules:
       - alert: DbPoolSaturated
         expr: |
-          sum by (datname) (pg_stat_activity_count{datname="helm_pilot"})
+          sum by (datname) (pg_stat_activity_count{datname="pilot"})
           / max(pg_settings_max_connections) > 0.9
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: "Postgres connection pool > 90% saturated"
-          description: "Active connections to helm_pilot DB have been above 90% of max_connections for 5 minutes. Connection leak or load spike."
+          description: "Active connections to pilot DB have been above 90% of max_connections for 5 minutes. Connection leak or load spike."
 
       - alert: BackupMissedTwoRuns
-        # Backup completes emit helm_pilot_backup_last_success_timestamp_seconds.
+        # Backup completes emit pilot_backup_last_success_timestamp_seconds.
         # Alert if the newest success is older than 2 full daily cycles.
         expr: |
-          time() - max(helm_pilot_backup_last_success_timestamp_seconds) > 2 * 86400
+          time() - max(pilot_backup_last_success_timestamp_seconds) > 2 * 86400
         for: 1h
         labels:
           severity: critical
         annotations:
           summary: "Backup has not succeeded in >2 days"
           description: "No backup success metric since {{ $value | humanizeDuration }} ago. Backups are the RPO floor — investigate urgently."
-          runbook: https://github.com/Mindburn-Labs/helm-pilot/blob/main/docs/runbook.md#backup-failing
+          runbook: https://github.com/Mindburn-Labs/pilot/blob/main/docs/runbook.md#backup-failing
 
       - alert: TenantOverBudget
         # Emitted by the orchestrator when a workspace exceeds its
         # daily LLM budget. Per-tenant labelled.
-        expr: helm_pilot_tenant_cost_usd_daily > helm_pilot_tenant_budget_usd_daily
+        expr: pilot_tenant_cost_usd_daily > pilot_tenant_budget_usd_daily
         for: 10m
         labels:
           severity: warning

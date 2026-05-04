@@ -335,8 +335,8 @@ def get_encryption_key() -> bytes:
     if not raw:
         if os.environ.get("NODE_ENV") == "production":
             raise RuntimeError("ENCRYPTION_KEY is required in production")
-        raw = "helm-pilot-dev-key-do-not-use-in-prod"
-    return hashlib.scrypt(raw.encode("utf-8"), salt=b"helm-pilot-salt", n=16384, r=8, p=1, dklen=32)
+        raw = "pilot-dev-key-do-not-use-in-prod"
+    return hashlib.scrypt(raw.encode("utf-8"), salt=b"pilot-salt", n=16384, r=8, p=1, dklen=32)
 
 
 def decrypt_session_payload(encoded: str) -> Any:

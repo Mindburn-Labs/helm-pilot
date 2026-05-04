@@ -1,4 +1,4 @@
-import type { LlmProvider } from '@helm-pilot/shared/llm';
+import type { LlmProvider } from '@pilot/shared/llm';
 import { AuthenticityAudit } from './authenticity-audit.js';
 import { HeadlineImpactScorer } from './headline-impact.js';
 import type {
@@ -24,7 +24,7 @@ export type {
 } from './types.js';
 export { AuthenticityAudit } from './authenticity-audit.js';
 export { HeadlineImpactScorer } from './headline-impact.js';
-export type { LlmProvider } from '@helm-pilot/shared/llm';
+export type { LlmProvider } from '@pilot/shared/llm';
 
 const PROMPT_VERSION = 'content-engine/v1';
 

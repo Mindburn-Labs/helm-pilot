@@ -2,14 +2,14 @@
 
 ## Purpose
 
-Active package surface for the helm-pilot project.
+Active package surface for the pilot project.
 
 The package owns Drizzle schema and migrations. Migration `0017_ingestion_replay_columns` adds replay tracking for YC ingestion records: `replay_count` and `last_replayed_at`.
 
 ## Canonical Interface
 
 - Source path: `packages/db`
-- Package: `@helm-pilot/db`.
+- Package: `@pilot/db`.
 - Coverage record: `docs/documentation-coverage.csv`
 
 ## Local Commands

@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { ProductFactory } from '@helm-pilot/product-factory';
+import { ProductFactory } from '@pilot/product-factory';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId } from '../lib/workspace.js';
 

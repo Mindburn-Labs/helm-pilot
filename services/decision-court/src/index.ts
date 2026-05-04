@@ -1,4 +1,4 @@
-import type { LlmProvider } from '@helm-pilot/shared/llm';
+import type { LlmProvider } from '@pilot/shared/llm';
 import pino from 'pino';
 import type {
   BullBearCase,

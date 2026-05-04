@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Active package surface for the helm-pilot project.
+Active package surface for the pilot project.
 
 ## Canonical Interface
 
 - Source path: `packages/sandbox`
-- Package: `@helm-pilot/sandbox`.
+- Package: `@pilot/sandbox`.
 - Coverage record: `docs/documentation-coverage.csv`
 
 ## Local Commands

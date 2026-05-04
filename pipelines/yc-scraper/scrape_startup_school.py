@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-HELM Pilot — YC library / Startup School ingestion using Scrapling spiders.
+Pilot — YC library / Startup School ingestion using Scrapling spiders.
 """
 
 from __future__ import annotations
@@ -178,7 +178,7 @@ def insert_advice(cur, item: dict, course_id: str) -> bool:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="HELM Pilot YC library / Startup School scraper")
+    parser = argparse.ArgumentParser(description="Pilot YC library / Startup School scraper")
     parser.add_argument("--limit", type=int, help="Max items to scrape")
     parser.add_argument("--replay", help="Replay from a raw JSON capture")
     parser.add_argument("--dry-run", action="store_true", help="Print without DB writes")

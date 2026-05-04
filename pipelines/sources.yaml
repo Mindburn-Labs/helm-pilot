@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════
-# HELM Pilot — Opportunity Intelligence Sources
+# Pilot — Opportunity Intelligence Sources
 #
 # Declarative registry of every source the discovery pipeline monitors.
 # Adding a new source is a config change + PR — no Python/TS code needed

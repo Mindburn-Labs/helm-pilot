@@ -1,6 +1,6 @@
 # Load Tests (k6)
 
-Load tests that exercise critical HELM Pilot endpoints under realistic traffic.
+Load tests that exercise critical Pilot endpoints under realistic traffic.
 
 ## Prerequisites
 

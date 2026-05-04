@@ -1,4 +1,4 @@
-import { createLogger } from '@helm-pilot/shared/logger';
+import { createLogger } from '@pilot/shared/logger';
 
 const log = createLogger('email');
 
@@ -33,7 +33,7 @@ export interface EmailConfig {
 
 export function createEmailProvider(config: EmailConfig): EmailProvider {
   const kind = (config.provider ?? 'noop').toLowerCase();
-  const from = config.from ?? 'HELM Pilot <onboarding@helm-pilot.dev>';
+  const from = config.from ?? 'Pilot <onboarding@pilot.dev>';
 
   if (kind === 'resend') {
     if (!config.resendApiKey) {
@@ -152,8 +152,8 @@ function buildMagicLinkContent(code: string, linkUrl: string): {
   html: string;
   text: string;
 } {
-  const subject = `Your HELM Pilot login code: ${code}`;
-  const text = `Welcome to HELM Pilot.
+  const subject = `Your Pilot login code: ${code}`;
+  const text = `Welcome to Pilot.
 
 Your login code is: ${code}
 
@@ -162,12 +162,12 @@ ${linkUrl}
 
 This code expires in 15 minutes. If you didn't request it, you can safely ignore this email.
 
-— HELM Pilot
+— Pilot
 `;
   const html = `<!DOCTYPE html>
 <html>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1a1a1a;">
-  <h1 style="font-size: 20px; margin-bottom: 8px;">Sign in to HELM Pilot</h1>
+  <h1 style="font-size: 20px; margin-bottom: 8px;">Sign in to Pilot</h1>
   <p style="font-size: 14px; line-height: 1.5; color: #555;">Your login code:</p>
   <div style="font-size: 32px; font-weight: 700; letter-spacing: 4px; background: #f4f4f5; padding: 16px; text-align: center; border-radius: 8px; margin: 16px 0;">${code}</div>
   <p style="font-size: 14px; line-height: 1.5;">Or <a href="${linkUrl}" style="color: #2563eb;">click here to sign in</a>.</p>

@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Active service surface for the helm-pilot project.
+Active service surface for the pilot project.
 
 ## Canonical Interface
 
 - Source path: `services/founder-intel`
-- Package: `@helm-pilot/founder-intel`.
+- Package: `@pilot/founder-intel`.
 - Coverage record: `docs/documentation-coverage.csv`
 
 ## Local Commands

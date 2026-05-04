@@ -1,11 +1,6 @@
 import { eq, and } from 'drizzle-orm';
-import { type Db } from '@helm-pilot/db/client';
-import {
-  connectors,
-  connectorGrants,
-  connectorSessions,
-  connectorTokens,
-} from '@helm-pilot/db/schema';
+import { type Db } from '@pilot/db/client';
+import { connectors, connectorGrants, connectorSessions, connectorTokens } from '@pilot/db/schema';
 import { type Connector } from './types.js';
 import { encryptToken, decryptToken } from './token-store.js';
 

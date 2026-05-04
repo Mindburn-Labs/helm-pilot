@@ -54,7 +54,7 @@ export const CURRENT_SECRET_KEY_VERSION = 1;
 const DEK_LENGTH = 32; // AES-256
 const IV_LENGTH = 12; // GCM standard
 const AUTH_TAG_LENGTH = 16;
-const HKDF_INFO_PREFIX = 'helm-pilot-tenant-secret-v1:';
+const HKDF_INFO_PREFIX = 'pilot-tenant-secret-v1:';
 
 export interface SecretEnvelope {
   /** Base64-encoded iv(12) || ciphertext || auth_tag(16). */

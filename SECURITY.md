@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in HELM Pilot, please report it
+If you discover a security vulnerability in Pilot, please report it
 **privately** via email:
 
 **security@mindburn.org**
@@ -35,6 +35,6 @@ reporters (unless anonymity is requested) in the release notes.
 
 ## Scope
 
-This policy covers the HELM Pilot repository, including the gateway, orchestrator,
+This policy covers the Pilot repository, including the gateway, orchestrator,
 intelligence pipeline, scoring engine, and HELM policy packs. Third-party
 dependencies are tracked via `npm audit` in CI.

@@ -6,7 +6,7 @@ import {
   TICK_BATCH_LIMIT,
 } from '../refresh.js';
 
-vi.mock('@helm-pilot/db/schema', () => ({
+vi.mock('@pilot/db/schema', () => ({
   connectorGrants: { id: 'cg.id', workspaceId: 'cg.ws', needsReauth: 'cg.nr' },
   connectorTokens: { grantId: 'ct.grant', expiresAt: 'ct.exp' },
   connectors: { id: 'c.id', name: 'c.name' },

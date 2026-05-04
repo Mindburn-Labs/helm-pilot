@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Active surface for the `helm-pilot` project.
+Active surface for the `pilot` project.
 
 ## Canonical Interface
 

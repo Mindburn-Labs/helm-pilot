@@ -1,6 +1,6 @@
 # Phase 0 — Dependency Graph
 
-> Inter-module dependency map for HELM Pilot. Documents what calls what, what shares state, and what breaks if removed.
+> Inter-module dependency map for Pilot. Documents what calls what, what shares state, and what breaks if removed.
 > Generated 2026-04-12.
 
 ---
@@ -9,7 +9,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     HELM Pilot System                        │
+│                     Pilot System                        │
 │                                                              │
 │  ┌──────────────┐    spawns     ┌──────────────────────┐    │
 │  │ run-          │──────────────▶│ Claude Code Agent     │    │

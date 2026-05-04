@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Active tooling surface for the `helm-pilot` project.
+Active tooling surface for the `pilot` project.
 
 ## Canonical Interface
 

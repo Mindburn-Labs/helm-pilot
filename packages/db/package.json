@@ -1,5 +1,5 @@
 {
-  "name": "@helm-pilot/db",
+  "name": "@pilot/db",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -21,7 +21,7 @@
     "test:coverage": "vitest run --coverage --passWithNoTests"
   },
   "dependencies": {
-    "@helm-pilot/shared": "*",
+    "@pilot/shared": "*",
     "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.0"
   },

@@ -12,7 +12,7 @@
       "title": "Event Loop Lag (p95)",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-      "targets": [{ "expr": "helm_pilot_nodejs_eventloop_lag_p95_seconds", "refId": "A" }]
+      "targets": [{ "expr": "pilot_nodejs_eventloop_lag_p95_seconds", "refId": "A" }]
     },
     {
       "title": "Process CPU (seconds/sec)",
@@ -29,8 +29,8 @@
   ],
   "refresh": "10s",
   "schemaVersion": 37,
-  "tags": ["helm-pilot"],
+  "tags": ["pilot"],
   "time": { "from": "now-1h", "to": "now" },
-  "title": "HELM Pilot — Infrastructure",
+  "title": "Pilot — Infrastructure",
   "version": 1
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentLoop, computeActionHash } from '../agent-loop.js';
 
-vi.mock('@helm-pilot/db/schema', () => ({
+vi.mock('@pilot/db/schema', () => ({
   taskRuns: 'taskRuns',
   approvals: {
     workspaceId: 'approvals.workspaceId',
@@ -12,7 +12,7 @@ vi.mock('@helm-pilot/db/schema', () => ({
   operatorMemory: 'operatorMemory',
 }));
 
-vi.mock('@helm-pilot/shared/schemas', () => ({
+vi.mock('@pilot/shared/schemas', () => ({
   MAX_ITERATION_BUDGET: 200,
 }));
 

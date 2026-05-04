@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Active service surface for the helm-pilot project.
+Active service surface for the pilot project.
 
 ## Canonical Interface
 
 - Source path: `services/decision-court`
-- Package: `@helm-pilot/decision-court`.
+- Package: `@pilot/decision-court`.
 - Coverage record: `docs/documentation-coverage.csv`
 
 ## Local Commands

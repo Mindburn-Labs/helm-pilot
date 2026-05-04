@@ -17,15 +17,15 @@ section) folded in.
 - **Track N — Long-running autonomous execution (8-hour target).**
   Migration `0014_long_running_checkpoints.sql` adds `task_runs.checkpoint_state jsonb` + `task_runs.last_checkpoint_at timestamptz` + `task_runs.watchdog_alerted_at timestamptz` + partial index `task_runs_running_checkpoint_idx`. New `services/orchestrator/src/checkpoint.ts` exports `writeCheckpoint` / `loadCheckpoint` / `findStalledRuns` / `markWatchdogAlerted` — all fail-soft. AgentLoop snapshots actions + runUsage + runCost every 10 iterations (100-action trailing window keeps row size bounded). Crashed orchestrator can rehydrate at boot.
 - **Track O — Cost attribution dashboard.** `infra/monitoring/grafana/dashboards/cost-attribution.json` — total 7-day USD spend, cache savings, linear monthly burn forecast, cache hit rate, time-series per workspace + per subagent, per-provider bar gauge, top-10 subagents table.
-- **Track P — Skills marketplace client.** `scripts/install-skill.ts` + `npm run skills:install -- <name>`. Fetches `<HELM_SKILLS_REGISTRY_URL>/<name>.tar.gz` + `.sha256`, verifies digest, extracts to `~/.helm-pilot/skills/<name>/`, writes `.install.json`. Uses system `tar` (no new npm dep).
-- **Track Q — Ollama inference provider.** `@helm-pilot/shared/llm/OllamaProvider`. POSTs `/api/chat`; maps `eval_count`/`prompt_eval_count` → `LlmUsage`. Implements full `LlmProvider` interface including `completeStructured`. `createLlmProvider()` branches on `OLLAMA_BASE_URL` + `OLLAMA_MODEL` when no cloud key is set. Matches Microsoft Agent Framework v1.0's self-hosted-inference parity.
+- **Track P — Skills marketplace client.** `scripts/install-skill.ts` + `npm run skills:install -- <name>`. Fetches `<PILOT_SKILLS_REGISTRY_URL>/<name>.tar.gz` + `.sha256`, verifies digest, extracts to `~/.pilot/skills/<name>/`, writes `.install.json`. Uses system `tar` (no new npm dep).
+- **Track Q — Ollama inference provider.** `@pilot/shared/llm/OllamaProvider`. POSTs `/api/chat`; maps `eval_count`/`prompt_eval_count` → `LlmUsage`. Implements full `LlmProvider` interface including `completeStructured`. `createLlmProvider()` branches on `OLLAMA_BASE_URL` + `OLLAMA_MODEL` when no cloud key is set. Matches Microsoft Agent Framework v1.0's self-hosted-inference parity.
 
 ### Changed
 
-- HELM Pilot version 1.2.1 → **1.3.0**.
+- Pilot version 1.2.1 → **1.3.0**.
 - `LlmConfig` interface gains `ollamaBaseUrl?` + `ollamaModel?` (backward compatible).
 - `.env.example` adds Ollama + skills-registry sections.
-- `infra/docker/docker-compose.yml` `helm-pilot` service gains commented-out A2A + Ollama env blocks so operators can enable them inline.
+- `infra/docker/docker-compose.yml` `pilot` service gains commented-out A2A + Ollama env blocks so operators can enable them inline.
 - Root `package.json` scripts: `certify:subagent`, `skills:install`.
 
 ### Deferred
@@ -81,7 +81,7 @@ changes; purely additive hardening + real dispatch where v1.2.0 shipped stubs.
 
 ### Changed
 
-- HELM Pilot version 1.2.0 → **1.2.1**.
+- Pilot version 1.2.0 → **1.2.1**.
 
 ### Deferred to v1.2.2
 
@@ -93,15 +93,15 @@ changes; purely additive hardening + real dispatch where v1.2.0 shipped stubs.
 ### Added
 
 - **Track I — Connector breadth (6 new / upgraded).** Slack (`slack_post`, `slack_list_channels`, `slack_search`), Notion (`notion_search`, `notion_create_page`, `notion_get_page`), Linear (class wired into ToolRegistry: `linear_create_issue`, `linear_list_issues`, `linear_list_teams`, `linear_update_issue`), Stripe read-only (`stripe_list_customers`, `stripe_recent_charges`, `stripe_balance`), Google Calendar (`calendar_list_events`, `calendar_create_event`), HubSpot (`hubspot_list_contacts`, `hubspot_create_contact`, `hubspot_list_deals`). 5 new default connectors (total: 13).
-- **Track K — Vision + PDF ingestion.** `@helm-pilot/shared/multimodal` with `parsePdf` / `parsePdfBase64` (dynamic import of optional `pdf-parse`) and `analyzeImage` (direct Anthropic Messages API with `image` content block, no SDK dep). New `parse_pdf` + `analyze_image` tools. 10 new tests, `MultimodalError` with `not_installed | invalid_input | parse_failed | vision_failed` codes.
-- **Track J — Agent2Agent (A2A) protocol.** Linux-Foundation cross-agent lingua franca. `@helm-pilot/shared/a2a` ships `A2AClient` (over JSON-RPC 2.0, bearer auth, 30s timeout) and `buildPilotAgentCard()` (5 declared skills). Gateway exposes `GET /.well-known/agent-card.json` + `POST /a2a` with an in-memory Task store and `PILOT_A2A_TOKEN` bearer gating. Pilot is now addressable from Microsoft Agent Framework, Gemini CLI, and any A2A 0.3 client.
-- **Track M — L1/L2 conformance validators.** `@helm-pilot/shared/conformance` provides `validateL1` (required fields, verdict enum, decisionHash hex format, receivedAt validity, optional signature requirement) and `validateL2` (L1 prerequisite + unique decisionId + orphan parent detection + 3-color DFS cycle detection + monotone timestamp). 14 unit tests. Publishes the hook for subagent certification against the helm-oss harness.
+- **Track K — Vision + PDF ingestion.** `@pilot/shared/multimodal` with `parsePdf` / `parsePdfBase64` (dynamic import of optional `pdf-parse`) and `analyzeImage` (direct Anthropic Messages API with `image` content block, no SDK dep). New `parse_pdf` + `analyze_image` tools. 10 new tests, `MultimodalError` with `not_installed | invalid_input | parse_failed | vision_failed` codes.
+- **Track J — Agent2Agent (A2A) protocol.** Linux-Foundation cross-agent lingua franca. `@pilot/shared/a2a` ships `A2AClient` (over JSON-RPC 2.0, bearer auth, 30s timeout) and `buildPilotAgentCard()` (5 declared skills). Gateway exposes `GET /.well-known/agent-card.json` + `POST /a2a` with an in-memory Task store and `PILOT_A2A_TOKEN` bearer gating. Pilot is now addressable from Microsoft Agent Framework, Gemini CLI, and any A2A 0.3 client.
+- **Track M — L1/L2 conformance validators.** `@pilot/shared/conformance` provides `validateL1` (required fields, verdict enum, decisionHash hex format, receivedAt validity, optional signature requirement) and `validateL2` (L1 prerequisite + unique decisionId + orphan parent detection + 3-color DFS cycle detection + monotone timestamp). 14 unit tests. Publishes the hook for subagent certification against the helm-oss harness.
 
 ### Changed
 
-- HELM Pilot version 1.1.0 → **1.2.0**.
+- Pilot version 1.1.0 → **1.2.0**.
 - Built-in orchestrator tools: 27 → **47** (+20 across Tracks I + K).
-- `@helm-pilot/shared` subpath exports: 27 → **30** (`./multimodal`, `./a2a`, `./conformance`).
+- `@pilot/shared` subpath exports: 27 → **30** (`./multimodal`, `./a2a`, `./conformance`).
 - Default registered connectors: 8 → **13**.
 
 ### Deferred to Phase 16
@@ -115,19 +115,19 @@ changes; purely additive hardening + real dispatch where v1.2.0 shipped stubs.
 
 ### Added
 
-- **Track A — MCP consumer + provider.** `@helm-pilot/shared/mcp` ships an MCP 2025-11-25 `McpClient` over stdio + HTTP transports plus an `McpServerRegistry` that resolves names from `packs/mcp/servers.json` (env-overridable). Subagents declaring `mcp_servers:` in frontmatter now actually load — every upstream tool is namespaced `mcp.<server>.<tool>` inside the scoped tool registry, governed end-to-end by HELM. New `services/mcp-server/` workspace exposes Pilot's own DB-only tool whitelist (`list_opportunities`, `score_opportunity`, `search_knowledge`, `get_workspace_context`, `create_task`, `create_artifact`) as a bearer-token-authenticated MCP server at `:3200`. Enable with `docker compose --profile mcp up`. 23 new unit tests (13 consumer + 10 provider).
+- **Track A — MCP consumer + provider.** `@pilot/shared/mcp` ships an MCP 2025-11-25 `McpClient` over stdio + HTTP transports plus an `McpServerRegistry` that resolves names from `packs/mcp/servers.json` (env-overridable). Subagents declaring `mcp_servers:` in frontmatter now actually load — every upstream tool is namespaced `mcp.<server>.<tool>` inside the scoped tool registry, governed end-to-end by HELM. New `services/mcp-server/` workspace exposes Pilot's own DB-only tool whitelist (`list_opportunities`, `score_opportunity`, `search_knowledge`, `get_workspace_context`, `create_task`, `create_artifact`) as a bearer-token-authenticated MCP server at `:3200`. Enable with `docker compose --profile mcp up`. 23 new unit tests (13 consumer + 10 provider).
 - **Track B — Compliance overlays.** Workspaces opt in to any of 5 regulated frameworks (SOC 2 Type II, HIPAA Covered Entity, PCI DSS 4, EU AI Act High-Risk, ISO 42001). Migration `0013_compliance_frameworks.sql` + `compliance_attestations` table. Gateway routes: `GET/POST/DELETE /api/compliance/frameworks`, `POST /api/compliance/attest`, `GET /api/compliance/attestations`. Web dashboard `/compliance` lets founders toggle frameworks and generate HELM-signed attestation bundles in one click.
-- **Track C — Sandbox abstraction.** New `@helm-pilot/sandbox` package with a `SandboxProvider` interface, an `E2bSandboxProvider` (optional peer dep `@e2b/code-interpreter`), and a fail-closed `NoopSandboxProvider` default. `createSandbox()` factory honors `E2B_API_KEY`. Build mode can now safely execute generated code inside a sandbox before committing.
-- **Track D — Observability (Langfuse + Braintrust).** `@helm-pilot/shared/observability/langfuse` shadows OTel agent + tool spans into Langfuse when `LANGFUSE_*` env vars are set. `@helm-pilot/shared/eval/braintrust` wraps inference calls in Braintrust experiments when `BRAINTRUST_*` is set. Both are optional dynamic imports — no-op shim when unconfigured.
-- **Track E — Skills abstraction (`SKILL.md` loader).** `@helm-pilot/shared/skills` parses repo-bundled + user-override skill folders. SubagentLoop matches skills against the natural-language input and prepends matched bodies to the child's system prompt (capped at 3). 6 bundled skills shipped under `packs/skills/`.
+- **Track C — Sandbox abstraction.** New `@pilot/sandbox` package with a `SandboxProvider` interface, an `E2bSandboxProvider` (optional peer dep `@e2b/code-interpreter`), and a fail-closed `NoopSandboxProvider` default. `createSandbox()` factory honors `E2B_API_KEY`. Build mode can now safely execute generated code inside a sandbox before committing.
+- **Track D — Observability (Langfuse + Braintrust).** `@pilot/shared/observability/langfuse` shadows OTel agent + tool spans into Langfuse when `LANGFUSE_*` env vars are set. `@pilot/shared/eval/braintrust` wraps inference calls in Braintrust experiments when `BRAINTRUST_*` is set. Both are optional dynamic imports — no-op shim when unconfigured.
+- **Track E — Skills abstraction (`SKILL.md` loader).** `@pilot/shared/skills` parses repo-bundled + user-override skill folders. SubagentLoop matches skills against the natural-language input and prepends matched bodies to the child's system prompt (capped at 3). 6 bundled skills shipped under `packs/skills/`.
 - **Track F — helm-oss endpoint integration.** `HelmClient` now wraps 10 helm-oss endpoints. Web dashboard surfaces `/governance/budget` (live HELM spend ceilings + alerts + proof-graph merkle root) and `/governance/cost` (per-subagent USD attribution + per-bucket allocation gauges).
-- **Track G — Threat scanning.** `@helm-pilot/shared/sanitizers/scrapling` strips zero-width characters, bidirectional overrides (Trojan Source), UTF-8 BOM, and NFKC-normalizes homoglyphs from every scrapling fetch. `packages/shared/src/__tests__/owasp-llm-top10.test.ts` exercises 10 OWASP threat classes (LLM01-LLM10). New `.github/workflows/security.yml` runs sanitizer + OWASP + MCP transport + provider-auth tests on every PR + daily 03:17 UTC cron + gitleaks scan over full git history.
-- **Track H — Anthropic prompt caching.** `cache_control: {type:"ephemeral"}` injected on stable system-prompt + operator-goal + tool-list prefixes when running against Claude Sonnet 4. New Prometheus metrics `helm_pilot_llm_cache_hit_total` + `helm_pilot_llm_cache_savings_usd_total` and a Grafana panel.
+- **Track G — Threat scanning.** `@pilot/shared/sanitizers/scrapling` strips zero-width characters, bidirectional overrides (Trojan Source), UTF-8 BOM, and NFKC-normalizes homoglyphs from every scrapling fetch. `packages/shared/src/__tests__/owasp-llm-top10.test.ts` exercises 10 OWASP threat classes (LLM01-LLM10). New `.github/workflows/security.yml` runs sanitizer + OWASP + MCP transport + provider-auth tests on every PR + daily 03:17 UTC cron + gitleaks scan over full git history.
+- **Track H — Anthropic prompt caching.** `cache_control: {type:"ephemeral"}` injected on stable system-prompt + operator-goal + tool-list prefixes when running against Claude Sonnet 4. New Prometheus metrics `pilot_llm_cache_hit_total` + `pilot_llm_cache_savings_usd_total` and a Grafana panel.
 - **Track L — Live conduct streaming.** New in-memory `ConductEventStream` hub publishes 8 event types (iteration boundaries, action verdicts, subagent spawns, task verdict). Gateway exposes `GET /api/events/conduct/:taskId` SSE. Web `/governance/live/[taskId]` page renders live agent reasoning via native EventSource. 5 new unit tests.
 
 ### Changed
 
-- HELM Pilot version bumped to **1.1.0**.
+- Pilot version bumped to **1.1.0**.
 
 ### Deferred to Phase 15
 
@@ -151,7 +151,7 @@ changes; purely additive hardening + real dispatch where v1.2.0 shipped stubs.
 - **Telegram bot orchestrator wiring** (Track C4): `/chat` free-text routes to `orchestrator.runTask`; new `/conduct <prompt>` command routes to `orchestrator.runConduct` (Phase 12 subagents). `BotDeps` gains `runTask?` and `runConduct?` callbacks.
 - **E2E test coverage** (Track F1): `e2e/tests/{conduct,governance-dag,tenancy-isolation}.spec.ts` — 16 new cases lifting coverage from 6 to 9 specs.
 - **k6 baseline load test** (Track F2): `loadtests/k6/founder-50.js` — 50-VU ramp with p99<500ms / error-rate<1% / checks>99% SLO thresholds.
-- **Phase 13.5 — HELM evaluate() client cutover**: `HelmClient.evaluate()` real implementation gated on `HELM_EVALUATE_ENABLED=1`; migration `0012_reverify_spawn_receipts.sql` clears `verified_at` on Path-A SUBAGENT_SPAWN rows so they re-sign after sidecar upgrade.
+- **Phase 13.5 — HELM evaluate() client cutover**: `HelmClient.evaluate()` real implementation gated on `PILOT_HELM_EVALUATE_ENABLED=1`; migration `0012_reverify_spawn_receipts.sql` clears `verified_at` on Path-A SUBAGENT_SPAWN rows so they re-sign after sidecar upgrade.
 
 ### Deferred to Phase 14
 

@@ -10,7 +10,7 @@ const mockFactory = {
   getWorkspaceSummary: vi.fn(async () => ({ plans: 0, milestones: 0, completedMilestones: 0 })),
 };
 
-vi.mock('@helm-pilot/product-factory', () => ({
+vi.mock('@pilot/product-factory', () => ({
   ProductFactory: vi.fn().mockImplementation(() => mockFactory),
 }));
 

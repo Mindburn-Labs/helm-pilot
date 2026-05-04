@@ -115,7 +115,7 @@ export function App() {
     tg.ready();
     tg.expand();
     setTelegramCapabilities(detectTelegramCapabilities(tg));
-    void getDeviceStorageItem(tg, 'helm_pilot_active_tab').then((tab) => {
+    void getDeviceStorageItem(tg, 'pilot_active_tab').then((tab) => {
       if (tab && (TABS as readonly string[]).includes(tab)) {
         setActiveTab(tab as Tab);
       }
@@ -130,7 +130,7 @@ export function App() {
         setAuth(res);
         void setSecureStorageItem(
           tg,
-          'helm_pilot_session_hint',
+          'pilot_session_hint',
           JSON.stringify({
             workspaceId: res.workspace.id,
             userId: res.user.id,
@@ -144,14 +144,14 @@ export function App() {
   const switchTab = useCallback((tab: Tab) => {
     haptic('light');
     setActiveTab(tab);
-    void setDeviceStorageItem(window.Telegram?.WebApp, 'helm_pilot_active_tab', tab);
+    void setDeviceStorageItem(window.Telegram?.WebApp, 'pilot_active_tab', tab);
   }, []);
 
   if (authError)
     return (
       <div>
         <div className="header">
-          <h1>HELM Pilot</h1>
+          <h1>Pilot</h1>
         </div>
         <div className="error-banner">{authError}</div>
       </div>
@@ -165,7 +165,7 @@ export function App() {
     <div className="app-shell">
       <div className="header">
         <h1>
-          HELM Pilot <span className="mode-badge">v0.1</span>
+          Pilot <span className="mode-badge">v0.1</span>
         </h1>
         <div className="subtitle">
           Hey, {auth.user.name} &middot; {auth.workspace.name}
@@ -1025,7 +1025,7 @@ function SettingsTab({ workspaceId }: { workspaceId: string }) {
         <div className="section-header">About</div>
         <div className="item-row">
           <div>
-            <div className="item-title">HELM Pilot v0.1.0</div>
+            <div className="item-title">Pilot v0.1.0</div>
             <div className="item-meta">Open-source autonomous founder OS</div>
           </div>
         </div>

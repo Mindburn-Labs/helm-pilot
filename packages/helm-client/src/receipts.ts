@@ -39,7 +39,7 @@ export function parseReceiptHeaders(
 
 /**
  * HELM emits verdicts in multiple casings across responses. Normalize to the
- * canonical ALLOW/DENY/ESCALATE form used throughout HELM Pilot.
+ * canonical ALLOW/DENY/ESCALATE form used throughout Pilot.
  */
 export function normalizeVerdict(raw: string): HelmVerdict | null {
   const v = raw.trim().toUpperCase();

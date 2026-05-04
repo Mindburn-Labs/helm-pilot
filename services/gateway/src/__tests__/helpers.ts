@@ -164,7 +164,7 @@ export function mockUser(overrides?: Partial<Record<string, unknown>>) {
   return {
     id: 'user-1',
     telegramId: null,
-    email: 'test@helm-pilot.local',
+    email: 'test@pilot.local',
     name: 'Test User',
     avatarUrl: null,
     isActive: true,

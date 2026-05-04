@@ -6,8 +6,8 @@ import {
   opportunityClusterMembers,
   opportunityScores,
   opportunityTags,
-} from '@helm-pilot/db/schema';
-import { CreateOpportunityInput } from '@helm-pilot/shared/schemas';
+} from '@pilot/db/schema';
+import { CreateOpportunityInput } from '@pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId, workspaceIdMismatch } from '../lib/workspace.js';
 

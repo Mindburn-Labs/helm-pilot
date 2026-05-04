@@ -10,10 +10,10 @@
  * Read-only — no DB writes. Runs against the workspace's evidence_packs
  * table, filtering by workspace and the subagent's principal suffix.
  */
-import { createDb } from '@helm-pilot/db/client';
-import { evidencePacks } from '@helm-pilot/db/schema';
+import { createDb } from '@pilot/db/client';
+import { evidencePacks } from '@pilot/db/schema';
 import { and, eq, like } from 'drizzle-orm';
-import { validateL1Batch, validateL2, type EvidencePackLite } from '@helm-pilot/shared/conformance';
+import { validateL1Batch, validateL2, type EvidencePackLite } from '@pilot/shared/conformance';
 
 async function main() {
   const name = process.argv[2];

@@ -82,11 +82,11 @@
 | `money-engine/skills/builder-landing/SKILL.md` | Landing page generation: index.html + provider deploy config + Stripe price. | Keep as Build mode task type. Make deployment configurable. | `services/product-factory/tasks/landing.ts` | P2 |
 | `money-engine/skills/builder-pdf/SKILL.md` | PDF artifact creation: content generation → PDF conversion → marketplace publish. | Keep as Build mode task type. Remove Gumroad-specific publish. | `services/product-factory/tasks/pdf.ts` | P2 |
 | `money-engine/state/playbook.md` | Living operational memory content: Mission, Non-negotiables, Heuristics. | Seed content for knowledge layer. Parse into structured timeline entries. | `services/memory/seed/` | P2 |
-| `openclaw/src/config/` | YAML config + Zod validation + hierarchical merge. | Simplify for HELM Pilot config needs. Keep Zod validation pattern. | `packages/shared/config/` | P1 |
+| `openclaw/src/config/` | YAML config + Zod validation + hierarchical merge. | Simplify for Pilot config needs. Keep Zod validation pattern. | `packages/shared/config/` | P1 |
 | `openclaw/src/infra/` | Session, auth, logging, error handling utilities. | Extract auth/session patterns for gateway. Extract logging for shared package. | Split: `services/gateway/` + `packages/shared/` | P1 |
 | `openclaw/src/plugins/` | Plugin loading, registry, lifecycle. | Adapt for operator skill loading. | `services/orchestrator/plugins/` | P2 |
-| `openclaw/src/skills/` | Skill file loading and execution. | Adapt for HELM Pilot skill format. | `services/orchestrator/skills/` | P2 |
-| `openclaw/src/tools/` | Tool definitions, execution wrappers. | Keep tool abstraction. Add HELM Pilot-specific tools. | `services/orchestrator/tools/` | P2 |
+| `openclaw/src/skills/` | Skill file loading and execution. | Adapt for Pilot skill format. | `services/orchestrator/skills/` | P2 |
+| `openclaw/src/tools/` | Tool definitions, execution wrappers. | Keep tool abstraction. Add Pilot-specific tools. | `services/orchestrator/tools/` | P2 |
 | `openclaw/src/cron/` | Scheduled job execution (croner). | Replace with pg-boss scheduled jobs. Keep scheduling pattern. | Background via pg-boss | P2 |
 | `openclaw/src/storage/` | File/blob storage abstraction. | Adapt for S3-compatible + local fallback. | `packages/shared/storage/` | P2 |
 | `openclaw/src/media/` | Media handling (images, files, voice). | Keep for Telegram media messages. | `services/gateway/media/` | P3 |

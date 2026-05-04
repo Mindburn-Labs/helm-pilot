@@ -29,7 +29,7 @@ export const options = {
 };
 
 export default function () {
-  const email = `load-${randomString(10)}@helm-pilot.test`;
+  const email = `load-${randomString(10)}@pilot.test`;
 
   // Step 1: Request magic code
   const reqResp = http.post(

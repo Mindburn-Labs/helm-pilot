@@ -1,13 +1,13 @@
-import { type Db } from '@helm-pilot/db/client';
-import { type MemoryService } from '@helm-pilot/memory';
-import { OperatorComputerUseInput, ScraplingFetchInput } from '@helm-pilot/shared/schemas';
+import { type Db } from '@pilot/db/client';
+import { type MemoryService } from '@pilot/memory';
+import { OperatorComputerUseInput, ScraplingFetchInput } from '@pilot/shared/schemas';
 import {
   SubagentSpawnRequestSchema,
   SubagentParallelRequestSchema,
-} from '@helm-pilot/shared/subagents';
-import { type HelmClient } from '@helm-pilot/helm-client';
-import { withToolSpan } from '@helm-pilot/shared/otel';
-import { type McpClient } from '@helm-pilot/shared/mcp';
+} from '@pilot/shared/subagents';
+import { type HelmClient } from '@pilot/helm-client';
+import { withToolSpan } from '@pilot/shared/otel';
+import { type McpClient } from '@pilot/shared/mcp';
 import { type ToolDef } from './agent-loop.js';
 import { type Conductor, type ParentContext } from './conductor.js';
 import { sanitizeToolOutput } from './sanitize-output.js';
@@ -370,7 +370,7 @@ export class ToolRegistry {
         'Get workspace overview (name, current mode, member count, active tasks). Input: {"workspaceId": "..."}',
       execute: async (input) => {
         const { workspaceId } = input as { workspaceId: string };
-        const { workspaces, workspaceMembers, tasks } = await import('@helm-pilot/db/schema');
+        const { workspaces, workspaceMembers, tasks } = await import('@pilot/db/schema');
         const { eq, and, count } = await import('drizzle-orm');
         const [ws] = await this.db
           .select()
@@ -408,7 +408,7 @@ export class ToolRegistry {
           eventType?: string;
         };
         // Find the workspace project page to attach the timeline entry
-        const { pages, timelineEntries } = await import('@helm-pilot/db/schema');
+        const { pages, timelineEntries } = await import('@pilot/db/schema');
         const { and, eq } = await import('drizzle-orm');
         // Use a workspace-level project page, or create one
         let [page] = await this.db
@@ -454,7 +454,7 @@ export class ToolRegistry {
       modes: ['discover'],
       execute: async (input) => {
         const { workspaceId } = input as { workspaceId: string };
-        const { opportunities } = await import('@helm-pilot/db/schema');
+        const { opportunities } = await import('@pilot/db/schema');
         const { eq } = await import('drizzle-orm');
         const results = await this.db
           .select()
@@ -478,7 +478,7 @@ export class ToolRegistry {
           description: string;
           source?: string;
         };
-        const { opportunities } = await import('@helm-pilot/db/schema');
+        const { opportunities } = await import('@pilot/db/schema');
         const [opp] = await this.db
           .insert(opportunities)
           .values({
@@ -501,7 +501,7 @@ export class ToolRegistry {
       execute: async (input) => {
         const { opportunityId } = input as { opportunityId: string };
         // Verify opportunity exists
-        const { opportunities } = await import('@helm-pilot/db/schema');
+        const { opportunities } = await import('@pilot/db/schema');
         const { eq } = await import('drizzle-orm');
         const [opp] = await this.db
           .select()
@@ -521,7 +521,7 @@ export class ToolRegistry {
       modes: ['discover', 'apply'],
       execute: async (input) => {
         const { query, limit } = input as { query: string; limit?: number };
-        const { ycCompanies, ycAdvice } = await import('@helm-pilot/db/schema');
+        const { ycCompanies, ycAdvice } = await import('@pilot/db/schema');
         const { ilike, or } = await import('drizzle-orm');
         const pattern = `%${query}%`;
         const companies = await this.db
@@ -556,7 +556,7 @@ export class ToolRegistry {
       modes: ['decide'],
       execute: async (input) => {
         const { workspaceId } = input as { workspaceId: string };
-        const { founderProfiles, founderStrengths } = await import('@helm-pilot/db/schema');
+        const { founderProfiles, founderStrengths } = await import('@pilot/db/schema');
         const { eq } = await import('drizzle-orm');
         const [profile] = await this.db
           .select()
@@ -590,7 +590,7 @@ export class ToolRegistry {
           mode?: string;
           priority?: number;
         };
-        const { tasks } = await import('@helm-pilot/db/schema');
+        const { tasks } = await import('@pilot/db/schema');
         const [task] = await this.db
           .insert(tasks)
           .values({
@@ -616,7 +616,7 @@ export class ToolRegistry {
       modes: ['build'],
       execute: async (input) => {
         const { taskId, status } = input as { taskId: string; status: string };
-        const { tasks } = await import('@helm-pilot/db/schema');
+        const { tasks } = await import('@pilot/db/schema');
         const { eq } = await import('drizzle-orm');
         const values: Record<string, unknown> = { status, updatedAt: new Date() };
         if (status === 'completed') {
@@ -639,7 +639,7 @@ export class ToolRegistry {
       modes: ['build', 'launch'],
       execute: async (input) => {
         const { workspaceId, status } = input as { workspaceId: string; status?: string };
-        const { tasks } = await import('@helm-pilot/db/schema');
+        const { tasks } = await import('@pilot/db/schema');
         const { eq, and, desc } = await import('drizzle-orm');
         const conditions = [eq(tasks.workspaceId, workspaceId)];
         if (status) conditions.push(eq(tasks.status, status));
@@ -671,7 +671,7 @@ export class ToolRegistry {
           description?: string;
           milestones?: Array<{ title: string; description?: string }>;
         };
-        const { plans, milestones } = await import('@helm-pilot/db/schema');
+        const { plans, milestones } = await import('@pilot/db/schema');
         const [plan] = await this.db
           .insert(plans)
           .values({ workspaceId, title, description: description ?? '' })
@@ -711,7 +711,7 @@ export class ToolRegistry {
           description?: string;
           content?: string;
         };
-        const { artifacts, artifactVersions } = await import('@helm-pilot/db/schema');
+        const { artifacts, artifactVersions } = await import('@pilot/db/schema');
         // V1: store content inline as storage path (real storage client in Phase C)
         const storagePath = `inline://${name}`;
         const [artifact] = await this.db
@@ -757,7 +757,7 @@ export class ToolRegistry {
           section: string;
           content: string;
         };
-        const { applications, applicationDrafts } = await import('@helm-pilot/db/schema');
+        const { applications, applicationDrafts } = await import('@pilot/db/schema');
         const { eq, and } = await import('drizzle-orm');
         // Find or create the application
         let [app] = await this.db
@@ -818,7 +818,7 @@ export class ToolRegistry {
             error:
               'GitHub connector not authorized. Connect via /api/connectors/github/oauth/initiate',
           };
-        const { GitHubConnector } = await import('@helm-pilot/connectors');
+        const { GitHubConnector } = await import('@pilot/connectors');
         const gh = new GitHubConnector(token);
         return gh.createRepo(name, { private: isPrivate, description });
       },
@@ -840,7 +840,7 @@ export class ToolRegistry {
         };
         const token = await this.resolveConnectorToken(workspaceId, 'github');
         if (!token) return { error: 'GitHub connector not authorized' };
-        const { GitHubConnector } = await import('@helm-pilot/connectors');
+        const { GitHubConnector } = await import('@pilot/connectors');
         const gh = new GitHubConnector(token);
         return gh.createIssue(repo, title, body, labels);
       },
@@ -860,7 +860,7 @@ export class ToolRegistry {
         };
         const token = await this.resolveConnectorToken(workspaceId, 'github');
         if (!token) return { error: 'GitHub connector not authorized' };
-        const { GitHubConnector } = await import('@helm-pilot/connectors');
+        const { GitHubConnector } = await import('@pilot/connectors');
         const gh = new GitHubConnector(token);
         return gh.listIssues(repo, state);
       },
@@ -886,7 +886,7 @@ export class ToolRegistry {
             error:
               'Gmail connector not authorized. Connect via /api/connectors/gmail/oauth/initiate',
           };
-        const { GmailConnector } = await import('@helm-pilot/connectors');
+        const { GmailConnector } = await import('@pilot/connectors');
         const gmail = new GmailConnector(token);
         return gmail.sendEmail({ to, subject, body, isHtml });
       },
@@ -906,7 +906,7 @@ export class ToolRegistry {
         };
         const token = await this.resolveConnectorToken(workspaceId, 'gmail');
         if (!token) return { error: 'Gmail connector not authorized' };
-        const { GmailConnector } = await import('@helm-pilot/connectors');
+        const { GmailConnector } = await import('@pilot/connectors');
         const gmail = new GmailConnector(token);
         return gmail.listMessages(query, limit);
       },
@@ -922,7 +922,7 @@ export class ToolRegistry {
         const { workspaceId, messageId } = input as { workspaceId: string; messageId: string };
         const token = await this.resolveConnectorToken(workspaceId, 'gmail');
         if (!token) return { error: 'Gmail connector not authorized' };
-        const { GmailConnector } = await import('@helm-pilot/connectors');
+        const { GmailConnector } = await import('@pilot/connectors');
         const gmail = new GmailConnector(token);
         return gmail.getMessage(messageId);
       },
@@ -942,7 +942,7 @@ export class ToolRegistry {
         };
         const token = await this.resolveConnectorToken(workspaceId, 'gdrive');
         if (!token) return { error: 'Google Drive connector not authorized' };
-        const { DriveConnector } = await import('@helm-pilot/connectors');
+        const { DriveConnector } = await import('@pilot/connectors');
         const drive = new DriveConnector(token);
         return drive.listFiles({ query, pageSize: limit });
       },
@@ -964,7 +964,7 @@ export class ToolRegistry {
         };
         const token = await this.resolveConnectorToken(workspaceId, 'gdrive');
         if (!token) return { error: 'Google Drive connector not authorized' };
-        const { DriveConnector } = await import('@helm-pilot/connectors');
+        const { DriveConnector } = await import('@pilot/connectors');
         const drive = new DriveConnector(token);
         return drive.createFile({ name, content, mimeType, folderId });
       },
@@ -989,7 +989,7 @@ export class ToolRegistry {
           };
         const token = await this.resolveConnectorToken(workspaceId, 'linear');
         if (!token) return { error: 'Linear connector not authorized' };
-        const { LinearConnector } = await import('@helm-pilot/connectors');
+        const { LinearConnector } = await import('@pilot/connectors');
         return new LinearConnector(token).createIssue({
           teamId,
           title,
@@ -1016,7 +1016,7 @@ export class ToolRegistry {
         };
         const token = await this.resolveConnectorToken(workspaceId, 'linear');
         if (!token) return { error: 'Linear connector not authorized' };
-        const { LinearConnector } = await import('@helm-pilot/connectors');
+        const { LinearConnector } = await import('@pilot/connectors');
         return new LinearConnector(token).listIssues({ teamId, limit, stateNames });
       },
     });
@@ -1039,7 +1039,7 @@ export class ToolRegistry {
         };
         const token = await this.resolveConnectorToken(workspaceId, 'linear');
         if (!token) return { error: 'Linear connector not authorized' };
-        const { LinearConnector } = await import('@helm-pilot/connectors');
+        const { LinearConnector } = await import('@pilot/connectors');
         return new LinearConnector(token).updateIssue(issueId, updates);
       },
     });
@@ -1053,7 +1053,7 @@ export class ToolRegistry {
         const { workspaceId } = input as { workspaceId: string };
         const token = await this.resolveConnectorToken(workspaceId, 'linear');
         if (!token) return { error: 'Linear connector not authorized' };
-        const { LinearConnector } = await import('@helm-pilot/connectors');
+        const { LinearConnector } = await import('@pilot/connectors');
         return new LinearConnector(token).listTeams();
       },
     });
@@ -1077,7 +1077,7 @@ export class ToolRegistry {
             error:
               'Slack connector not authorized. Connect via /api/connectors/slack/oauth/initiate',
           };
-        const { SlackConnector } = await import('@helm-pilot/connectors');
+        const { SlackConnector } = await import('@pilot/connectors');
         const slack = new SlackConnector(token);
         return slack.postMessage(channel, text, threadTs ? { threadTs } : undefined);
       },
@@ -1093,7 +1093,7 @@ export class ToolRegistry {
         const { workspaceId, limit } = input as { workspaceId: string; limit?: number };
         const token = await this.resolveConnectorToken(workspaceId, 'slack');
         if (!token) return { error: 'Slack connector not authorized' };
-        const { SlackConnector } = await import('@helm-pilot/connectors');
+        const { SlackConnector } = await import('@pilot/connectors');
         return new SlackConnector(token).listChannels(limit ? { limit } : undefined);
       },
     });
@@ -1112,7 +1112,7 @@ export class ToolRegistry {
         };
         const token = await this.resolveConnectorToken(workspaceId, 'slack');
         if (!token) return { error: 'Slack connector not authorized' };
-        const { SlackConnector } = await import('@helm-pilot/connectors');
+        const { SlackConnector } = await import('@pilot/connectors');
         return new SlackConnector(token).search(query, limit ? { limit } : undefined);
       },
     });
@@ -1121,7 +1121,7 @@ export class ToolRegistry {
     this.register({
       name: 'slack_workspace_agent_reply',
       description:
-        'Post a HELM Pilot workspace-agent run summary into Slack with approval and receipt trail. Input: {"workspaceId":"...","channel":"C0123","title":"...","status":"queued|running|awaiting_approval|completed|blocked","steps":["..."],"approvals":[{"approvalId":"...","action":"...","status":"pending|approved|rejected","receiptId":"optional"}],"threadTs":"optional","evidencePackId":"optional","receiptUrl":"optional"}',
+        'Post a Pilot workspace-agent run summary into Slack with approval and receipt trail. Input: {"workspaceId":"...","channel":"C0123","title":"...","status":"queued|running|awaiting_approval|completed|blocked","steps":["..."],"approvals":[{"approvalId":"...","action":"...","status":"pending|approved|rejected","receiptId":"optional"}],"threadTs":"optional","evidencePackId":"optional","receiptUrl":"optional"}',
       modes: ['build', 'launch'],
       execute: async (input) => {
         const {
@@ -1153,7 +1153,7 @@ export class ToolRegistry {
         };
         const token = await this.resolveConnectorToken(workspaceId, 'slack');
         if (!token) return { error: 'Slack connector not authorized' };
-        const { SlackConnector } = await import('@helm-pilot/connectors');
+        const { SlackConnector } = await import('@pilot/connectors');
         const stepLines =
           steps && steps.length > 0
             ? steps.map((step, index) => `${index + 1}. ${step}`)
@@ -1206,7 +1206,7 @@ export class ToolRegistry {
             error:
               'Notion connector not authorized. Connect via /api/connectors/notion/oauth/initiate',
           };
-        const { NotionConnector } = await import('@helm-pilot/connectors');
+        const { NotionConnector } = await import('@pilot/connectors');
         return new NotionConnector(token).search(query, limit ? { limit } : undefined);
       },
     });
@@ -1226,7 +1226,7 @@ export class ToolRegistry {
         };
         const token = await this.resolveConnectorToken(workspaceId, 'notion');
         if (!token) return { error: 'Notion connector not authorized' };
-        const { NotionConnector } = await import('@helm-pilot/connectors');
+        const { NotionConnector } = await import('@pilot/connectors');
         return new NotionConnector(token).createPage(parentPageId, title, bodyParagraphs);
       },
     });
@@ -1240,7 +1240,7 @@ export class ToolRegistry {
         const { workspaceId, pageId } = input as { workspaceId: string; pageId: string };
         const token = await this.resolveConnectorToken(workspaceId, 'notion');
         if (!token) return { error: 'Notion connector not authorized' };
-        const { NotionConnector } = await import('@helm-pilot/connectors');
+        const { NotionConnector } = await import('@pilot/connectors');
         return new NotionConnector(token).getPage(pageId);
       },
     });
@@ -1259,7 +1259,7 @@ export class ToolRegistry {
           return { error: 'base64 pdf bytes required' };
         }
         try {
-          const { parsePdfBase64 } = await import('@helm-pilot/shared/multimodal');
+          const { parsePdfBase64 } = await import('@pilot/shared/multimodal');
           return await parsePdfBase64(base64, previewChars ? { previewChars } : undefined);
         } catch (err) {
           return {
@@ -1289,7 +1289,7 @@ export class ToolRegistry {
           return { error: 'imageBase64, mediaType, question all required' };
         }
         try {
-          const { analyzeImage } = await import('@helm-pilot/shared/multimodal');
+          const { analyzeImage } = await import('@pilot/shared/multimodal');
           return await analyzeImage({
             imageBase64,
             mediaType,
@@ -1313,7 +1313,7 @@ export class ToolRegistry {
         const { workspaceId, limit } = input as { workspaceId: string; limit?: number };
         const token = await this.resolveConnectorToken(workspaceId, 'stripe');
         if (!token) return { error: 'Stripe connector not authorized' };
-        const { StripeConnector } = await import('@helm-pilot/connectors');
+        const { StripeConnector } = await import('@pilot/connectors');
         return new StripeConnector(token).listCustomers(limit ? { limit } : undefined);
       },
     });
@@ -1327,7 +1327,7 @@ export class ToolRegistry {
         const { workspaceId, limit } = input as { workspaceId: string; limit?: number };
         const token = await this.resolveConnectorToken(workspaceId, 'stripe');
         if (!token) return { error: 'Stripe connector not authorized' };
-        const { StripeConnector } = await import('@helm-pilot/connectors');
+        const { StripeConnector } = await import('@pilot/connectors');
         return new StripeConnector(token).recentCharges(limit ? { limit } : undefined);
       },
     });
@@ -1342,7 +1342,7 @@ export class ToolRegistry {
         const { workspaceId } = input as { workspaceId: string };
         const token = await this.resolveConnectorToken(workspaceId, 'stripe');
         if (!token) return { error: 'Stripe connector not authorized' };
-        const { StripeConnector } = await import('@helm-pilot/connectors');
+        const { StripeConnector } = await import('@pilot/connectors');
         return new StripeConnector(token).balance();
       },
     });
@@ -1363,7 +1363,7 @@ export class ToolRegistry {
         };
         const token = await this.resolveConnectorToken(workspaceId, 'calendar');
         if (!token) return { error: 'Calendar connector not authorized' };
-        const { CalendarConnector } = await import('@helm-pilot/connectors');
+        const { CalendarConnector } = await import('@pilot/connectors');
         return new CalendarConnector(token).listEvents(opts);
       },
     });
@@ -1387,7 +1387,7 @@ export class ToolRegistry {
         };
         const token = await this.resolveConnectorToken(workspaceId, 'calendar');
         if (!token) return { error: 'Calendar connector not authorized' };
-        const { CalendarConnector } = await import('@helm-pilot/connectors');
+        const { CalendarConnector } = await import('@pilot/connectors');
         return new CalendarConnector(token).createEvent(payload);
       },
     });
@@ -1401,7 +1401,7 @@ export class ToolRegistry {
         const { workspaceId, limit } = input as { workspaceId: string; limit?: number };
         const token = await this.resolveConnectorToken(workspaceId, 'hubspot');
         if (!token) return { error: 'HubSpot connector not authorized' };
-        const { HubSpotConnector } = await import('@helm-pilot/connectors');
+        const { HubSpotConnector } = await import('@pilot/connectors');
         return new HubSpotConnector(token).listContacts(limit ? { limit } : undefined);
       },
     });
@@ -1422,7 +1422,7 @@ export class ToolRegistry {
         };
         const token = await this.resolveConnectorToken(workspaceId, 'hubspot');
         if (!token) return { error: 'HubSpot connector not authorized' };
-        const { HubSpotConnector } = await import('@helm-pilot/connectors');
+        const { HubSpotConnector } = await import('@pilot/connectors');
         return new HubSpotConnector(token).createContact(payload);
       },
     });
@@ -1436,7 +1436,7 @@ export class ToolRegistry {
         const { workspaceId, limit } = input as { workspaceId: string; limit?: number };
         const token = await this.resolveConnectorToken(workspaceId, 'hubspot');
         if (!token) return { error: 'HubSpot connector not authorized' };
-        const { HubSpotConnector } = await import('@helm-pilot/connectors');
+        const { HubSpotConnector } = await import('@pilot/connectors');
         return new HubSpotConnector(token).listDeals(limit ? { limit } : undefined);
       },
     });
@@ -1450,7 +1450,7 @@ export class ToolRegistry {
         const { workspaceId, fileId } = input as { workspaceId: string; fileId: string };
         const token = await this.resolveConnectorToken(workspaceId, 'gdrive');
         if (!token) return { error: 'Google Drive connector not authorized' };
-        const { DriveConnector } = await import('@helm-pilot/connectors');
+        const { DriveConnector } = await import('@pilot/connectors');
         const drive = new DriveConnector(token);
         const content = await drive.readFile(fileId);
         const meta = await drive.getFile(fileId);
@@ -1469,9 +1469,9 @@ export class ToolRegistry {
   ): Promise<string | null> {
     try {
       const { connectors, connectorGrants, connectorTokens } =
-        await import('@helm-pilot/db/schema');
+        await import('@pilot/db/schema');
       const { eq, and } = await import('drizzle-orm');
-      const { decryptToken } = await import('@helm-pilot/connectors');
+      const { decryptToken } = await import('@pilot/connectors');
 
       // Find the connector
       const [connector] = await this.db

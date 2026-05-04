@@ -1,16 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { type Db } from '@helm-pilot/db/client';
-import { type LlmProvider } from '@helm-pilot/shared/llm';
-import { type PolicyConfig } from '@helm-pilot/shared/schemas';
+import { type Db } from '@pilot/db/client';
+import { type LlmProvider } from '@pilot/shared/llm';
+import { type PolicyConfig } from '@pilot/shared/schemas';
 import {
   SubagentRegistry,
   type SubagentDefinition,
   type SubagentRunResult,
-} from '@helm-pilot/shared/subagents';
-import { type McpServerRegistry } from '@helm-pilot/shared/mcp';
-import { type HelmClient } from '@helm-pilot/helm-client';
-import { validateL1 } from '@helm-pilot/shared/conformance';
-import { createLogger } from '@helm-pilot/shared/logger';
+} from '@pilot/shared/subagents';
+import { type McpServerRegistry } from '@pilot/shared/mcp';
+import { type HelmClient } from '@pilot/helm-client';
+import { validateL1 } from '@pilot/shared/conformance';
+import { createLogger } from '@pilot/shared/logger';
 import { type SubagentFrame } from './agent-loop.js';
 import { type ToolRegistry } from './tools.js';
 import { SubagentLoop } from './subagent-loop.js';
@@ -269,7 +269,7 @@ export class Conductor {
   ): Promise<string | null> {
     if (!parentTaskRunId) return null;
     try {
-      const { evidencePacks } = await import('@helm-pilot/db/schema');
+      const { evidencePacks } = await import('@pilot/db/schema');
       const { eq, and, desc } = await import('drizzle-orm');
       const [row] = await this.db
         .select({ id: evidencePacks.id })
@@ -296,7 +296,7 @@ export class Conductor {
     policyVersion: string;
   }): Promise<string> {
     try {
-      const { evidencePacks } = await import('@helm-pilot/db/schema');
+      const { evidencePacks } = await import('@pilot/db/schema');
       const decisionId = `local_spawn_${randomUUID()}`;
       const [row] = await this.db
         .insert(evidencePacks)
@@ -349,7 +349,7 @@ export class Conductor {
     allocatedUsd: number;
   }): Promise<string> {
     try {
-      const { taskRuns } = await import('@helm-pilot/db/schema');
+      const { taskRuns } = await import('@pilot/db/schema');
       const [row] = await this.db
         .insert(taskRuns)
         .values({

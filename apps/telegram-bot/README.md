@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Active app surface for the helm-pilot project.
+Active app surface for the pilot project.
 
 ## Canonical Interface
 
 - Source path: `apps/telegram-bot`
-- Package: `@helm-pilot/telegram-bot`.
+- Package: `@pilot/telegram-bot`.
 - Coverage record: `docs/documentation-coverage.csv`
 
 ## Local Commands

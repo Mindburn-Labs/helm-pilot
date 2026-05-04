@@ -1,5 +1,5 @@
 {
-  "name": "@helm-pilot/mcp-server",
+  "name": "@pilot/mcp-server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -16,9 +16,9 @@
     "test:coverage": "vitest run --coverage --passWithNoTests"
   },
   "dependencies": {
-    "@helm-pilot/db": "*",
-    "@helm-pilot/memory": "*",
-    "@helm-pilot/shared": "*",
+    "@pilot/db": "*",
+    "@pilot/memory": "*",
+    "@pilot/shared": "*",
     "@hono/node-server": "^1.19.13",
     "hono": "^4.9.10",
     "pino": "^9.6.0",

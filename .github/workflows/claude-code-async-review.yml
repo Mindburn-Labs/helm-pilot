@@ -2,7 +2,7 @@ name: Claude Code async review
 
 # Runs /review (or /ultrareview when the needs-ultrareview label is set) via
 # the Claude Code GitHub Action. Opus 4.7, effort=high.
-# Enforces HELM Pilot's invariants: every autonomous action through
+# Enforces Pilot's invariants: every autonomous action through
 # packages/helm-client, Scrapling-first ingestion, Drizzle-only DB access.
 # See docs/ai/ultrareview-policy.md in the monorepo root.
 
@@ -46,9 +46,9 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
-            Invoke the HELM PR preflight workflow on this PR in the HELM Pilot repo.
+            Invoke the HELM PR preflight workflow on this PR in the Pilot repo.
 
-            1. Run the project's `helm-pr-preflight` skill scoped to HELM Pilot.
+            1. Run the project's `helm-pr-preflight` skill scoped to Pilot.
             2. Enforce these invariants specifically:
                - Every autonomous action must route through `packages/helm-client`; flag any out-of-band call.
                - Ingestion must use Scrapling; flag any raw `fetch`, `axios`, or `puppeteer` use inside `services/` or `pipelines/`.

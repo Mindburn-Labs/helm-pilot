@@ -1,9 +1,9 @@
 import { Hono, type Context } from 'hono';
-import { type Connector, listReauthRequired } from '@helm-pilot/connectors';
+import { type Connector, listReauthRequired } from '@pilot/connectors';
 import {
   SaveConnectorSessionInput,
   ValidateConnectorSessionInput,
-} from '@helm-pilot/shared/schemas';
+} from '@pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId, workspaceIdMismatch } from '../lib/workspace.js';
 
@@ -409,7 +409,7 @@ function oauthResultPage(
   return `<!DOCTYPE html>
 <html>
 <head>
-  <title>HELM Pilot — ${success ? 'Connected' : 'Error'}</title>
+  <title>Pilot — ${success ? 'Connected' : 'Error'}</title>
   <meta charset="utf-8">
   <style>
     body { font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #0a0a0a; color: #fafafa; }
@@ -434,7 +434,7 @@ function oauthResultPage(
         ? `
     if (window.opener) {
       window.opener.postMessage({
-        type: 'helm-pilot-oauth-success',
+        type: 'pilot-oauth-success',
         connectorId: '${result.connectorId}',
         workspaceId: '${result.workspaceId}',
         grantId: '${result.grantId}',

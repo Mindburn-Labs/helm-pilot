@@ -1,4 +1,4 @@
-import { createLogger } from '@helm-pilot/shared/logger';
+import { createLogger } from '@pilot/shared/logger';
 
 const log = createLogger('gdrive-connector');
 
@@ -126,7 +126,7 @@ export class DriveConnector {
       : params.content;
 
     // Use multipart upload for simplicity (metadata + content in one request)
-    const boundary = `helm_pilot_${Date.now()}`;
+    const boundary = `pilot_${Date.now()}`;
     const body = Buffer.concat([
       Buffer.from(
         `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${params.mimeType ?? 'text/plain'}\r\n\r\n`,

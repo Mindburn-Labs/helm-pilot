@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
-import { type Db } from '@helm-pilot/db/client';
+import { type Db } from '@pilot/db/client';
 import { type ConnectorRegistry } from './index.js';
-import { createLogger } from '@helm-pilot/shared/logger';
+import { createLogger } from '@pilot/shared/logger';
 
 const log = createLogger('oauth');
 
@@ -259,7 +259,7 @@ export class OAuthFlowManager {
     if (!provider) return null;
 
     // Get stored refresh token
-    const { connectorTokens } = await import('@helm-pilot/db/schema');
+    const { connectorTokens } = await import('@pilot/db/schema');
     const { eq } = await import('drizzle-orm');
     const { decryptToken } = await import('./token-store.js');
 

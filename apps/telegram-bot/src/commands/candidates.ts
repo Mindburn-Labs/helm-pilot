@@ -1,7 +1,7 @@
 import { Bot } from 'grammy';
 import { and, eq } from 'drizzle-orm';
-import { type Db } from '@helm-pilot/db/client';
-import { opportunities } from '@helm-pilot/db/schema';
+import { type Db } from '@pilot/db/client';
+import { opportunities } from '@pilot/db/schema';
 import { type BotContext } from '../types.js';
 
 export function registerCandidates(bot: Bot<BotContext>, db: Db) {

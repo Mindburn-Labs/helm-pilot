@@ -1,10 +1,10 @@
-# AGENTS.md — HELM Pilot
+# AGENTS.md — Pilot
 
 Per-project guide for Codex. Inherits from `../AGENTS.md`. Read both.
 
 ## What this project is
 
-HELM Pilot is an open-source, self-hostable autonomous founder operating system: assesses fit, discovers opportunities, evaluates co-founder candidates, coordinates digital operators, builds and launches. Single-process Node.js 22 server with PostgreSQL 17 + pgvector, backed by HELM's trust boundary.
+Pilot is an open-source, self-hostable autonomous founder operating system: assesses fit, discovers opportunities, evaluates co-founder candidates, coordinates digital operators, builds and launches. Single-process Node.js 22 server with PostgreSQL 17 + pgvector, backed by HELM's trust boundary.
 
 ## What this project is NOT
 
@@ -63,7 +63,7 @@ Mindburn DS v1.0 — Parchment / Graphite. Canonical tokens live in `mindburn/ap
 - `docs-truth-checker` — README and `docs/` drift reconciliation.
 - `wedge-product-owner` — when editing README or landing copy.
 - `titan-hardcase` — for anything that changes the autonomous-action path or widens trust-boundary surface.
-- `cross-impact-analyzer` — when touching `@helm/client` or any shared schema.
+- `cross-impact-analyzer` — when touching `@pilot/helm-client` or any shared schema.
 - `test-coverage-enforcer` — orchestrator and decision-court coverage is load-bearing.
 
 ## Skills to prefer
@@ -88,4 +88,4 @@ Mindburn DS v1.0 — Parchment / Graphite. Canonical tokens live in `mindburn/ap
 
 ## Naming
 
-The on-disk directory is `helm-pilot/` (renamed from `HELM Pilot/` on 2026-04-18). The product is still called "HELM Pilot" in user-facing contexts: Dockerfile `LABEL org.opencontainers.image.title`, Grafana dashboard titles, Prometheus alert summaries, alertmanager Subject lines, and README copy. When editing those strings, preserve the product spelling.
+The target on-disk directory is `pilot/` after the 2026-05-04 rebrand from the previous hyphenated slug. The product is called "Pilot" in user-facing contexts: Dockerfile `LABEL org.opencontainers.image.title`, Grafana dashboard titles, Prometheus alert summaries, alertmanager Subject lines, and README copy. When editing those strings, preserve the product spelling.

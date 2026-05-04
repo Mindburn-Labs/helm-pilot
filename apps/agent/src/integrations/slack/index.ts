@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { SlackConnector, SlackError, type SlackPostResult } from '@helm-pilot/connectors';
+import { SlackConnector, SlackError, type SlackPostResult } from '@pilot/connectors';
 
 export interface SlackWorkspaceAgentRequest {
   workspaceId: string;

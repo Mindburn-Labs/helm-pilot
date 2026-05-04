@@ -57,8 +57,8 @@ describe('telegram capabilities', () => {
       },
     };
 
-    await expect(setDeviceStorageItem(tg, 'helm_pilot_active_tab', 'build')).resolves.toBe(true);
-    await expect(getDeviceStorageItem(tg, 'helm_pilot_active_tab')).resolves.toBe('build');
-    await expect(setSecureStorageItem(tg, 'helm_pilot_session_hint', '{}')).resolves.toBe(true);
+    await expect(setDeviceStorageItem(tg, 'pilot_active_tab', 'build')).resolves.toBe(true);
+    await expect(getDeviceStorageItem(tg, 'pilot_active_tab')).resolves.toBe('build');
+    await expect(setSecureStorageItem(tg, 'pilot_session_hint', '{}')).resolves.toBe(true);
   });
 });

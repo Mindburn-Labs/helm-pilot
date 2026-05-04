@@ -77,7 +77,7 @@ const PILOT_SKILLS: AgentSkill[] = [
 export function buildPilotAgentCard(input: BuildAgentCardInput): AgentCard {
   const authSchemes = input.authSchemes ?? ['bearer'];
   return {
-    name: 'HELM Pilot',
+    name: 'Pilot',
     description:
       'Autonomous founder operating system. Runs behind the HELM trust boundary — every autonomous action emits a signed evidence pack.',
     url: input.url,

@@ -1,39 +1,40 @@
 {
   "schema_version": 1,
-  "repo": "helm-pilot",
-  "display_name": "HELM Pilot",
+  "repo": "pilot",
+  "local_repo_path": "pilot",
+  "display_name": "Pilot",
   "docs_origin": {
     "canonical_host": "pilot.docs.mindburn.org",
-    "source_repo": "Mindburn-Labs/helm-pilot",
+    "source_repo": "Mindburn-Labs/pilot",
     "source_root": "docs/"
   },
   "documents": [
     {
       "slug": "start",
-      "title": "Self-Hosting HELM Pilot",
+      "title": "Self-Hosting Pilot",
       "section": "start",
       "source_path": "docs/self-hosting.md",
       "docs_origin_hint": "pilot.docs.mindburn.org/start"
     },
     {
       "slug": "self-hosting",
-      "title": "Self-Hosting HELM Pilot",
+      "title": "Self-Hosting Pilot",
       "section": "self-hosting",
       "source_path": "docs/self-hosting.md",
       "docs_origin_hint": "pilot.docs.mindburn.org/self-hosting"
     },
     {
       "slug": "architecture",
-      "title": "HELM Pilot Specification",
+      "title": "Pilot Specification",
       "section": "architecture",
       "source_path": "docs/spec/v1.md",
       "docs_origin_hint": "pilot.docs.mindburn.org/architecture"
     },
     {
       "slug": "product",
-      "title": "HELM Pilot Positioning",
+      "title": "Pilot Positioning",
       "section": "product",
-      "source_path": "docs/positioning/helm-pilot-vs-general-purpose-autonomy.md",
+      "source_path": "docs/positioning/pilot-vs-general-purpose-autonomy.md",
       "docs_origin_hint": "pilot.docs.mindburn.org/product"
     },
     {
@@ -59,7 +60,7 @@
     },
     {
       "slug": "changelog",
-      "title": "HELM Pilot Changelog",
+      "title": "Pilot Changelog",
       "section": "changelog",
       "source_path": "CHANGELOG.md",
       "docs_origin_hint": "pilot.docs.mindburn.org/changelog"

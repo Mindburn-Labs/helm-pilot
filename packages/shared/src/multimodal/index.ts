@@ -1,7 +1,7 @@
 // ─── Multimodal public surface (Phase 15 Track K) ───
 //
 // Import example:
-//   import { parsePdfBase64, analyzeImage, MultimodalError } from '@helm-pilot/shared/multimodal';
+//   import { parsePdfBase64, analyzeImage, MultimodalError } from '@pilot/shared/multimodal';
 
 export {
   parsePdf,

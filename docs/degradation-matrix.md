@@ -1,6 +1,6 @@
 # Graceful Degradation Matrix
 
-HELM Pilot is designed so that missing optional services cause specific, bounded feature loss rather than cascading failure. This document lists every optional env var and what happens when it is absent.
+Pilot is designed so that missing optional services cause specific, bounded feature loss rather than cascading failure. This document lists every optional env var and what happens when it is absent.
 
 | Env Var                                                                           | Unset behavior                                                                                                                           | Features affected                                                                                 |
 | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |

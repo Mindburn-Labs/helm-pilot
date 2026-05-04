@@ -50,8 +50,8 @@ const metricsHeaders = process.env.METRICS_AUTH_TOKEN
   : {};
 const metrics = await fetch(`${apiUrl}/metrics`, { headers: metricsHeaders });
 const metricsText = await metrics.text();
-if (!metrics.ok || !metricsText.includes('helm_pilot_http_requests_total')) {
-  fail('/metrics did not expose helm_pilot_http_requests_total');
+if (!metrics.ok || !metricsText.includes('pilot_http_requests_total')) {
+  fail('/metrics did not expose pilot_http_requests_total');
 }
 
 const unauthTasks = await fetch(`${apiUrl}/api/tasks`);

@@ -2,11 +2,11 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { sql } from 'drizzle-orm';
-import { type Db } from '@helm-pilot/db/client';
-import { type Orchestrator } from '@helm-pilot/orchestrator';
-import { type MemoryService } from '@helm-pilot/memory';
-import { type FounderIntelService } from '@helm-pilot/founder-intel';
-import { createLogger } from '@helm-pilot/shared/logger';
+import { type Db } from '@pilot/db/client';
+import { type Orchestrator } from '@pilot/orchestrator';
+import { type MemoryService } from '@pilot/memory';
+import { type FounderIntelService } from '@pilot/founder-intel';
+import { createLogger } from '@pilot/shared/logger';
 import { secureHeaders } from 'hono/secure-headers';
 import { requireAuth } from './middleware/auth.js';
 import { rateLimit } from './middleware/rate-limit.js';
@@ -15,7 +15,7 @@ import { auditMiddleware } from './middleware/audit.js';
 import { metricsMiddleware, metricsEndpoint } from './middleware/metrics.js';
 import { requestId } from './middleware/request-id.js';
 import { bodyLimit } from './middleware/body-limit.js';
-import { captureException } from '@helm-pilot/shared/errors/sentry';
+import { captureException } from '@pilot/shared/errors/sentry';
 import { authenticatedAuthRoutes, authRoutes } from './routes/auth.js';
 import { founderRoutes } from './routes/founder.js';
 import { opportunityRoutes } from './routes/opportunity.js';
@@ -40,9 +40,9 @@ import { secretsRoutes } from './routes/secrets.js';
 import { adminRoutes } from './routes/admin.js';
 import { conductRoutes } from './routes/conduct.js';
 import { managedTelegramWebhookRoutes } from './routes/telegram-managed.js';
-import { type ConnectorRegistry, type OAuthFlowManager } from '@helm-pilot/connectors';
-import { type CofounderEngine } from '@helm-pilot/cofounder-engine';
-import { type HelmClient } from '@helm-pilot/helm-client';
+import { type ConnectorRegistry, type OAuthFlowManager } from '@pilot/connectors';
+import { type CofounderEngine } from '@pilot/cofounder-engine';
+import { type HelmClient } from '@pilot/helm-client';
 import { type EventBus } from './events/bus.js';
 import { type EmailProvider } from './services/email-provider.js';
 import { type ManagedTelegramBotService } from './services/managed-telegram-bots.js';
@@ -185,7 +185,7 @@ export function createGateway(deps: GatewayDeps) {
     return c.json(
       {
         status: healthy ? 'ok' : 'degraded',
-        service: 'helm-pilot',
+        service: 'pilot',
         version: '0.1.0',
         uptime: Math.floor(process.uptime()),
         checks: {
@@ -242,7 +242,7 @@ export function createGateway(deps: GatewayDeps) {
   app.route('/api/orchestrator', conductRoutes(deps));
   app.route('/api/workspace/secrets', secretsRoutes(deps));
   app.route('/api/telegram/managed', managedTelegramWebhookRoutes(deps));
-  // Admin surface — platform-wide, gated by HELM_ADMIN_API_KEY. Mounted
+  // Admin surface — platform-wide, gated by PILOT_ADMIN_API_KEY. Mounted
   // BEFORE the requireAuth workspace gate could hijack its subtree, and the
   // route file guards itself with a Bearer-token middleware.
   app.route('/api/admin', adminRoutes(deps));
@@ -261,7 +261,7 @@ export function createGateway(deps: GatewayDeps) {
   // ─── Root (public) ───
   app.get('/', (c) =>
     c.json({
-      name: 'helm-pilot',
+      name: 'pilot',
       version: '0.1.0',
       description: 'Open-source autonomous founder operating system',
     }),

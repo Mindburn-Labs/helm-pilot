@@ -1,10 +1,10 @@
-import { type Db } from '@helm-pilot/db/client';
-import { type LlmProvider } from '@helm-pilot/shared/llm';
-import { type SubagentDefinition, type SubagentRunResult } from '@helm-pilot/shared/subagents';
-import { type PolicyConfig } from '@helm-pilot/shared/schemas';
-import { type SkillRegistry } from '@helm-pilot/shared/skills';
-import { type McpServerRegistry } from '@helm-pilot/shared/mcp';
-import { type HelmClient } from '@helm-pilot/helm-client';
+import { type Db } from '@pilot/db/client';
+import { type LlmProvider } from '@pilot/shared/llm';
+import { type SubagentDefinition, type SubagentRunResult } from '@pilot/shared/subagents';
+import { type PolicyConfig } from '@pilot/shared/schemas';
+import { type SkillRegistry } from '@pilot/shared/skills';
+import { type McpServerRegistry } from '@pilot/shared/mcp';
+import { type HelmClient } from '@pilot/helm-client';
 import { AgentLoop, type AgentRunResult, type SubagentFrame } from './agent-loop.js';
 import { TrustBoundary } from './trust.js';
 import { type ToolRegistry } from './tools.js';

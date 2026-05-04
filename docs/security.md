@@ -1,6 +1,6 @@
 # Security Hardening Guide
 
-Production-grade security configuration for HELM Pilot.
+Production-grade security configuration for Pilot.
 
 ## Secrets Management
 
@@ -147,7 +147,7 @@ OAuth flows use HMAC-signed state parameters:
 ### Token Storage
 
 - OAuth access and refresh tokens are encrypted at rest using AES-256-GCM
-- Key derivation: `scrypt(ENCRYPTION_KEY, 'helm-pilot-salt', 32)`
+- Key derivation: `scrypt(ENCRYPTION_KEY, 'pilot-salt', 32)`
 - IV is randomly generated per encryption operation
 - Auth tag is stored alongside ciphertext for integrity verification
 
@@ -155,7 +155,7 @@ OAuth flows use HMAC-signed state parameters:
 
 ### HTTPS / TLS
 
-HELM Pilot does not terminate TLS directly. Use a reverse proxy:
+Pilot does not terminate TLS directly. Use a reverse proxy:
 
 **Caddy (recommended — automatic HTTPS):**
 
@@ -202,7 +202,7 @@ The wildcard (`*`) is only allowed in development mode.
 
 ### Security Headers
 
-HELM Pilot applies these headers automatically via Hono's `secureHeaders()`:
+Pilot applies these headers automatically via Hono's `secureHeaders()`:
 
 - `X-Content-Type-Options: nosniff`
 - `X-Frame-Options: SAMEORIGIN`
@@ -257,7 +257,7 @@ If `failClosed` is `true` (default), any policy validation failure blocks all ac
 For production PostgreSQL:
 
 ```
-DATABASE_URL=postgresql://helm:STRONG_PASSWORD@db-host:5432/helm_pilot?sslmode=require
+DATABASE_URL=postgresql://helm:STRONG_PASSWORD@db-host:5432/pilot?sslmode=require
 ```
 
 ### Backup Encryption
@@ -269,8 +269,8 @@ Production backup uploads are encrypted before leaving the Droplet. Set `BACKUP_
 bash scripts/backup.sh create-and-upload
 
 # Verify or restore an encrypted backup
-bash scripts/backup.sh verify backups/helm_pilot_YYYY...sql.gz.gpg
-bash scripts/backup.sh restore backups/helm_pilot_YYYY...sql.gz.gpg
+bash scripts/backup.sh verify backups/pilot_YYYY...sql.gz.gpg
+bash scripts/backup.sh restore backups/pilot_YYYY...sql.gz.gpg
 ```
 
 Remote plaintext upload is blocked unless `BACKUP_ALLOW_PLAINTEXT_UPLOAD=1` is explicitly set for a non-production drill.

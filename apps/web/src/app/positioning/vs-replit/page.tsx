@@ -2,9 +2,9 @@ import Link from 'next/link';
 import type { CSSProperties } from 'react';
 
 export const metadata = {
-  title: 'HELM Pilot vs Replit Agent',
+  title: 'Pilot vs Replit Agent',
   description:
-    'HELM Pilot positioning against Replit Agent for founder-OS, mobile shipping, and governed deployment loops.',
+    'Pilot positioning against Replit Agent for founder-OS, mobile shipping, and governed deployment loops.',
 };
 
 const container: CSSProperties = {
@@ -29,7 +29,7 @@ export default function VsReplitPage() {
       <section style={{ ...container, padding: '44px 0 38px' }}>
         <nav style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 52 }}>
           <Link href="/" style={{ color: '#f4efe4', textDecoration: 'none', fontWeight: 800 }}>
-            HELM Pilot
+            Pilot
           </Link>
           <Link href="/workspace-agents" style={{ color: '#a8cfd6', textDecoration: 'none' }}>
             Workspace Agents
@@ -56,11 +56,11 @@ export default function VsReplitPage() {
             lineHeight: 1,
           }}
         >
-          HELM Pilot is the self-hosted founder OS for governed mobile shipping.
+          Pilot is the self-hosted founder OS for governed mobile shipping.
         </h1>
         <p style={{ maxWidth: 760, margin: 0, color: '#c9c6ba', fontSize: 19, lineHeight: 1.55 }}>
           Replit Agent compresses the browser-to-mobile build loop with Agent, Expo Go, TestFlight,
-          and App Store publishing. HELM Pilot competes by keeping the founder state durable, the
+          and App Store publishing. Pilot competes by keeping the founder state durable, the
           deployment self-hosted, and each external action gated through HELM.
         </p>
       </section>
@@ -76,7 +76,7 @@ export default function VsReplitPage() {
         >
           <HeaderCell label="Loop" />
           <HeaderCell label="Replit Agent" />
-          <HeaderCell label="HELM Pilot" />
+          <HeaderCell label="Pilot" />
           <CompareCell text="Mobile app creation" />
           <CompareCell text="Prompt to Expo/React Native project in Replit." />
           <CompareCell text="Telegram or Slack request to governed Expo/EAS plan." strong />

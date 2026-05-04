@@ -1,8 +1,8 @@
 import { type Context, type Next } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { eq, and, gt } from 'drizzle-orm';
-import { sessions, apiKeys, workspaceMembers } from '@helm-pilot/db/schema';
-import { type Db } from '@helm-pilot/db/client';
+import { sessions, apiKeys, workspaceMembers } from '@pilot/db/schema';
+import { type Db } from '@pilot/db/client';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 const ROTATION_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours

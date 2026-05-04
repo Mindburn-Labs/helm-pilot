@@ -9,7 +9,7 @@ import { z } from 'zod';
 // Precedence (highest → lowest):
 //   1. Subagent's explicit `skills:` frontmatter list
 //   2. `<cwd>/packs/skills/` (repo-bundled)
-//   3. `~/.helm-pilot/skills/` (user overrides)
+//   3. `~/.pilot/skills/` (user overrides)
 //   4. Auto-match by description-keyword overlap with subagent's task
 //
 // File format: `packs/skills/<name>/SKILL.md` — YAML frontmatter

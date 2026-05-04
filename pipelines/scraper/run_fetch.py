@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-HELM Pilot internal Scrapling fetch bridge.
+Pilot internal Scrapling fetch bridge.
 
 This is used by the orchestrator as a direct tool-level bridge into Scrapling
 for one-off operator research and extraction.
@@ -26,7 +26,7 @@ from common import save_text_capture  # noqa: E402
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="HELM Pilot Scrapling fetch bridge")
+    parser = argparse.ArgumentParser(description="Pilot Scrapling fetch bridge")
     parser.add_argument("--url", required=True, help="URL to fetch")
     parser.add_argument("--strategy", default="auto", choices=["auto", "fetcher", "dynamic", "stealthy"])
     parser.add_argument("--selector", help="Optional CSS selector to extract")

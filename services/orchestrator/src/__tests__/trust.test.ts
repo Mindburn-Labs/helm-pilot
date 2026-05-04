@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { TrustBoundary, type ActionRequest } from '../trust.js';
-import { type PolicyConfig } from '@helm-pilot/shared/schemas';
+import { type PolicyConfig } from '@pilot/shared/schemas';
 
 function makePolicy(overrides: Partial<PolicyConfig> = {}): PolicyConfig {
   return {

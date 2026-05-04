@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-HELM Pilot — founder-authorized YC private automation and cofounder matching sync.
+Pilot — founder-authorized YC private automation and cofounder matching sync.
 """
 
 from __future__ import annotations
@@ -184,7 +184,7 @@ def upsert_candidate(cur, workspace_id: str, source_id: str, profile: dict) -> N
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="HELM Pilot YC private automation")
+    parser = argparse.ArgumentParser(description="Pilot YC private automation")
     parser.add_argument("--grant-id", required=True, help="Connector grant id for the stored YC session")
     parser.add_argument("--action", choices=["validate", "sync"], default="sync")
     parser.add_argument("--limit", type=int, default=25)

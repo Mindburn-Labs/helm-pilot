@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, desc, eq } from 'drizzle-orm';
-import { tasks, taskRuns } from '@helm-pilot/db/schema';
-import { CreateTaskInput, TaskStatusSchema } from '@helm-pilot/shared/schemas';
+import { tasks, taskRuns } from '@pilot/db/schema';
+import { CreateTaskInput, TaskStatusSchema } from '@pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId, workspaceIdMismatch } from '../lib/workspace.js';
 

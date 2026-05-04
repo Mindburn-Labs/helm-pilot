@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ═══════════════════════════════════════════════════════════════
-# HELM Pilot — Backup & Restore Script
+# Pilot — Backup & Restore Script
 #
 # Automated PostgreSQL backup management with local and S3 support.
 #
@@ -33,7 +33,7 @@ BACKUP_DIR="${BACKUP_DIR:-$ROOT_DIR/backups}"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 COMPOSE_FILE="${COMPOSE_FILE:-infra/digitalocean/docker-compose.yml}"
 COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-.env.production.shared}"
-COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-helm-pilot}"
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-pilot}"
 CREATED_BACKUP_PATH=""
 TEMP_DECRYPTED_FILES=()
 cleanup_temp_decrypted() {
@@ -67,7 +67,7 @@ checksum_value() {
 
 get_db_params() {
   # Parse DATABASE_URL into components
-  local url="${DATABASE_URL:-postgresql://helm:helm@localhost:5432/helm_pilot}"
+  local url="${DATABASE_URL:-postgresql://helm:helm@localhost:5432/pilot}"
   # Extract: protocol://user:pass@host:port/dbname
   DB_USER=$(echo "$url" | sed -E 's|.*://([^:]+):.*|\1|')
   DB_PASS=$(echo "$url" | sed -E 's|.*://[^:]+:([^@]+)@.*|\1|')
@@ -106,7 +106,7 @@ decrypt_backup() {
   [ -n "${BACKUP_ENCRYPTION_PASSPHRASE:-}" ] || fail "BACKUP_ENCRYPTION_PASSPHRASE is required to decrypt $filepath"
   command -v gpg >/dev/null 2>&1 || fail "gpg is required to decrypt $filepath"
   local output
-  output="$(mktemp "${TMPDIR:-/tmp}/helm-pilot-backup.XXXXXX")"
+  output="$(mktemp "${TMPDIR:-/tmp}/pilot-backup.XXXXXX")"
   TEMP_DECRYPTED_FILES+=("$output")
   info "Decrypting backup"
   printf '%s' "$BACKUP_ENCRYPTION_PASSPHRASE" | gpg --batch --yes \
@@ -131,7 +131,7 @@ cmd_create() {
   done
 
   mkdir -p "$output_dir"
-  local filename="helm_pilot_${TIMESTAMP}.sql.gz"
+  local filename="pilot_${TIMESTAMP}.sql.gz"
   local filepath="$output_dir/$filename"
 
   echo -e "\n${BOLD}Creating backup...${NC}"
@@ -215,7 +215,7 @@ cmd_restore() {
   info "Creating safety backup before restore..."
   local safety_dir="$BACKUP_DIR/pre-restore"
   mkdir -p "$safety_dir"
-  local safety_file="$safety_dir/helm_pilot_pre_restore_${TIMESTAMP}.sql.gz"
+  local safety_file="$safety_dir/pilot_pre_restore_${TIMESTAMP}.sql.gz"
 
   if docker_compose ps postgres 2>/dev/null | grep -q "running"; then
     docker_compose exec -T postgres \
@@ -313,7 +313,7 @@ cmd_list() {
   printf "  %-45s %10s %s\n" "FILENAME" "SIZE" "DATE"
   printf "  %-45s %10s %s\n" "────────" "────" "────"
 
-  find "$BACKUP_DIR" \( -name "helm_pilot_*.sql.gz" -o -name "helm_pilot_*.sql.gz.gpg" \) -maxdepth 2 | sort -r | while read -r f; do
+  find "$BACKUP_DIR" \( -name "pilot_*.sql.gz" -o -name "pilot_*.sql.gz.gpg" \) -maxdepth 2 | sort -r | while read -r f; do
     local fname size mdate
     fname=$(basename "$f")
     size=$(du -h "$f" | cut -f1)
@@ -382,7 +382,7 @@ main() {
     upload)  cmd_upload "${1:?'Usage: backup.sh upload <file>'}" ;;
     help|--help|-h)
       echo ""
-      echo -e "${BOLD}HELM Pilot Backup Manager${NC}"
+      echo -e "${BOLD}Pilot Backup Manager${NC}"
       echo ""
       echo "Usage: bash scripts/backup.sh <command> [options]"
       echo ""

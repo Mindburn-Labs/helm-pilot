@@ -1,7 +1,7 @@
 /**
- * @helm-pilot/legacy-audit
+ * @pilot/legacy-audit
  *
- * Adapters and wrappers for existing HELM Pilot modules during migration.
+ * Adapters and wrappers for existing Pilot modules during migration.
  * Provides bridge interfaces so legacy Python code (money-engine, gig-radar)
  * can interoperate with the new TypeScript services through shared Postgres.
  *

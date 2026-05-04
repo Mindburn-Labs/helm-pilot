@@ -1,18 +1,18 @@
 import PgBoss from 'pg-boss';
 import { and, eq, lt } from 'drizzle-orm';
-import { type Db } from '@helm-pilot/db/client';
-import { opportunityScores, opportunities, tasks, taskRuns, workspaces, workspaceDeletions, founderProfiles, founderStrengths } from '@helm-pilot/db/schema';
+import { type Db } from '@pilot/db/client';
+import { opportunityScores, opportunities, tasks, taskRuns, workspaces, workspaceDeletions, founderProfiles, founderStrengths } from '@pilot/db/schema';
 import { isNull } from 'drizzle-orm';
-import { scoreOpportunity } from '@helm-pilot/shared/scoring';
-import { type MemoryService } from '@helm-pilot/memory';
-import { type LlmProvider } from '@helm-pilot/shared/llm';
+import { scoreOpportunity } from '@pilot/shared/scoring';
+import { type MemoryService } from '@pilot/memory';
+import { type LlmProvider } from '@pilot/shared/llm';
 import {
   type OAuthFlowManager,
   type RefreshNotifier,
   registerRefreshJobs,
-} from '@helm-pilot/connectors';
+} from '@pilot/connectors';
 import { type ActionRecord } from './agent-loop.js';
-import { createLogger } from '@helm-pilot/shared/logger';
+import { createLogger } from '@pilot/shared/logger';
 import { type Orchestrator } from './index.js';
 
 const log = createLogger('jobs');
@@ -41,7 +41,7 @@ export interface JobDeps {
  */
 export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<void> {
   // ─── Opportunity Scoring (Phase 3a) ───
-  // Uses the versioned scoring engine in @helm-pilot/shared/scoring with
+  // Uses the versioned scoring engine in @pilot/shared/scoring with
   // the founder's profile + strengths plumbed through for founder-fit.
   // Falls through to heuristic scoring when the LLM is absent or the
   // response is unparseable, so Discover never serves null scores.
@@ -171,7 +171,7 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
 
       try {
         // Load prior action history from task_runs
-        const { taskRuns } = await import('@helm-pilot/db/schema');
+        const { taskRuns } = await import('@pilot/db/schema');
         const runs = await deps.db
           .select()
           .from(taskRuns)

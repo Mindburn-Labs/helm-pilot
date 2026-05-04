@@ -82,4 +82,4 @@ receivers:
         require_tls: true
         send_resolved: true
         headers:
-          Subject: '[HELM Pilot CRITICAL] {{ .GroupLabels.alertname }}'
+          Subject: '[Pilot CRITICAL] {{ .GroupLabels.alertname }}'

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { and, eq, desc } from 'drizzle-orm';
-import { auditLog, approvals, policyViolations, tasks } from '@helm-pilot/db/schema';
+import { auditLog, approvals, policyViolations, tasks } from '@pilot/db/schema';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId } from '../lib/workspace.js';
 

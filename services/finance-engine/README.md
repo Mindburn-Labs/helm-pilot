@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Active service surface for the helm-pilot project.
+Active service surface for the pilot project.
 
 ## Canonical Interface
 
 - Source path: `services/finance-engine`
-- Package: `@helm-pilot/finance-engine`.
+- Package: `@pilot/finance-engine`.
 - Coverage record: `docs/documentation-coverage.csv`
 
 ## Local Commands

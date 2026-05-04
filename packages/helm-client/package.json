@@ -1,5 +1,5 @@
 {
-  "name": "@helm-pilot/helm-client",
+  "name": "@pilot/helm-client",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -30,7 +30,7 @@
     "test:coverage": "vitest run --coverage --passWithNoTests"
   },
   "dependencies": {
-    "@helm-pilot/shared": "*"
+    "@pilot/shared": "*"
   },
   "devDependencies": {
     "typescript": "^5.8.0",

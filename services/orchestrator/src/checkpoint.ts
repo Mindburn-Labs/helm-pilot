@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
-import { type Db } from '@helm-pilot/db/client';
-import { taskRuns } from '@helm-pilot/db/schema';
+import { type Db } from '@pilot/db/client';
+import { taskRuns } from '@pilot/db/schema';
 import type { ActionRecord } from './agent-loop.js';
 
 // ─── AgentLoop checkpointing (Phase 16 Track N) ───

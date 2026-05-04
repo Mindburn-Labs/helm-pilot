@@ -1,7 +1,7 @@
 import { Bot, session } from 'grammy';
 import { eq } from 'drizzle-orm';
-import { createDb, type Db } from '@helm-pilot/db/client';
-import { workspaces, tasks, operators } from '@helm-pilot/db/schema';
+import { createDb, type Db } from '@pilot/db/client';
+import { workspaces, tasks, operators } from '@pilot/db/schema';
 import { type BotContext, type BotDeps, type SessionData } from './types.js';
 
 import { registerOnboarding } from './commands/onboarding.js';
@@ -121,7 +121,7 @@ export function createBot(token: string, db: Db, deps?: Partial<BotDeps>) {
     const ops = await db.select().from(operators).where(eq(operators.workspaceId, wsId));
 
     await ctx.reply(
-      `*HELM Pilot Status*\n\n` +
+      `*Pilot Status*\n\n` +
         `Mode: ${ws?.currentMode?.toUpperCase() ?? 'UNKNOWN'}\n` +
         `Operators: ${ops.length}\n` +
         `Active tasks: ${taskList.filter((t) => t.status === 'running').length}\n`,
@@ -193,7 +193,7 @@ export function createBot(token: string, db: Db, deps?: Partial<BotDeps>) {
 
   bot.command('help', async (ctx) => {
     await ctx.reply(
-      '*HELM Pilot Commands*\n\n' +
+      '*Pilot Commands*\n\n' +
         '*Getting Started*\n' +
         '/start — Initialize workspace\n' +
         '/profile — Set up founder profile\n' +
@@ -241,7 +241,7 @@ export type { BotDeps } from './types.js';
 
 // ─── Standalone entry point ───
 if (process.argv[1]?.endsWith('index.ts') || process.argv[1]?.endsWith('index.js')) {
-  const { createLogger } = await import('@helm-pilot/shared/logger');
+  const { createLogger } = await import('@pilot/shared/logger');
   const log = createLogger('telegram-bot');
 
   const token = process.env['TELEGRAM_BOT_TOKEN'];
@@ -260,7 +260,7 @@ if (process.argv[1]?.endsWith('index.ts') || process.argv[1]?.endsWith('index.js
   const bot = createBot(token, db);
 
   bot.start();
-  log.info('HELM Pilot Telegram bot started (standalone)');
+  log.info('Pilot Telegram bot started (standalone)');
 
   const shutdown = async (signal: string) => {
     log.info({ signal }, 'Shutting down bot...');

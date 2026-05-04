@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Active package surface for the helm-pilot project.
+Active package surface for the pilot project.
 
 ## Canonical Interface
 
 - Source path: `packages/helm-client`
-- Package: `@helm-pilot/helm-client`.
+- Package: `@pilot/helm-client`.
 - Coverage record: `docs/documentation-coverage.csv`
 
 ## Local Commands

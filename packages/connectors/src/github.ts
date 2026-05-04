@@ -56,7 +56,7 @@ export class GitHubConnector {
         'Authorization': `Bearer ${this.token}`,
         'Accept': 'application/vnd.github.v3+json',
         'Content-Type': 'application/json',
-        'User-Agent': 'helm-pilot/0.1.0',
+        'User-Agent': 'pilot/0.1.0',
       },
       body: body ? JSON.stringify(body) : undefined,
     });

@@ -1,7 +1,7 @@
 import { Bot } from 'grammy';
 import { eq } from 'drizzle-orm';
-import { type Db } from '@helm-pilot/db/client';
-import { users, workspaces, workspaceMembers, founderProfiles } from '@helm-pilot/db/schema';
+import { type Db } from '@pilot/db/client';
+import { users, workspaces, workspaceMembers, founderProfiles } from '@pilot/db/schema';
 import { type BotContext, type BotDeps } from '../types.js';
 
 export function registerOnboarding(bot: Bot<BotContext>, db: Db, deps?: Partial<BotDeps>) {
@@ -61,7 +61,7 @@ export function registerOnboarding(bot: Bot<BotContext>, db: Db, deps?: Partial<
       ctx.session.workspaceId = ws.id;
 
       await ctx.reply(
-        `Welcome to HELM Pilot, ${user.name}!\n\n` +
+        `Welcome to Pilot, ${user.name}!\n\n` +
           "I've created your workspace. Let's start by understanding your background.\n\n" +
           'Use /profile to set up your founder profile, or /help for all commands.',
       );

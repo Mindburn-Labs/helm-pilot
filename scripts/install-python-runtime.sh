@@ -17,7 +17,7 @@ fi
 "$BOOTSTRAP_PYTHON" - <<'PY'
 import sys
 if sys.version_info < (3, 10):
-    raise SystemExit("Python 3.10+ is required for HELM Pilot pipelines")
+    raise SystemExit("Python 3.10+ is required for Pilot pipelines")
 PY
 
 if [ ! -d "$VENV_DIR" ]; then

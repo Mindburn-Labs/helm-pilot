@@ -347,7 +347,7 @@ describe('HelmClient.evaluateOperatorComputerUse', () => {
     const body = JSON.parse(init.body as string);
     expect(body.tool).toBe('OPERATOR_COMPUTER_USE');
     expect(body.effect_level).toBe('E3');
-    expect(body.context.source).toBe('@helm-pilot/helm-client.evaluateOperatorComputerUse');
+    expect(body.context.source).toBe('@pilot/helm-client.evaluateOperatorComputerUse');
   });
 });
 

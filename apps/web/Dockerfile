@@ -13,7 +13,7 @@ COPY apps/web/ apps/web/
 RUN npm ci --include=optional --ignore-scripts
 
 # Build the web app
-RUN npx turbo build --filter=@helm-pilot/web
+RUN npx turbo build --filter=@pilot/web
 
 # ─── Stage 2: Production ───
 FROM node:22.22.2-slim AS runner

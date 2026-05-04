@@ -1,4 +1,4 @@
-# HELM Pilot API Reference
+# Pilot API Reference
 
 Base URL: `http://localhost:3100` (or your deployed gateway URL)
 

@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { eq, and, inArray, not } from 'drizzle-orm';
-import { users, workspaces, workspaceMembers } from '@helm-pilot/db/schema';
+import { users, workspaces, workspaceMembers } from '@pilot/db/schema';
 import { type GatewayDeps } from '../index.js';
-import { createLogger } from '@helm-pilot/shared/logger';
+import { createLogger } from '@pilot/shared/logger';
 
 const log = createLogger('users');
 

@@ -11,7 +11,7 @@ import { test, expect, type APIRequestContext } from '@playwright/test';
 // Each test gets a unique email so they don't collide
 function uniqueEmail(): string {
   const rand = Math.random().toString(36).slice(2, 10);
-  return `e2e-${rand}@helm-pilot.test`;
+  return `e2e-${rand}@pilot.test`;
 }
 
 let ipCounter = 1;
@@ -107,7 +107,7 @@ test.describe('Magic Link Authentication', () => {
 
   test('auth endpoints are rate limited', async ({ request }) => {
     // /api/auth/* has max 5 req/min
-    const email = 'rate-limit-test@helm-pilot.test';
+    const email = 'rate-limit-test@pilot.test';
     const results: number[] = [];
     const headers = { 'x-forwarded-for': '198.51.100.250' };
     for (let i = 0; i < 8; i++) {

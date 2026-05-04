@@ -1,5 +1,5 @@
 import { type Context, type MiddlewareHandler, type Next } from 'hono';
-import { createLogger } from '@helm-pilot/shared/logger';
+import { createLogger } from '@pilot/shared/logger';
 
 const log = createLogger('rate-limit');
 

@@ -1,7 +1,7 @@
 import type PgBoss from 'pg-boss';
 import { and, eq, lt, sql } from 'drizzle-orm';
-import type { Db } from '@helm-pilot/db/client';
-import { createLogger } from '@helm-pilot/shared/logger';
+import type { Db } from '@pilot/db/client';
+import { createLogger } from '@pilot/shared/logger';
 import type { OAuthFlowManager } from './oauth.js';
 
 const log = createLogger('connectors.refresh');
@@ -105,7 +105,7 @@ async function selectEligibleGrants(deps: RefreshDeps): Promise<
   const threshold = new Date(now + PROACTIVE_WINDOW_MS);
 
   const { connectorGrants, connectorTokens } = await import(
-    '@helm-pilot/db/schema'
+    '@pilot/db/schema'
   );
 
   // Join grants → tokens; filter on both sides.
@@ -134,7 +134,7 @@ async function refreshOneGrant(
   connectorId: string,
   deps: RefreshDeps,
 ): Promise<void> {
-  const { connectorGrants, connectors } = await import('@helm-pilot/db/schema');
+  const { connectorGrants, connectors } = await import('@pilot/db/schema');
 
   // Serialize concurrent refreshes of the same grant via pg advisory lock.
   // `pg_try_advisory_xact_lock` returns false if another session holds it —
@@ -223,7 +223,7 @@ export async function listReauthRequired(
 ): Promise<
   Array<{ grantId: string; connectorName: string; lastError: string | null }>
 > {
-  const { connectorGrants, connectors } = await import('@helm-pilot/db/schema');
+  const { connectorGrants, connectors } = await import('@pilot/db/schema');
   const rows = await db
     .select({
       grantId: connectorGrants.id,

@@ -41,7 +41,7 @@ export class VoxCpmClient {
    * Synthesize speech. Returns WAV bytes at the requested sample rate.
    *
    * Consumers must route through packages/helm-client before calling this,
-   * per helm-pilot invariant "MUST route every autonomous action through
+   * per pilot invariant "MUST route every autonomous action through
    * packages/helm-client; no out-of-band tool calls."
    */
   async synthesize(request: SynthesizeRequest): Promise<Uint8Array> {

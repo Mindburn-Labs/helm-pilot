@@ -1,5 +1,5 @@
 {
-  "name": "@helm-pilot/product-factory",
+  "name": "@pilot/product-factory",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -15,8 +15,8 @@
     "test:coverage": "vitest run --coverage --passWithNoTests"
   },
   "dependencies": {
-    "@helm-pilot/db": "*",
-    "@helm-pilot/shared": "*",
+    "@pilot/db": "*",
+    "@pilot/shared": "*",
     "drizzle-orm": "^0.45.2",
     "pino": "^9.6.0"
   },

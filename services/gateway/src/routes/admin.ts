@@ -6,7 +6,7 @@ import {
   workspaceDeletions,
   workspaceSettings,
   users,
-} from '@helm-pilot/db/schema';
+} from '@pilot/db/schema';
 import { type GatewayDeps } from '../index.js';
 
 /**
@@ -15,7 +15,7 @@ import { type GatewayDeps } from '../index.js';
  * All endpoints here are explicitly PLATFORM-SCOPED — they operate across
  * tenants and so are exempt from the workspace-scoping lint (see
  * scripts/lint-tenancy.ts). Access control:
- *   - HELM_ADMIN_API_KEY is required as `Authorization: Bearer <key>`.
+ *   - PILOT_ADMIN_API_KEY is required as `Authorization: Bearer <key>`.
  *   - If unset, every admin route returns 503. Production must configure it.
  *
  * The queries here deliberately span workspaces; this is the only route
@@ -24,13 +24,13 @@ import { type GatewayDeps } from '../index.js';
 export function adminRoutes(deps: GatewayDeps) {
   const app = new Hono();
 
-  const adminKey = process.env['HELM_ADMIN_API_KEY'];
+  const adminKey = process.env['PILOT_ADMIN_API_KEY'];
 
   // Gate every admin route. We want a hard 503 when the key isn't set —
   // this is a "you haven't configured it" signal rather than a 401 which
   // would hide the feature.
   app.use('*', async (c, next) => {
-    if (!adminKey) return c.json({ error: 'admin surface disabled — set HELM_ADMIN_API_KEY' }, 503);
+    if (!adminKey) return c.json({ error: 'admin surface disabled — set PILOT_ADMIN_API_KEY' }, 503);
     const auth = c.req.header('Authorization');
     if (auth !== `Bearer ${adminKey}`) return c.json({ error: 'forbidden' }, 403);
     await next();

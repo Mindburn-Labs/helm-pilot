@@ -1,9 +1,9 @@
 services:
   postgres:
-    container_name: helm-pilot-postgres
+    container_name: pilot-postgres
     image: ${POSTGRES_IMAGE}
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-helm_pilot}
+      POSTGRES_DB: ${POSTGRES_DB:-pilot}
       HELM_POSTGRES_DB: ${HELM_POSTGRES_DB:-helm_governance}
       POSTGRES_USER: ${POSTGRES_USER:-helm}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-helm}
@@ -22,7 +22,7 @@ services:
     restart: unless-stopped
 
   helm:
-    container_name: helm-pilot-helm
+    container_name: pilot-helm
     image: ${HELM_IMAGE:-ghcr.io/mindburn-labs/helm-oss:latest}
     expose:
       - '8080'
@@ -62,8 +62,8 @@ services:
         max-size: '20m'
         max-file: '3'
 
-  helm-pilot:
-    container_name: helm-pilot
+  pilot:
+    container_name: pilot
     image: ${PILOT_IMAGE}
     expose:
       - '3100'
@@ -73,14 +73,14 @@ services:
       - path: ../../.env.production.pilot
         required: false
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-helm}:${POSTGRES_PASSWORD:-helm}@postgres:5432/${POSTGRES_DB:-helm_pilot}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-helm}:${POSTGRES_PASSWORD:-helm}@postgres:5432/${POSTGRES_DB:-pilot}
       APP_URL: ${APP_URL:-https://${DOMAIN:-localhost}}
       NODE_ENV: production
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://${DOMAIN:-localhost}}
       HELM_GOVERNANCE_URL: http://helm:8080
       HELM_HEALTH_URL: http://helm:8081
       HELM_FAIL_CLOSED: '1'
-      HELM_EVALUATE_ENABLED: '1'
+      PILOT_HELM_EVALUATE_ENABLED: '1'
       METRICS_AUTH_TOKEN: ${METRICS_AUTH_TOKEN:?set METRICS_AUTH_TOKEN in .env.production.pilot}
       RUN_MIGRATIONS_ON_STARTUP: ${RUN_MIGRATIONS_ON_STARTUP:-false}
     volumes:
@@ -115,7 +115,7 @@ services:
         max-file: '5'
 
   web:
-    container_name: helm-pilot-web
+    container_name: pilot-web
     image: ${WEB_IMAGE}
     expose:
       - '3000'
@@ -125,7 +125,7 @@ services:
       - path: ../../.env.production.shared
         required: false
     depends_on:
-      helm-pilot:
+      pilot:
         condition: service_healthy
     restart: unless-stopped
     read_only: true
@@ -142,30 +142,30 @@ services:
         max-file: '3'
 
   caddy:
-    container_name: helm-pilot-caddy
+    container_name: pilot-caddy
     image: ${CADDY_IMAGE}
     ports:
       - '80:80'
       - '443:443'
     environment:
       DOMAIN: ${DOMAIN:-localhost}
-      TLS_EMAIL: ${TLS_EMAIL:-admin@helm-pilot.dev}
+      TLS_EMAIL: ${TLS_EMAIL:-admin@pilot.dev}
     volumes:
       - ../docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      helm-pilot:
+      pilot:
         condition: service_healthy
       web:
         condition: service_started
     restart: unless-stopped
 
   backup-cron:
-    container_name: helm-pilot-backup-cron
+    container_name: pilot-backup-cron
     image: ${OFELIA_IMAGE}
     depends_on:
-      helm-pilot:
+      pilot:
         condition: service_healthy
     env_file:
       - path: ../../.env.production.shared
@@ -177,7 +177,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     labels:
       ofelia.job-exec.backup.schedule: ${BACKUP_CRON_SCHEDULE:-0 3 * * *}
-      ofelia.job-exec.backup.container: helm-pilot
+      ofelia.job-exec.backup.container: pilot
       ofelia.job-exec.backup.command: bash /app/scripts/backup.sh create-and-upload
     profiles:
       - backup

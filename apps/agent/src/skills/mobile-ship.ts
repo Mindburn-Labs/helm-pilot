@@ -37,7 +37,7 @@ const TARGET_LABELS: Record<MobileShipTarget, string> = {
 
 export function planMobileShipRun(input: MobileShipInput): MobileShipPlan {
   validateMobileShipInput(input);
-  const releaseNotes = input.releaseNotes?.trim() || `HELM Pilot mobile build for ${input.appName}`;
+  const releaseNotes = input.releaseNotes?.trim() || `Pilot mobile build for ${input.appName}`;
   const needsAppleIdentity = input.target === 'testflight' || input.target === 'app_store';
   const appleResource = input.appleBundleId ?? `${input.appName}.bundle-id.pending`;
   const easCommands = [
@@ -102,7 +102,7 @@ export function planMobileShipRun(input: MobileShipInput): MobileShipPlan {
 
 export function renderMobileShipTelegramSummary(
   input: MobileShipInput,
-  releaseNotes = input.releaseNotes?.trim() || `HELM Pilot mobile build for ${input.appName}`,
+  releaseNotes = input.releaseNotes?.trim() || `Pilot mobile build for ${input.appName}`,
 ): string {
   return [
     `Mobile ship request: ${input.appName}`,

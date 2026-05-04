@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Active service surface for the helm-pilot project.
+Active service surface for the pilot project.
 
 ## Canonical Interface
 
 - Source path: `services/seo-engine`
-- Package: `@helm-pilot/seo-engine`.
+- Package: `@pilot/seo-engine`.
 - Coverage record: `docs/documentation-coverage.csv`
 
 ## Local Commands

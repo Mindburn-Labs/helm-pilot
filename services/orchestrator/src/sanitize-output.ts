@@ -1,4 +1,4 @@
-import { sanitizeScrapingOutput } from '@helm-pilot/shared/sanitizers';
+import { sanitizeScrapingOutput } from '@pilot/shared/sanitizers';
 
 // ─── Tool-output sanitizer (v1.2.1 remediation) ───
 //

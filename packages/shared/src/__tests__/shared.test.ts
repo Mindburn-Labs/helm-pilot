@@ -1365,14 +1365,14 @@ describe('loadConfig()', () => {
   });
 
   const setRequiredEnv = () => {
-    process.env['DATABASE_URL'] = 'postgres://localhost:5432/helm_pilot';
+    process.env['DATABASE_URL'] = 'postgres://localhost:5432/pilot';
     process.env['SESSION_SECRET'] = 'test-secret-at-least-16-chars';
   };
 
   it('loads valid config from env vars', () => {
     setRequiredEnv();
     const config = loadConfig();
-    expect(config.databaseUrl).toBe('postgres://localhost:5432/helm_pilot');
+    expect(config.databaseUrl).toBe('postgres://localhost:5432/pilot');
     expect(config.sessionSecret).toBe('test-secret-at-least-16-chars');
     expect(config.port).toBe(3100);
     expect(config.storage.type).toBe('local');
@@ -1633,7 +1633,7 @@ describe('createLlmProvider()', () => {
       await provider.complete('hi');
       const headers = fetchSpy.mock.calls[0]?.[1]?.headers as Record<string, string>;
       expect(headers['Authorization']).toBe('Bearer my-key');
-      expect(headers['X-Title']).toBe('HELM Pilot');
+      expect(headers['X-Title']).toBe('Pilot');
       fetchSpy.mockRestore();
     });
   });

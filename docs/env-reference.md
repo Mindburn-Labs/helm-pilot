@@ -1,15 +1,15 @@
 # Environment Variables Reference
 
-Complete reference for all HELM Pilot configuration variables.
+Complete reference for all Pilot configuration variables.
 
 ## Required Variables
 
-| Variable         | Description                                                                         | Example                                            |
-| ---------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `DATABASE_URL`   | PostgreSQL connection string with pgvector                                          | `postgresql://helm:helm@localhost:5432/helm_pilot` |
-| `SESSION_SECRET` | 64-char hex secret for session token signing. Generate: `openssl rand -hex 32`      | `a1b2c3...`                                        |
-| `ENCRYPTION_KEY` | 64-char hex secret for connector token encryption. Generate: `openssl rand -hex 32` | `a1b2c3...`                                        |
-| `APP_URL`        | Public gateway base URL used for OAuth, email login links, and callbacks            | `https://pilot.example.com`                        |
+| Variable         | Description                                                                         | Example                                       |
+| ---------------- | ----------------------------------------------------------------------------------- | --------------------------------------------- |
+| `DATABASE_URL`   | PostgreSQL connection string with pgvector                                          | `postgresql://helm:helm@localhost:5432/pilot` |
+| `SESSION_SECRET` | 64-char hex secret for session token signing. Generate: `openssl rand -hex 32`      | `a1b2c3...`                                   |
+| `ENCRYPTION_KEY` | 64-char hex secret for connector token encryption. Generate: `openssl rand -hex 32` | `a1b2c3...`                                   |
+| `APP_URL`        | Public gateway base URL used for OAuth, email login links, and callbacks            | `https://pilot.example.com`                   |
 
 ## Telegram
 
@@ -33,14 +33,14 @@ Production deployments should route Pilot through the HELM sidecar. In that shap
 | `HELM_GOVERNANCE_URL` | Prod       | HELM sidecar governed API URL, e.g. `http://helm:8080` on the Docker network.             |
 | `HELM_HEALTH_URL`     | Prod       | HELM sidecar health URL, e.g. `http://helm:8081`.                                         |
 | `HELM_FAIL_CLOSED`    | Prod       | Must be `1` in production. Unreachable HELM blocks governed LLM calls.                    |
-| `HELM_LLM_MODEL`      | No         | Model name passed through the HELM proxy.                                                 |
+| `PILOT_LLM_MODEL`     | No         | Model name passed through the HELM proxy.                                                 |
 | `OPENROUTER_API_KEY`  | Direct dev | OpenRouter key when Pilot runs without HELM.                                              |
 | `ANTHROPIC_API_KEY`   | Direct dev | Direct Anthropic key when Pilot runs without HELM.                                        |
 | `OPENAI_API_KEY`      | Direct dev | Direct OpenAI key when Pilot runs without HELM. Also used for embeddings when configured. |
 | `OLLAMA_BASE_URL`     | Direct dev | Local/self-hosted Ollama endpoint used only when no cloud key is set.                     |
 | `OLLAMA_MODEL`        | If Ollama  | Ollama model id, e.g. `llama3.1:8b`.                                                      |
 
-For DigitalOcean production, set upstream provider keys on the `helm` sidecar service; do not set direct provider keys on `helm-pilot`.
+For DigitalOcean production, set upstream provider keys on the `helm` sidecar service; do not set direct provider keys on `pilot`.
 
 ## Connectors (OAuth)
 
@@ -112,16 +112,16 @@ YC session state is stored separately from OAuth tokens. It powers authenticated
 
 Required in production to send magic-link login codes. In development, the `noop` provider logs the code and returns it in the HTTP response.
 
-| Variable         | Required    | Default                                  | Description                                                   |
-| ---------------- | ----------- | ---------------------------------------- | ------------------------------------------------------------- |
-| `EMAIL_PROVIDER` | No          | `noop`                                   | `resend` \| `smtp` \| `noop`. Use `noop` only in development. |
-| `EMAIL_FROM`     | No          | `HELM Pilot <onboarding@helm-pilot.dev>` | Sender address                                                |
-| `RESEND_API_KEY` | If `resend` | —                                        | API key from [resend.com](https://resend.com)                 |
-| `SMTP_HOST`      | If `smtp`   | —                                        | SMTP server hostname                                          |
-| `SMTP_PORT`      | If `smtp`   | `587`                                    | SMTP port (587 STARTTLS, 465 TLS)                             |
-| `SMTP_USER`      | No          | —                                        | SMTP auth username                                            |
-| `SMTP_PASS`      | No          | —                                        | SMTP auth password                                            |
-| `SMTP_SECURE`    | No          | auto                                     | `true` for port 465, else STARTTLS                            |
+| Variable         | Required    | Default                        | Description                                                   |
+| ---------------- | ----------- | ------------------------------ | ------------------------------------------------------------- |
+| `EMAIL_PROVIDER` | No          | `noop`                         | `resend` \| `smtp` \| `noop`. Use `noop` only in development. |
+| `EMAIL_FROM`     | No          | `Pilot <onboarding@pilot.dev>` | Sender address                                                |
+| `RESEND_API_KEY` | If `resend` | —                              | API key from [resend.com](https://resend.com)                 |
+| `SMTP_HOST`      | If `smtp`   | —                              | SMTP server hostname                                          |
+| `SMTP_PORT`      | If `smtp`   | `587`                          | SMTP port (587 STARTTLS, 465 TLS)                             |
+| `SMTP_USER`      | No          | —                              | SMTP auth username                                            |
+| `SMTP_PASS`      | No          | —                              | SMTP auth password                                            |
+| `SMTP_SECURE`    | No          | auto                           | `true` for port 465, else STARTTLS                            |
 
 > ⚠️ **Production requirement:** `EMAIL_PROVIDER` must be `resend` or `smtp`. The `noop` provider is dev-only; users cannot log in.
 
@@ -139,7 +139,7 @@ For storing artifacts, launch assets, and raw ingestion captures. Falls back to 
 | `S3_SECRET_KEY`    | Prod     | —                | S3 secret key                                         |
 | `S3_REGION`        | Prod     | `fra1`           | S3 signing region                                     |
 
-When using local storage, HELM Pilot also persists:
+When using local storage, Pilot also persists:
 
 - Scrapling adaptive selector databases under `STORAGE_PATH/adaptive`
 - raw crawl captures under `STORAGE_PATH/raw`
@@ -160,17 +160,17 @@ When using local storage, HELM Pilot also persists:
 
 ## DigitalOcean (Production)
 
-| Variable            | Required | Default                                      | Description                                           |
-| ------------------- | -------- | -------------------------------------------- | ----------------------------------------------------- |
-| `DOMAIN`            | Prod     | `localhost`                                  | Public hostname served by Caddy on the Droplet        |
-| `TLS_EMAIL`         | Prod     | `admin@helm-pilot.dev`                       | ACME registration email for Caddy certificates        |
-| `POSTGRES_PASSWORD` | Prod     | `helm`                                       | PostgreSQL password used by the Droplet compose stack |
-| `POSTGRES_IMAGE`    | Prod     | `pgvector/pgvector:0.8.0-pg17`               | Pinned pgvector PostgreSQL image                      |
-| `CADDY_IMAGE`       | Prod     | `caddy:2.10.2-alpine`                        | Pinned Caddy TLS proxy image                          |
-| `OFELIA_IMAGE`      | Prod     | `mcuadros/ofelia:0.3.22`                     | Pinned backup scheduler image                         |
-| `HELM_IMAGE`        | Prod     | `ghcr.io/mindburn-labs/helm-oss:0.4.0`       | Published HELM sidecar image pulled by the Droplet    |
-| `PILOT_IMAGE`       | Prod     | `ghcr.io/mindburn-labs/helm-pilot:<tag>`     | Published Pilot gateway image pulled by the Droplet   |
-| `WEB_IMAGE`         | Prod     | `ghcr.io/mindburn-labs/helm-pilot-web:<tag>` | Published Next.js web image pulled by the Droplet     |
+| Variable            | Required | Default                                 | Description                                           |
+| ------------------- | -------- | --------------------------------------- | ----------------------------------------------------- |
+| `DOMAIN`            | Prod     | `localhost`                             | Public hostname served by Caddy on the Droplet        |
+| `TLS_EMAIL`         | Prod     | `admin@pilot.dev`                       | ACME registration email for Caddy certificates        |
+| `POSTGRES_PASSWORD` | Prod     | `helm`                                  | PostgreSQL password used by the Droplet compose stack |
+| `POSTGRES_IMAGE`    | Prod     | `pgvector/pgvector:0.8.0-pg17`          | Pinned pgvector PostgreSQL image                      |
+| `CADDY_IMAGE`       | Prod     | `caddy:2.10.2-alpine`                   | Pinned Caddy TLS proxy image                          |
+| `OFELIA_IMAGE`      | Prod     | `mcuadros/ofelia:0.3.22`                | Pinned backup scheduler image                         |
+| `HELM_IMAGE`        | Prod     | `ghcr.io/mindburn-labs/helm-oss:0.4.0`  | Published HELM sidecar image pulled by the Droplet    |
+| `PILOT_IMAGE`       | Prod     | `ghcr.io/mindburn-labs/pilot:<tag>`     | Published Pilot gateway image pulled by the Droplet   |
+| `WEB_IMAGE`         | Prod     | `ghcr.io/mindburn-labs/pilot-web:<tag>` | Published Next.js web image pulled by the Droplet     |
 
 Deployment-time `doctl` variables such as `DO_REGION`, `DO_SIZE`, `DO_SSH_KEYS`, and `DO_DROPLET_IP` are consumed by `infra/digitalocean/deploy.sh`; they are not runtime app variables.
 

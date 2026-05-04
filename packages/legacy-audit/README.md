@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Wrappers and adapters around existing HELM Pilot modules during migration (Section 27)
+Wrappers and adapters around existing Pilot modules during migration (Section 27)
 
 ## Canonical Interface
 
 - Source path: `packages/legacy-audit`
-- Package: `@helm-pilot/legacy-audit`.
+- Package: `@pilot/legacy-audit`.
 - Coverage record: `docs/documentation-coverage.csv`
 
 ## Local Commands

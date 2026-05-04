@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
-import { type Db } from '@helm-pilot/db/client';
-import { type MemoryService } from '@helm-pilot/memory';
+import { type Db } from '@pilot/db/client';
+import { type MemoryService } from '@pilot/memory';
 import { findMcpTool, mcpToolDescriptors } from './tools.js';
 
 // ─── Pilot-as-MCP-provider Hono app (Phase 14 Track A) ───
@@ -129,7 +129,7 @@ export function createMcpApp(cfg: McpAppConfig) {
             result: {
               protocolVersion: '2025-11-25',
               capabilities: { tools: { listChanged: false } },
-              serverInfo: { name: 'helm-pilot-mcp', version: '0.1.0' },
+              serverInfo: { name: 'pilot-mcp', version: '0.1.0' },
             },
           });
 

@@ -253,7 +253,7 @@ export class HelmClient {
         workspaceId: req.workspaceId,
         taskId: req.taskId,
         operatorId: req.operatorId,
-        source: '@helm-pilot/helm-client.evaluateOperatorComputerUse',
+        source: '@pilot/helm-client.evaluateOperatorComputerUse',
       },
     });
     return {

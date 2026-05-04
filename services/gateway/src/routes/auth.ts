@@ -2,14 +2,7 @@ import { Hono } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { eq } from 'drizzle-orm';
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
-import {
-  users,
-  sessions,
-  apiKeys,
-  workspaces,
-  workspaceMembers,
-  auditLog,
-} from '@helm-pilot/db/schema';
+import { users, sessions, apiKeys, workspaces, workspaceMembers, auditLog } from '@pilot/db/schema';
 import {
   clearSessionCookies,
   generateApiKey,
@@ -164,7 +157,7 @@ export function authRoutes(deps: GatewayDeps) {
         reason: 'magic_code_issued',
       });
     } catch (err) {
-      const log = (await import('@helm-pilot/shared/logger')).createLogger('auth');
+      const log = (await import('@pilot/shared/logger')).createLogger('auth');
       log.error({ err, email }, 'Failed to send magic link email');
       await recordAuthAudit(deps, {
         action: 'auth.email.request',
@@ -405,7 +398,7 @@ function createMagicCodeSessionToken(email: string, code: string): string {
 function hashMagicCode(email: string, code: string, salt: string): string {
   const secret = process.env['SESSION_SECRET'] ?? 'dev-session-secret';
   return createHmac('sha256', secret)
-    .update('helm-pilot:email-code:v2')
+    .update('pilot:email-code:v2')
     .update('\0')
     .update(email)
     .update('\0')

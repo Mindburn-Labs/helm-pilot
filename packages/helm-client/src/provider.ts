@@ -1,4 +1,4 @@
-import type { LlmGovernance, LlmProvider, LlmResult } from '@helm-pilot/shared/llm';
+import type { LlmGovernance, LlmProvider, LlmResult } from '@pilot/shared/llm';
 import { HelmClient } from './client.js';
 import { HelmDeniedError, HelmEscalationError } from './errors.js';
 import type { HelmReceipt } from './types.js';
@@ -88,6 +88,6 @@ function toGovernance(r: HelmReceipt): LlmGovernance {
 
 /**
  * Re-export for callers who want to distinguish HELM-origin errors without
- * importing from @helm-pilot/helm-client/errors.
+ * importing from @pilot/helm-client/errors.
  */
 export { HelmDeniedError, HelmEscalationError };

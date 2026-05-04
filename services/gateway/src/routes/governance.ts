@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, desc, eq, lt } from 'drizzle-orm';
-import { evidencePacks, helmHealthSnapshots } from '@helm-pilot/db/schema';
-import { HelmClient } from '@helm-pilot/helm-client';
+import { evidencePacks, helmHealthSnapshots } from '@pilot/db/schema';
+import { HelmClient } from '@pilot/helm-client';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId } from '../lib/workspace.js';
 

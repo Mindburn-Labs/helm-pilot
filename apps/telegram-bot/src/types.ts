@@ -1,6 +1,6 @@
 import { type Context, type SessionFlavor } from 'grammy';
-import { type FounderIntelService } from '@helm-pilot/founder-intel';
-import { type Db } from '@helm-pilot/db/client';
+import { type FounderIntelService } from '@pilot/founder-intel';
+import { type Db } from '@pilot/db/client';
 
 export interface SessionData {
   workspaceId?: string;

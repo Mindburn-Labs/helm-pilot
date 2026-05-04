@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Active service surface for the helm-pilot project.
+Active service surface for the pilot project.
 
 ## Canonical Interface
 
 - Source path: `services/orchestrator`
-- Package: `@helm-pilot/orchestrator`.
+- Package: `@pilot/orchestrator`.
 - Coverage record: `docs/documentation-coverage.csv`
 
 ## Local Commands

@@ -1,18 +1,18 @@
-# HELM Pilot vs General-Purpose Autonomy
+# Pilot vs General-Purpose Autonomy
 
 Status: approved positioning artifact.
 
 Linear: MIN-241, MIN-258, MIN-284
 
-HELM Pilot is founder-ops first. Coding agents and broad enterprise agent platforms are useful references, but they are not the same category.
+Pilot is founder-ops first. Coding agents and broad enterprise agent platforms are useful references, but they are not the same category.
 
 ## Position
 
-HELM Pilot is a self-hostable founder operating system for discovery, decision, build, launch, and application workflows. It runs behind HELM, keeps every autonomous action inside the trust boundary, and produces approval and receipt trails for work that affects money, public surface, accounts, or external systems.
+Pilot is a self-hostable founder operating system for discovery, decision, build, launch, and application workflows. It runs behind HELM, keeps every autonomous action inside the trust boundary, and produces approval and receipt trails for work that affects money, public surface, accounts, or external systems.
 
 ## Contrast
 
-| Surface | HELM Pilot | General-purpose coding or CX agents |
+| Surface | Pilot | General-purpose coding or CX agents |
 | --- | --- | --- |
 | Primary user | Founder/operator | Engineer, marketer, or enterprise platform owner |
 | Workflow | YC intel, product factory, launch, cofounder, content, finance, applications, SEO | Code tasks or broad customer-experience orchestration |
@@ -23,7 +23,7 @@ HELM Pilot is a self-hostable founder operating system for discovery, decision, 
 ## Messaging
 
 - Use "founder operating system" when the workflow spans market discovery, build, and launch.
-- Use "operator" for role-specific workers inside HELM Pilot.
+- Use "operator" for role-specific workers inside Pilot.
 - Avoid adopting "coworker" as a product primitive until a persistent-agent abstraction exists above jobs, tasks, and operators.
 - When comparing to Devin, anchor on founder workflows and HELM-governed evidence, not coding throughput.
 

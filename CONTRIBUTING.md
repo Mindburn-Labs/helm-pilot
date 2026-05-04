@@ -1,6 +1,6 @@
-# Contributing to HELM Pilot
+# Contributing to Pilot
 
-Thank you for considering a contribution to HELM Pilot. This guide covers the
+Thank you for considering a contribution to Pilot. This guide covers the
 essentials for getting started, submitting changes, and passing CI.
 
 ## Prerequisites
@@ -12,8 +12,8 @@ essentials for getting started, submitting changes, and passing CI.
 ## Quick Start
 
 ```bash
-git clone https://github.com/Mindburn-Labs/helm-pilot.git
-cd helm-pilot
+git clone https://github.com/Mindburn-Labs/pilot.git
+cd pilot
 cp .env.example .env          # fill in required values
 docker compose up postgres -d # starts pgvector:pg17
 npm ci

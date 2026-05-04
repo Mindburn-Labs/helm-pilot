@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
-import { operators, operatorRoles, operatorConfigs } from '@helm-pilot/db/schema';
-import { CreateOperatorInput, UpdateOperatorInput } from '@helm-pilot/shared/schemas';
+import { operators, operatorRoles, operatorConfigs } from '@pilot/db/schema';
+import { CreateOperatorInput, UpdateOperatorInput } from '@pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId, workspaceIdMismatch } from '../lib/workspace.js';
 

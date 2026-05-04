@@ -20,7 +20,7 @@ COPY apps/telegram-miniapp/ apps/telegram-miniapp/
 RUN npm ci --include=optional --ignore-scripts
 
 # Build everything (turbo handles topological ordering)
-RUN npx turbo build --concurrency=1 --filter=@helm-pilot/gateway --filter=@helm-pilot/telegram-bot --filter=@helm-pilot/telegram-miniapp
+RUN npx turbo build --concurrency=1 --filter=@pilot/gateway --filter=@pilot/telegram-bot --filter=@pilot/telegram-miniapp
 
 # ─── Stage 2: Python Runtime ───
 FROM python:3.11-slim-bookworm AS python-runtime
@@ -49,10 +49,10 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 FROM python:3.11-slim-bookworm AS runner
 WORKDIR /app
 
-LABEL org.opencontainers.image.title="HELM Pilot"
+LABEL org.opencontainers.image.title="Pilot"
 LABEL org.opencontainers.image.description="Open-source, self-hostable autonomous founder operating system"
 LABEL org.opencontainers.image.version="0.1.0"
-LABEL org.opencontainers.image.source="https://github.com/Mindburn-Labs/helm-pilot"
+LABEL org.opencontainers.image.source="https://github.com/Mindburn-Labs/pilot"
 LABEL org.opencontainers.image.license="MIT"
 
 ENV NODE_ENV=production

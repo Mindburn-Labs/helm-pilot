@@ -1,7 +1,7 @@
 import { Bot } from 'grammy';
 import { eq, and } from 'drizzle-orm';
-import { type Db } from '@helm-pilot/db/client';
-import { operators, tasks } from '@helm-pilot/db/schema';
+import { type Db } from '@pilot/db/client';
+import { operators, tasks } from '@pilot/db/schema';
 import {
   type BotContext,
   type BotDeps,

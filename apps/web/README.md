@@ -2,14 +2,14 @@
 
 ## Purpose
 
-Active app surface for the helm-pilot project.
+Active app surface for the pilot project.
 
 The Discover page consumes founder profile, opportunity, co-founder, connector, and YC ingestion APIs. The web API helper returns `null` for non-2xx JSON responses, so empty states such as a missing founder profile must be handled as normal UI state instead of thrown errors.
 
 ## Canonical Interface
 
 - Source path: `apps/web`
-- Package: `@helm-pilot/web`.
+- Package: `@pilot/web`.
 - Coverage record: `docs/documentation-coverage.csv`
 - Current API contract: cookie-authenticated requests include CSRF headers for mutating calls, and list/detail responses are normalized before rendering.
 

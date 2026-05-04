@@ -1,22 +1,22 @@
 # Monitoring
 
-Grafana dashboards + Prometheus alert rules for HELM Pilot.
+Grafana dashboards + Prometheus alert rules for Pilot.
 
 ## Sources
 
-HELM Pilot exposes Prometheus metrics on `GET /metrics` (served by the gateway on the same port as the HTTP API, default `3100`). In production, configure `METRICS_AUTH_TOKEN` and scrape the gateway on the private Docker network with a bearer token. Caddy deliberately returns `404` for public `/metrics`.
+Pilot exposes Prometheus metrics on `GET /metrics` (served by the gateway on the same port as the HTTP API, default `3100`). In production, configure `METRICS_AUTH_TOKEN` and scrape the gateway on the private Docker network with a bearer token. Caddy deliberately returns `404` for public `/metrics`.
 
-Metrics prefix: `helm_pilot_*`
+Metrics prefix: `pilot_*`
 
 Key metrics:
 
-- `helm_pilot_http_requests_total{method, route, status_code}`
-- `helm_pilot_http_request_duration_seconds{method, route, status_code}` (histogram)
-- `helm_pilot_http_errors_total{method, route, status_code}`
-- `helm_pilot_active_connections`
-- `helm_pilot_job_queue_depth{queue}`
-- `helm_pilot_active_sessions`
-- `helm_pilot_llm_tokens_total{direction, model}`
+- `pilot_http_requests_total{method, route, status_code}`
+- `pilot_http_request_duration_seconds{method, route, status_code}` (histogram)
+- `pilot_http_errors_total{method, route, status_code}`
+- `pilot_active_connections`
+- `pilot_job_queue_depth{queue}`
+- `pilot_active_sessions`
+- `pilot_llm_tokens_total{direction, model}`
 - Plus default Node.js metrics (event loop lag, memory, CPU)
 
 ## Dashboards
@@ -40,7 +40,7 @@ Three Grafana dashboards are provided in `grafana/dashboards/`:
 ```yaml
 # prometheus.yml
 rule_files:
-  - /etc/prometheus/alerts/helm-pilot-alerts.yml
+  - /etc/prometheus/alerts/pilot-alerts.yml
 ```
 
 Wire Prometheus Alertmanager to your preferred channel (Slack, PagerDuty, Email).
@@ -68,10 +68,10 @@ Where `prometheus.yml` includes:
 
 ```yaml
 scrape_configs:
-  - job_name: 'helm-pilot'
+  - job_name: 'pilot'
     static_configs:
-      - targets: ['helm-pilot:3100']
+      - targets: ['pilot:3100']
     authorization:
       type: Bearer
-      credentials_file: /etc/prometheus/secrets/helm-pilot-metrics-token
+      credentials_file: /etc/prometheus/secrets/pilot-metrics-token
 ```

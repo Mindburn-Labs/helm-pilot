@@ -1,5 +1,5 @@
 {
-  "name": "@helm-pilot/e2e",
+  "name": "@pilot/e2e",
   "version": "0.1.0",
   "private": true,
   "type": "module",

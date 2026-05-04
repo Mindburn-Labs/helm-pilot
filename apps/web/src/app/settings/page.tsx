@@ -95,7 +95,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type !== 'helm-pilot-oauth-success') return;
+      if (event.data?.type !== 'pilot-oauth-success') return;
       setSuccess(`Connected ${event.data.connectorId}`);
       void loadConnectors();
     };
@@ -462,7 +462,7 @@ export default function SettingsPage() {
       <section style={{ marginTop: '3rem', borderTop: '1px solid #333', paddingTop: '2rem' }}>
         <h2 style={sectionTitle}>Connectors</h2>
         <p style={{ color: '#888', fontSize: '0.9rem' }}>
-          Authorize real tools for HELM Pilot. OAuth connectors open a popup. Internal connectors can be enabled directly.
+          Authorize real tools for Pilot. OAuth connectors open a popup. Internal connectors can be enabled directly.
         </p>
 
         <div style={{ display: 'grid', gap: '0.85rem', marginTop: '1rem' }}>
@@ -587,7 +587,7 @@ export default function SettingsPage() {
               )}
               {connector.authType === 'session' && (
                 <div style={{ ...warningStyle, background: 'rgba(15, 23, 42, 0.35)', borderColor: '#334155', color: '#cbd5e1' }}>
-                  Paste a founder-authorized Playwright storage-state JSON export. HELM Pilot stores it encrypted at rest and uses it only for approval-gated YC automation.
+                  Paste a founder-authorized Playwright storage-state JSON export. Pilot stores it encrypted at rest and uses it only for approval-gated YC automation.
                 </div>
               )}
             </div>

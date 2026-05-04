@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-HELM Pilot — YC public company ingestion via Scrapling.
+Pilot — YC public company ingestion via Scrapling.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from common import (  # noqa: E402
 )
 
 PARSER_VERSION = "0.3.0-scrapling"
-USER_AGENT = "HELM-Pilot/0.3.0 (YC Public Intelligence)"
+USER_AGENT = "Pilot/0.3.0 (YC Public Intelligence)"
 YC_DIRECTORY_URL = "https://www.ycombinator.com/companies"
 YC_ALGOLIA_URL = "https://45bwzj1sgc-dsn.algolia.net/1/indexes/YCCompany_production/query"
 
@@ -156,7 +156,7 @@ def fetch_yc_companies(batch: str | None = None, limit: int | None = None) -> tu
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="HELM Pilot YC public company scraper")
+    parser = argparse.ArgumentParser(description="Pilot YC public company scraper")
     parser.add_argument("--batch", help="Specific YC batch, e.g. W24")
     parser.add_argument("--limit", type=int, help="Max companies to fetch")
     parser.add_argument("--dry-run", action="store_true", help="Print without DB writes")
@@ -164,7 +164,7 @@ def main() -> None:
     parser.add_argument("--workspace-id", help="Optional workspace id for provenance")
     args = parser.parse_args()
 
-    print(f"HELM Pilot YC public scrape v{PARSER_VERSION}")
+    print(f"Pilot YC public scrape v{PARSER_VERSION}")
     print(f"  batch: {args.batch or 'all'}")
     print(f"  limit: {args.limit or 'none'}")
     print(f"  replay: {args.replay or 'no'}")

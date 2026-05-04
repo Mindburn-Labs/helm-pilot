@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono';
 import { eq } from 'drizzle-orm';
-import { workspaces, workspaceSettings, workspaceMembers, sessions } from '@helm-pilot/db/schema';
+import { workspaces, workspaceSettings, workspaceMembers, sessions } from '@pilot/db/schema';
 import { generateToken } from '../middleware/auth.js';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId } from '../lib/workspace.js';

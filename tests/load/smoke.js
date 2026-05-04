@@ -2,7 +2,7 @@ import http from 'k6/http';
 import { check, sleep } from 'k6';
 
 /**
- * Smoke test — verifies that HELM Pilot's public endpoints respond
+ * Smoke test — verifies that Pilot's public endpoints respond
  * correctly under modest, steady load.
  *
  * Target: 5 VUs for 1 minute, ~300 requests across /health, /, /metrics.

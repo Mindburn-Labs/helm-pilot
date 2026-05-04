@@ -1,4 +1,4 @@
--- pgvector 0.8.2 is the minimum safe runtime for HELM Pilot.
+-- pgvector 0.8.2 is the minimum safe runtime for Pilot.
 -- It fixes CVE-2026-3172 in parallel HNSW index builds.
 --
 -- The app can still run keyword-only when pgvector is unavailable, but if the
@@ -44,6 +44,6 @@ BEGIN
     RAISE EXCEPTION 'pgvector extension version % is below required 0.8.2 (CVE-2026-3172)', vector_version;
   END IF;
 
-  RAISE NOTICE 'pgvector extension version % satisfies HELM Pilot minimum 0.8.2', vector_version;
+  RAISE NOTICE 'pgvector extension version % satisfies Pilot minimum 0.8.2', vector_version;
 END
 $$;

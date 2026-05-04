@@ -1,11 +1,11 @@
 // ─── MCP consumer public surface (Phase 14 Track A) ───
 //
-// Barrel re-export for `@helm-pilot/shared/mcp`. Consumers that need
+// Barrel re-export for `@pilot/shared/mcp`. Consumers that need
 // to drive an upstream MCP 2025-11-25 server (stdio or HTTP) import
 // `McpClient` + the protocol types from here.
 //
 // Example:
-//   import { McpClient, type McpServerConfig } from '@helm-pilot/shared/mcp';
+//   import { McpClient, type McpServerConfig } from '@pilot/shared/mcp';
 
 export {
   type McpServerConfig,

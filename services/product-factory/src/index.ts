@@ -1,6 +1,6 @@
 import { and, eq, desc } from 'drizzle-orm';
-import { type Db } from '@helm-pilot/db/client';
-import { plans, milestones, tasks } from '@helm-pilot/db/schema';
+import { type Db } from '@pilot/db/client';
+import { plans, milestones, tasks } from '@pilot/db/schema';
 
 export class ProductFactory {
   constructor(private readonly db: Db) {}

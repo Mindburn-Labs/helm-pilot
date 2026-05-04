@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Active service surface for the helm-pilot project.
+Active service surface for the pilot project.
 
 ## Canonical Interface
 
 - Source path: `services/mcp-server`
-- Package: `@helm-pilot/mcp-server`.
+- Package: `@pilot/mcp-server`.
 - Coverage record: `docs/documentation-coverage.csv`
 
 ## Local Commands

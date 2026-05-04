@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Active app surface for the helm-pilot project.
+Active app surface for the pilot project.
 
 ## Canonical Interface
 
 - Source path: `apps/telegram-miniapp`
-- Package: `@helm-pilot/telegram-miniapp`.
+- Package: `@pilot/telegram-miniapp`.
 - Coverage record: `docs/documentation-coverage.csv`
 
 ## Local Commands

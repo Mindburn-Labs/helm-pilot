@@ -1,14 +1,10 @@
 import { Hono } from 'hono';
 import { type Context } from 'hono';
-import { DigitalOceanProvider, LaunchEngine, type DeployProvider } from '@helm-pilot/launch-engine';
-import {
-  HelmDeniedError,
-  HelmEscalationError,
-  HelmUnreachableError,
-} from '@helm-pilot/helm-client';
+import { DigitalOceanProvider, LaunchEngine, type DeployProvider } from '@pilot/launch-engine';
+import { HelmDeniedError, HelmEscalationError, HelmUnreachableError } from '@pilot/helm-client';
 import { eq } from 'drizzle-orm';
-import { users } from '@helm-pilot/db/schema';
-import { ManagedTelegramReplyInput } from '@helm-pilot/shared/schemas';
+import { users } from '@pilot/db/schema';
+import { ManagedTelegramReplyInput } from '@pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId, workspaceIdMismatch } from '../lib/workspace.js';
 import { ManagedTelegramBotError } from '../services/managed-telegram-bots.js';

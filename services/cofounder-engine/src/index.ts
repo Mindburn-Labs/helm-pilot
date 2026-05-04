@@ -1,5 +1,5 @@
 import { desc, eq } from 'drizzle-orm';
-import { type Db } from '@helm-pilot/db/client';
+import { type Db } from '@pilot/db/client';
 import {
   operators,
   operatorRoles,
@@ -12,8 +12,8 @@ import {
   cofounderCandidateNotes,
   cofounderOutreachDrafts,
   cofounderFollowUps,
-} from '@helm-pilot/db/schema';
-import { type LlmProvider } from '@helm-pilot/shared/llm';
+} from '@pilot/db/schema';
+import { type LlmProvider } from '@pilot/shared/llm';
 
 /**
  * CofounderEngine — creates and manages digital co-founder operators.
@@ -664,7 +664,7 @@ function buildCandidateScoringPrompt(
     preferredRoles?: unknown;
   },
 ) {
-  return `You are scoring a real human co-founder candidate for HELM Pilot.
+  return `You are scoring a real human co-founder candidate for Pilot.
 
 Founder:
 ${JSON.stringify({

@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
-import { type Db } from '@helm-pilot/db/client';
-import { founderProfiles, founderAssessments, founderStrengths } from '@helm-pilot/db/schema';
+import { type Db } from '@pilot/db/client';
+import { founderProfiles, founderAssessments, founderStrengths } from '@pilot/db/schema';
 
 export interface FounderIntakeResult {
   profileId: string;

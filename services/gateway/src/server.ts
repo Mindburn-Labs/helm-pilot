@@ -1,31 +1,31 @@
 import { serve } from '@hono/node-server';
 import PgBoss from 'pg-boss';
-import { createDb, runMigrations } from '@helm-pilot/db/client';
+import { createDb, runMigrations } from '@pilot/db/client';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Orchestrator } from '@helm-pilot/orchestrator';
-import { MemoryService } from '@helm-pilot/memory';
-import { FounderIntelService } from '@helm-pilot/founder-intel';
-import { ConnectorRegistry, OAuthFlowManager } from '@helm-pilot/connectors';
-import { CofounderEngine } from '@helm-pilot/cofounder-engine';
-import { type PolicyConfig } from '@helm-pilot/shared/schemas';
-import { createLlmProvider, type LlmProvider } from '@helm-pilot/shared/llm';
-import { createTenantLlmResolver } from '@helm-pilot/shared/llm/tenant-resolver';
-import { createEmbeddingProvider } from '@helm-pilot/shared/embeddings';
-import { createLogger } from '@helm-pilot/shared/logger';
-import { TenantSecretStore } from '@helm-pilot/db/tenant-secret-store';
-import { HelmClient, HelmLlmProvider } from '@helm-pilot/helm-client';
-import type { RefreshNotifier } from '@helm-pilot/connectors';
-import { SubagentRegistry } from '@helm-pilot/shared/subagents';
-import { McpServerRegistry } from '@helm-pilot/shared/mcp';
+import { Orchestrator } from '@pilot/orchestrator';
+import { MemoryService } from '@pilot/memory';
+import { FounderIntelService } from '@pilot/founder-intel';
+import { ConnectorRegistry, OAuthFlowManager } from '@pilot/connectors';
+import { CofounderEngine } from '@pilot/cofounder-engine';
+import { type PolicyConfig } from '@pilot/shared/schemas';
+import { createLlmProvider, type LlmProvider } from '@pilot/shared/llm';
+import { createTenantLlmResolver } from '@pilot/shared/llm/tenant-resolver';
+import { createEmbeddingProvider } from '@pilot/shared/embeddings';
+import { createLogger } from '@pilot/shared/logger';
+import { TenantSecretStore } from '@pilot/db/tenant-secret-store';
+import { HelmClient, HelmLlmProvider } from '@pilot/helm-client';
+import type { RefreshNotifier } from '@pilot/connectors';
+import { SubagentRegistry } from '@pilot/shared/subagents';
+import { McpServerRegistry } from '@pilot/shared/mcp';
 import { createGateway } from './index.js';
 import { configureRateLimit } from './middleware/rate-limit.js';
 import { EventBus } from './events/bus.js';
 import { createEmailProvider } from './services/email-provider.js';
 import { ManagedTelegramBotService } from './services/managed-telegram-bots.js';
-import { initSentry, flushSentry } from '@helm-pilot/shared/errors/sentry';
+import { initSentry, flushSentry } from '@pilot/shared/errors/sentry';
 
-const log = createLogger('helm-pilot');
+const log = createLogger('pilot');
 
 const PLACEHOLDER_SECRET_VALUES = new Set([
   'change-me-in-production',
@@ -174,7 +174,7 @@ async function main() {
       llm = new HelmLlmProvider({
         helm: helmClient,
         defaultPrincipal: 'workspace:pilot/operator:system',
-        model: process.env['HELM_LLM_MODEL'] ?? 'anthropic/claude-sonnet-4',
+        model: process.env['PILOT_LLM_MODEL'] ?? 'anthropic/claude-sonnet-4',
       });
       log.info('LLM provider: HELM-governed (proxied through sidecar)');
     } else {
@@ -214,7 +214,7 @@ async function main() {
   const llmResolver = createTenantLlmResolver({
     getSecret: (workspaceId, kind) => tenantSecretStore.get(workspaceId, kind as never),
     platformFallback: llm,
-    model: process.env['HELM_LLM_MODEL'] ?? 'anthropic/claude-sonnet-4',
+    model: process.env['PILOT_LLM_MODEL'] ?? 'anthropic/claude-sonnet-4',
     allowDirectTenantProviders: process.env['NODE_ENV'] !== 'production',
   });
 
@@ -236,9 +236,8 @@ async function main() {
   // initialized AFTER the Orchestrator, but the refresh worker registered
   // inside the Orchestrator needs a notifier now. Use an adapter that
   // delegates to whichever NotificationService is later assigned.
-  let notificationsRef:
-    | import('@helm-pilot/telegram-bot/notifications').NotificationService
-    | null = null;
+  let notificationsRef: import('@pilot/telegram-bot/notifications').NotificationService | null =
+    null;
   const refreshNotifier: RefreshNotifier = {
     async reauthRequired(workspaceId, connectorName) {
       if (!notificationsRef) {
@@ -325,8 +324,8 @@ async function main() {
   // ─── Telegram bot (webhook mode) ───
   if (botToken) {
     const { webhookCallback } = await import('grammy');
-    const { createBot } = await import('@helm-pilot/telegram-bot');
-    const { NotificationService } = await import('@helm-pilot/telegram-bot/notifications');
+    const { createBot } = await import('@pilot/telegram-bot');
+    const { NotificationService } = await import('@pilot/telegram-bot/notifications');
     const bot = createBot(botToken, db, {
       founderIntel,
       runTask: (params) => orchestrator.runTask(params),
@@ -334,7 +333,7 @@ async function main() {
       createLaunchBotProvisioning: (params) => managedTelegram.createProvisioningRequest(params),
       claimLaunchBot: (params) => managedTelegram.claimManagedBot(params),
       resolveApproval: async ({ approvalId, workspaceId, status, resolvedBy }) => {
-        const { approvals, tasks } = await import('@helm-pilot/db/schema');
+        const { approvals, tasks } = await import('@pilot/db/schema');
         const { and, eq } = await import('drizzle-orm');
         const [updated] = await db
           .update(approvals)
@@ -397,7 +396,7 @@ async function main() {
   // ─── Start server ───
   const port = Number(process.env['PORT'] ?? '3100');
   const server = serve({ fetch: app.fetch, port }, (info) => {
-    log.info({ port: info.port }, 'HELM Pilot running');
+    log.info({ port: info.port }, 'Pilot running');
   });
 
   // ─── Graceful shutdown ───
@@ -432,6 +431,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  log.fatal({ err }, 'Failed to start HELM Pilot');
+  log.fatal({ err }, 'Failed to start Pilot');
   process.exit(1);
 });

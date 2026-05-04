@@ -33,8 +33,8 @@ jobs:
       packages: write
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: mindburn-labs/helm-pilot
-      WEB_IMAGE_NAME: mindburn-labs/helm-pilot-web
+      IMAGE_NAME: mindburn-labs/pilot
+      WEB_IMAGE_NAME: mindburn-labs/pilot-web
     steps:
       - uses: actions/checkout@v4
 
@@ -115,15 +115,15 @@ jobs:
           printf '%s\n' "${{ secrets.DO_ENV_HELM }}" > .env.production.helm
           printf '%s\n' "${{ secrets.DO_ENV_PILOT }}" > .env.production.pilot
           {
-            echo "PILOT_IMAGE=ghcr.io/mindburn-labs/helm-pilot:${GITHUB_REF_NAME}"
-            echo "WEB_IMAGE=ghcr.io/mindburn-labs/helm-pilot-web:${GITHUB_REF_NAME}"
+            echo "PILOT_IMAGE=ghcr.io/mindburn-labs/pilot:${GITHUB_REF_NAME}"
+            echo "WEB_IMAGE=ghcr.io/mindburn-labs/pilot-web:${GITHUB_REF_NAME}"
           } >> .env.production.shared
 
       - name: Deploy to DigitalOcean staging
         env:
           DO_DROPLET_IP: ${{ vars.DO_DROPLET_IP }}
           DO_REMOTE_USER: ${{ vars.DO_REMOTE_USER || 'root' }}
-          DO_REMOTE_DIR: ${{ vars.DO_REMOTE_DIR || '/opt/helm-pilot/current' }}
+          DO_REMOTE_DIR: ${{ vars.DO_REMOTE_DIR || '/opt/pilot/current' }}
         run: bash infra/digitalocean/deploy.sh deploy
 
       - name: Production-like smoke
@@ -157,15 +157,15 @@ jobs:
           printf '%s\n' "${{ secrets.DO_ENV_HELM }}" > .env.production.helm
           printf '%s\n' "${{ secrets.DO_ENV_PILOT }}" > .env.production.pilot
           {
-            echo "PILOT_IMAGE=ghcr.io/mindburn-labs/helm-pilot:${GITHUB_REF_NAME}"
-            echo "WEB_IMAGE=ghcr.io/mindburn-labs/helm-pilot-web:${GITHUB_REF_NAME}"
+            echo "PILOT_IMAGE=ghcr.io/mindburn-labs/pilot:${GITHUB_REF_NAME}"
+            echo "WEB_IMAGE=ghcr.io/mindburn-labs/pilot-web:${GITHUB_REF_NAME}"
           } >> .env.production.shared
 
       - name: Deploy to DigitalOcean production
         env:
           DO_DROPLET_IP: ${{ vars.DO_DROPLET_IP }}
           DO_REMOTE_USER: ${{ vars.DO_REMOTE_USER || 'root' }}
-          DO_REMOTE_DIR: ${{ vars.DO_REMOTE_DIR || '/opt/helm-pilot/current' }}
+          DO_REMOTE_DIR: ${{ vars.DO_REMOTE_DIR || '/opt/pilot/current' }}
         run: bash infra/digitalocean/deploy.sh deploy
 
       - name: Production smoke

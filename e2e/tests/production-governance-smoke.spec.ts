@@ -21,7 +21,7 @@ test.describe('production governance smoke', () => {
 
     const metrics = await request.get('/metrics');
     expect(metrics.ok()).toBe(true);
-    expect(await metrics.text()).toContain('helm_pilot_http_requests_total');
+    expect(await metrics.text()).toContain('pilot_http_requests_total');
 
     const protectedResponse = await request.get('/api/tasks');
     expect(protectedResponse.status()).toBe(401);

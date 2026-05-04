@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Active app surface for the helm-pilot project.
+Active app surface for the pilot project.
 
 ## Canonical Interface
 
 - Source path: `apps/agent`
-- Package: `@helm-pilot/agent`.
+- Package: `@pilot/agent`.
 - Coverage record: `docs/documentation-coverage.csv`
 
 ## Local Commands

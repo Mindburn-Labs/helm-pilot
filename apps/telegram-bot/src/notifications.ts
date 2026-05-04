@@ -1,7 +1,7 @@
 import { Bot } from 'grammy';
 import { eq } from 'drizzle-orm';
-import { type Db } from '@helm-pilot/db/client';
-import { workspaceMembers, users } from '@helm-pilot/db/schema';
+import { type Db } from '@pilot/db/client';
+import { workspaceMembers, users } from '@pilot/db/schema';
 import { type BotContext } from './types.js';
 
 export class NotificationService {
@@ -60,7 +60,7 @@ export class NotificationService {
     const pretty = connectorName.charAt(0).toUpperCase() + connectorName.slice(1);
     const message =
       `*Reconnect ${pretty}*\n\n` +
-      `The ${pretty} connector stopped refreshing. Open HELM Pilot and ` +
+      `The ${pretty} connector stopped refreshing. Open Pilot and ` +
       `reconnect via Settings → Connectors to resume automated actions.`;
     await this.notifyWorkspace(workspaceId, message);
   }

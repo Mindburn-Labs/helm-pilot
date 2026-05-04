@@ -1,9 +1,9 @@
 {
   "annotations": { "list": [] },
   "editable": true,
-  "title": "HELM Pilot — GenAI & Governance",
-  "uid": "helm-pilot-genai",
-  "tags": ["helm-pilot", "genai", "governance"],
+  "title": "Pilot — GenAI & Governance",
+  "uid": "pilot-genai",
+  "tags": ["pilot", "genai", "governance"],
   "timezone": "browser",
   "schemaVersion": 39,
   "panels": [
@@ -14,7 +14,7 @@
       "description": "Rate of HELM governance decisions by verdict. ALLOW should dominate; DENY and ESCALATE indicate policy enforcement activity.",
       "targets": [
         {
-          "expr": "sum by (verdict) (rate(helm_pilot_helm_verdict_total[5m]))",
+          "expr": "sum by (verdict) (rate(pilot_helm_verdict_total[5m]))",
           "legendFormat": "{{verdict}}",
           "refId": "A"
         }
@@ -27,7 +27,7 @@
       "description": "Daily LLM spend per workspace. Tracked alongside budget ceilings so TenantOverBudget alerts fire automatically.",
       "targets": [
         {
-          "expr": "topk(10, helm_pilot_tenant_cost_usd_daily)",
+          "expr": "topk(10, pilot_tenant_cost_usd_daily)",
           "legendFormat": "{{workspace_id}}",
           "refId": "A"
         }
@@ -44,7 +44,7 @@
       "description": "Phase 12 governed subagents — spawn attempts grouped by final verdict (completed / failed / escalated).",
       "targets": [
         {
-          "expr": "sum by (verdict, subagent) (rate(helm_pilot_subagent_spawn_total[5m]))",
+          "expr": "sum by (verdict, subagent) (rate(pilot_subagent_spawn_total[5m]))",
           "legendFormat": "{{subagent}} → {{verdict}}",
           "refId": "A"
         }
@@ -57,17 +57,17 @@
       "description": "Iteration-count distribution. p99 approaching MAX_ITERATION_BUDGET signals runaway agents or overly broad tasks.",
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(helm_pilot_agent_iterations_bucket[10m])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(pilot_agent_iterations_bucket[10m])))",
           "legendFormat": "p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(helm_pilot_agent_iterations_bucket[10m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(pilot_agent_iterations_bucket[10m])))",
           "legendFormat": "p95",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(helm_pilot_agent_iterations_bucket[10m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(pilot_agent_iterations_bucket[10m])))",
           "legendFormat": "p99",
           "refId": "C"
         }
@@ -80,7 +80,7 @@
       "description": "Tool call rate by registered tool. Spikes here correlate with agent-loop iteration spikes.",
       "targets": [
         {
-          "expr": "sum by (tool) (rate(helm_pilot_tool_invocation_total[5m]))",
+          "expr": "sum by (tool) (rate(pilot_tool_invocation_total[5m]))",
           "legendFormat": "{{tool}}",
           "refId": "A"
         }
@@ -93,7 +93,7 @@
       "description": "95th-percentile round-trip time to the HELM guardian sidecar. Target <60ms on shared Docker network.",
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(helm_pilot_helm_request_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(pilot_helm_request_duration_seconds_bucket[5m])))",
           "legendFormat": "p95",
           "refId": "A"
         }
@@ -106,12 +106,12 @@
       "description": "Phase 13 Track B — counts of grants currently needing re-auth. >0 means a founder has a broken connector.",
       "targets": [
         {
-          "expr": "sum(helm_pilot_connector_grants{state=\"needs_reauth\"})",
+          "expr": "sum(pilot_connector_grants{state=\"needs_reauth\"})",
           "legendFormat": "needs re-auth",
           "refId": "A"
         },
         {
-          "expr": "sum(helm_pilot_connector_grants{state=\"active\"})",
+          "expr": "sum(pilot_connector_grants{state=\"active\"})",
           "legendFormat": "active",
           "refId": "B"
         }

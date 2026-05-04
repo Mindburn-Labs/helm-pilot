@@ -1,13 +1,13 @@
 import PgBoss from 'pg-boss';
-import { type Db } from '@helm-pilot/db/client';
-import { type LlmProvider } from '@helm-pilot/shared/llm';
-import { type TenantLlmResolver } from '@helm-pilot/shared/llm/tenant-resolver';
-import { type PolicyConfig } from '@helm-pilot/shared/schemas';
-import { type MemoryService } from '@helm-pilot/memory';
-import { type HelmClient } from '@helm-pilot/helm-client';
-import { type OAuthFlowManager, type RefreshNotifier } from '@helm-pilot/connectors';
-import { type SubagentRegistry } from '@helm-pilot/shared/subagents';
-import { type McpServerRegistry } from '@helm-pilot/shared/mcp';
+import { type Db } from '@pilot/db/client';
+import { type LlmProvider } from '@pilot/shared/llm';
+import { type TenantLlmResolver } from '@pilot/shared/llm/tenant-resolver';
+import { type PolicyConfig } from '@pilot/shared/schemas';
+import { type MemoryService } from '@pilot/memory';
+import { type HelmClient } from '@pilot/helm-client';
+import { type OAuthFlowManager, type RefreshNotifier } from '@pilot/connectors';
+import { type SubagentRegistry } from '@pilot/shared/subagents';
+import { type McpServerRegistry } from '@pilot/shared/mcp';
 import { TrustBoundary } from './trust.js';
 import { AgentLoop } from './agent-loop.js';
 import { ToolRegistry } from './tools.js';
@@ -24,7 +24,7 @@ export interface OrchestratorConfig {
    * HELM client. When present the orchestrator emits governance receipts and
    * can be surfaced via the gateway's /api/governance routes. The LLM provider
    * passed in should be wired to this client (see HelmLlmProvider in
-   * @helm-pilot/helm-client) so every inference call goes through HELM.
+   * @pilot/helm-client) so every inference call goes through HELM.
    */
   helmClient?: HelmClient;
   /**
@@ -63,7 +63,7 @@ export interface OrchestratorConfig {
 }
 
 /**
- * Orchestrator service — the brain of HELM Pilot.
+ * Orchestrator service — the brain of Pilot.
  *
  * Responsibilities:
  * - Agent loop with iteration budget (Hermes pattern)
@@ -265,7 +265,7 @@ export class Orchestrator {
     requestedIterationBudget?: number,
   ) {
     const { workspaces, workspaceSettings, operators, operatorRoles, operatorConfigs } =
-      await import('@helm-pilot/db/schema');
+      await import('@pilot/db/schema');
     const { eq } = await import('drizzle-orm');
 
     // Look up workspace mode

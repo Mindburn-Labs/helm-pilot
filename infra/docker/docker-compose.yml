@@ -7,13 +7,13 @@ services:
     ports:
       - '127.0.0.1:5432:5432'
     environment:
-      POSTGRES_DB: helm_pilot
+      POSTGRES_DB: pilot
       POSTGRES_USER: helm
       POSTGRES_PASSWORD: helm
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U helm -d helm_pilot']
+      test: ['CMD-SHELL', 'pg_isready -U helm -d pilot']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -73,7 +73,7 @@ services:
         max-size: '20m'
         max-file: '3'
 
-  helm-pilot:
+  pilot:
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -83,7 +83,7 @@ services:
       - path: ../../.env
         required: false
     environment:
-      DATABASE_URL: postgresql://helm:helm@postgres:5432/helm_pilot
+      DATABASE_URL: postgresql://helm:helm@postgres:5432/pilot
       APP_URL: http://localhost:3100
       NODE_ENV: production
       # HELM sidecar URL — Pilot's LLM provider routes through this so Guardian
@@ -152,7 +152,7 @@ services:
       - path: ../../.env
         required: false
     environment:
-      DATABASE_URL: postgresql://helm:helm@postgres:5432/helm_pilot
+      DATABASE_URL: postgresql://helm:helm@postgres:5432/pilot
       MCP_SERVER_PORT: '3200'
       MCP_SERVER_PUBLIC_URL: ${MCP_SERVER_PUBLIC_URL:-http://pilot-mcp:3200}
       NODE_ENV: production
@@ -196,7 +196,7 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:3100
     depends_on:
-      helm-pilot:
+      pilot:
         condition: service_healthy
     restart: unless-stopped
     deploy:
@@ -220,7 +220,7 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      helm-pilot:
+      pilot:
         condition: service_healthy
     profiles:
       - tls
@@ -231,7 +231,7 @@ services:
     ports:
       - '127.0.0.1:5050:80'
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@helm-pilot.local
+      PGADMIN_DEFAULT_EMAIL: admin@pilot.local
       PGADMIN_DEFAULT_PASSWORD: admin
       PGADMIN_CONFIG_SERVER_MODE: 'False'
     volumes:
@@ -246,14 +246,14 @@ services:
   backup-cron:
     image: mcuadros/ofelia:latest
     depends_on:
-      helm-pilot:
+      pilot:
         condition: service_healthy
     command: daemon --docker
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     labels:
       ofelia.job-exec.backup.schedule: '0 3 * * *'
-      ofelia.job-exec.backup.container: 'helm-pilot'
+      ofelia.job-exec.backup.container: 'pilot'
       ofelia.job-exec.backup.command: 'bash /app/scripts/backup.sh create'
     profiles:
       - backup

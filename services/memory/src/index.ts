@@ -1,8 +1,8 @@
 import { eq, and, or, sql, desc } from 'drizzle-orm';
-import { type Db } from '@helm-pilot/db/client';
-import { pages, contentChunks, timelineEntries, links, tags } from '@helm-pilot/db/schema';
-import { type LlmProvider } from '@helm-pilot/shared/llm';
-import { type EmbeddingProvider } from '@helm-pilot/shared/embeddings';
+import { type Db } from '@pilot/db/client';
+import { pages, contentChunks, timelineEntries, links, tags } from '@pilot/db/schema';
+import { type LlmProvider } from '@pilot/shared/llm';
+import { type EmbeddingProvider } from '@pilot/shared/embeddings';
 
 /**
  * Memory Service — GBrain-style knowledge layer.

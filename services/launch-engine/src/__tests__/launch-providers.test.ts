@@ -3,7 +3,7 @@ import { LaunchChecklist } from '../checklist.js';
 import { DistributionPlanner } from '../distribution.js';
 import { DigitalOceanProvider } from '../providers/digitalocean.js';
 import { VercelProvider } from '../providers/vercel.js';
-import type { LlmProvider } from '@helm-pilot/shared/llm';
+import type { LlmProvider } from '@pilot/shared/llm';
 
 describe('LaunchChecklist', () => {
   const checklist = new LaunchChecklist();
@@ -51,7 +51,7 @@ describe('DigitalOceanProvider', () => {
   it('deploy returns a URL', async () => {
     const result = await digitalocean.deploy({
       providerId: '12345678-1234-1234-1234-123456789abc',
-      image: 'registry.digitalocean.com/helm-pilot/my-app',
+      image: 'registry.digitalocean.com/pilot/my-app',
       tag: 'v1.0.0',
     });
     expect(result.url).toContain('ondigitalocean.app');
@@ -74,7 +74,7 @@ describe('DigitalOceanProvider', () => {
     await expect(
       provider.deploy({
         providerId: '12345678-1234-1234-1234-123456789abc',
-        image: 'registry.digitalocean.com/helm-pilot/my-app',
+        image: 'registry.digitalocean.com/pilot/my-app',
         tag: 'v1.0.0',
       }),
     ).rejects.toThrow(/DigitalOcean token is required/);

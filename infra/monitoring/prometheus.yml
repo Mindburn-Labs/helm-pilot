@@ -2,7 +2,7 @@ global:
   scrape_interval: 15s
   evaluation_interval: 30s
   external_labels:
-    cluster: helm-pilot
+    cluster: pilot
 
 rule_files:
   - prometheus/alerts.yml
@@ -15,9 +15,9 @@ alerting:
 
 scrape_configs:
   # ─── Gateway (HTTP + agent-loop + LLM cost metrics) ───
-  - job_name: helm-pilot
+  - job_name: pilot
     static_configs:
-      - targets: ['helm-pilot:3100']
+      - targets: ['pilot:3100']
     metrics_path: /metrics
     scrape_interval: 15s
 
@@ -39,9 +39,9 @@ scrape_configs:
   # Bot exposes metrics on port 3110 when run as a standalone process.
   # When embedded in the gateway these are already on :3100 — this job
   # is a no-op then (prometheus silently fails scraping).
-  - job_name: helm-pilot-bot
+  - job_name: pilot-bot
     static_configs:
-      - targets: ['helm-pilot-bot:3110']
+      - targets: ['pilot-bot:3110']
     metrics_path: /metrics
     scrape_interval: 30s
 

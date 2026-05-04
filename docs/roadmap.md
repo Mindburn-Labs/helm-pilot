@@ -1,4 +1,4 @@
-# HELM Pilot — Public roadmap
+# Pilot — Public roadmap
 
 Snapshot as of the v1.0.0-rc cut. Items marked (🟢) ship in v1.0.0;
 (🟡) defer to v1.1 / Phase 14; (🔵) longer-range research.

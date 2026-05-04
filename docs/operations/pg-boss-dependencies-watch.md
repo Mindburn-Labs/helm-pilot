@@ -14,7 +14,7 @@ Primary source:
 
 ## Current Safe Path
 
-HELM Pilot keeps the single-process invariant and existing queues:
+Pilot keeps the single-process invariant and existing queues:
 
 - `task.resume` remains the approval-resume queue.
 - Workflow sequencing stays in the orchestrator until pg-boss has a released dependency API.

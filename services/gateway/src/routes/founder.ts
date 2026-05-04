@@ -5,14 +5,14 @@ import {
   founderAssessments,
   founderProfiles,
   founderStrengths,
-} from '@helm-pilot/db/schema';
+} from '@pilot/db/schema';
 import {
   AnalyzeFounderInput,
   CreateCofounderCandidateInput,
   CreateCofounderNoteInput,
   CreateCofounderOutreachDraftInput,
   CreateFounderProfileInput,
-} from '@helm-pilot/shared/schemas';
+} from '@pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId } from '../lib/workspace.js';
 

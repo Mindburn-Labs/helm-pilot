@@ -6,7 +6,7 @@ import {
   type A2AMessage,
   type Task,
   type TaskSendRequest,
-} from '@helm-pilot/shared/a2a';
+} from '@pilot/shared/a2a';
 import { type GatewayDeps } from '../index.js';
 
 // ─── A2A server routes (Phase 15 Track J) ───
@@ -101,7 +101,7 @@ export function a2aRoutes(deps: GatewayDeps) {
           }
 
           // 1. Persist a tasks row so runConduct's tenancy gate accepts taskId.
-          const { tasks: tasksTable } = await import('@helm-pilot/db/schema');
+          const { tasks: tasksTable } = await import('@pilot/db/schema');
           const [taskRow] = await deps.db
             .insert(tasksTable)
             .values({

@@ -1,6 +1,6 @@
-# HELM Pilot Runbook
+# Pilot Runbook
 
-On-call response procedures, diagnostic commands, and rollback playbooks for operators running HELM Pilot in production.
+On-call response procedures, diagnostic commands, and rollback playbooks for operators running Pilot in production.
 
 ---
 
@@ -23,7 +23,7 @@ Symptoms: users report not receiving email magic link, or verify returns 401 des
 - Check `/health` → `checks.db` true?
 - Check `EMAIL_PROVIDER` config — if it reverted to `noop`, codes aren't being sent.
   ```bash
-  ssh root@$DO_DROPLET_IP 'cd /opt/helm-pilot/current && docker compose -f infra/digitalocean/docker-compose.yml exec helm-pilot env | grep EMAIL'
+  ssh root@$DO_DROPLET_IP 'cd /opt/pilot/current && docker compose -f infra/digitalocean/docker-compose.yml exec pilot env | grep EMAIL'
   ```
 - Check Resend/SMTP dashboard for bounces or rate limiting.
 - Check the `sessions` table — are rows being written?
@@ -36,7 +36,7 @@ Symptoms: users report not receiving email magic link, or verify returns 401 des
 
 Symptoms: `/health` returns 503 with `checks.db: false`.
 
-- DigitalOcean Compose Postgres: `docker compose --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml exec postgres psql -U helm -d helm_pilot -c '\l'`.
+- DigitalOcean Compose Postgres: `docker compose --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml exec postgres psql -U helm -d pilot -c '\l'`.
 - Check DB logs: `docker compose --env-file .env.production.shared -f infra/digitalocean/docker-compose.yml logs --tail=200 postgres`.
 - Connection pool exhausted? Query `SELECT count(*) FROM pg_stat_activity`. If >80 increase `DB_POOL_MAX` or investigate slow queries.
 - If the DB is truly down, restore the latest verified backup on a replacement Droplet, then point DNS at the new Droplet IP.
@@ -104,16 +104,16 @@ curl https://<host>/metrics | head -50   # Prometheus metrics sample
 
 ```bash
 ssh root@$DO_DROPLET_IP
-cd /opt/helm-pilot/current
-docker compose -f infra/digitalocean/docker-compose.yml logs --tail=200 helm-pilot
-docker compose -f infra/digitalocean/docker-compose.yml logs helm-pilot | grep ERROR
-docker compose -f infra/digitalocean/docker-compose.yml logs helm-pilot | grep requestId=XXX
+cd /opt/pilot/current
+docker compose -f infra/digitalocean/docker-compose.yml logs --tail=200 pilot
+docker compose -f infra/digitalocean/docker-compose.yml logs pilot | grep ERROR
+docker compose -f infra/digitalocean/docker-compose.yml logs pilot | grep requestId=XXX
 ```
 
 ### Database (DigitalOcean Compose Postgres)
 
 ```bash
-docker compose -f infra/digitalocean/docker-compose.yml exec postgres psql -U helm -d helm_pilot
+docker compose -f infra/digitalocean/docker-compose.yml exec postgres psql -U helm -d pilot
 
 # Most active tables
 SELECT schemaname, relname, n_live_tup
@@ -165,13 +165,13 @@ ls -la ${PATCHRIGHT_BROWSERS_PATH:-./.cache/ms-patchright}
 
 ### 3B. Database rollback (destructive — last resort)
 
-1. Stop the gateway: `docker compose -f infra/digitalocean/docker-compose.yml stop helm-pilot`.
+1. Stop the gateway: `docker compose -f infra/digitalocean/docker-compose.yml stop pilot`.
 2. Take a snapshot of current DB state.
 3. Restore from last known-good backup:
    ```bash
    bash scripts/backup.sh restore <backup-file.sql.gz.gpg>
    ```
-4. Start gateway: `docker compose -f infra/digitalocean/docker-compose.yml up -d helm-pilot`.
+4. Start gateway: `docker compose -f infra/digitalocean/docker-compose.yml up -d pilot`.
 5. **Warning:** connector tokens encrypted with a since-rotated ENCRYPTION_KEY will be unreadable. Plan carefully.
 
 ### 3C. Migration rollback

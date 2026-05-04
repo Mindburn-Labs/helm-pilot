@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Active CI/CD surface for the `helm-pilot` project.
+Active CI/CD surface for the `pilot` project.
 
 ## Canonical Interface
 

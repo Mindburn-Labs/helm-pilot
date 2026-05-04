@@ -8,13 +8,13 @@ describe('adminRoutes', () => {
   let originalEnv: string | undefined;
 
   beforeEach(() => {
-    originalEnv = process.env['HELM_ADMIN_API_KEY'];
-    process.env['HELM_ADMIN_API_KEY'] = ADMIN_KEY;
+    originalEnv = process.env['PILOT_ADMIN_API_KEY'];
+    process.env['PILOT_ADMIN_API_KEY'] = ADMIN_KEY;
   });
 
   afterEach(() => {
-    if (originalEnv === undefined) delete process.env['HELM_ADMIN_API_KEY'];
-    else process.env['HELM_ADMIN_API_KEY'] = originalEnv;
+    if (originalEnv === undefined) delete process.env['PILOT_ADMIN_API_KEY'];
+    else process.env['PILOT_ADMIN_API_KEY'] = originalEnv;
     vi.restoreAllMocks();
   });
 
@@ -23,8 +23,8 @@ describe('adminRoutes', () => {
   }
 
   describe('auth gate', () => {
-    it('returns 503 when HELM_ADMIN_API_KEY is unset', async () => {
-      delete process.env['HELM_ADMIN_API_KEY'];
+    it('returns 503 when PILOT_ADMIN_API_KEY is unset', async () => {
+      delete process.env['PILOT_ADMIN_API_KEY'];
       const { fetch } = testApp(adminRoutes);
       const res = await fetch('GET', '/tenants/deletions');
       const body = await expectJson<{ error: string }>(res, 503);

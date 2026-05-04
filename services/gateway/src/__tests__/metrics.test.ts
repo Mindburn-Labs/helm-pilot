@@ -40,6 +40,6 @@ describe('metricsEndpoint', () => {
     expect(missing.status).toBe(401);
     expect(wrong.status).toBe(403);
     expect(ok.status).toBe(200);
-    expect(await ok.text()).toContain('helm_pilot_');
+    expect(await ok.text()).toContain('pilot_');
   });
 });

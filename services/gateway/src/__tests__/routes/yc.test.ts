@@ -14,7 +14,7 @@ const mockYc = {
   getIngestionRecord: vi.fn(async () => null),
 };
 
-vi.mock('@helm-pilot/yc-intel', () => ({
+vi.mock('@pilot/yc-intel', () => ({
   YcIntelService: vi.fn().mockImplementation(() => mockYc),
 }));
 

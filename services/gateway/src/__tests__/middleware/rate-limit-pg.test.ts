@@ -18,7 +18,7 @@ function mockDb(consumeReturn: Row[] | Error) {
     if (consumeReturn instanceof Error) throw consumeReturn;
     return consumeReturn as unknown as { rows?: Row[] };
   });
-  return { execute } as unknown as import('@helm-pilot/db/client').Db;
+  return { execute } as unknown as import('@pilot/db/client').Db;
 }
 
 describe('consumeToken', () => {
@@ -39,7 +39,7 @@ describe('consumeToken', () => {
         if (call === 1) return [];
         return [{ tokens: 0.25, refill_per_sec: 0.5 }];
       }),
-    } as unknown as import('@helm-pilot/db/client').Db;
+    } as unknown as import('@pilot/db/client').Db;
 
     const result = await consumeToken(db, 'ws:abc', ROUTE_CLASSES.AUTH);
     expect(result.ok).toBe(false);
@@ -81,7 +81,7 @@ describe('rateLimitPg middleware', () => {
         if (call === 1) return [];
         return [{ tokens: 0.1, refill_per_sec: 5 / 60 }];
       }),
-    } as unknown as import('@helm-pilot/db/client').Db;
+    } as unknown as import('@pilot/db/client').Db;
 
     app.use('/api/auth/*', rateLimitPg(db, ROUTE_CLASSES.AUTH));
     app.post('/api/auth/session', (c) => c.json({ ok: true }));

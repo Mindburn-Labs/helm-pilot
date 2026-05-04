@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { LlmProvider } from '@helm-pilot/shared/llm';
+import type { LlmProvider } from '@pilot/shared/llm';
 import { SpecGenerator } from '../spec-generator.js';
 import { ScaffoldGenerator } from '../scaffolding.js';
 import type { ProductSpec, StructuredSpec } from '../types.js';

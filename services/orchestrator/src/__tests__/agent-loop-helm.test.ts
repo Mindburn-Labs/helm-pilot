@@ -3,14 +3,14 @@ import { AgentLoop } from '../agent-loop.js';
 
 // Include evidencePacks in the mocked schema so the governance-mirroring path
 // has a handle to import.
-vi.mock('@helm-pilot/db/schema', () => ({
+vi.mock('@pilot/db/schema', () => ({
   taskRuns: 'taskRuns',
   approvals: 'approvals',
   operatorMemory: 'operatorMemory',
   evidencePacks: 'evidencePacks',
 }));
 
-vi.mock('@helm-pilot/shared/schemas', () => ({
+vi.mock('@pilot/shared/schemas', () => ({
   MAX_ITERATION_BUDGET: 200,
 }));
 

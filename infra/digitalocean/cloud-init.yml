@@ -12,7 +12,7 @@ packages:
   - fail2ban
 
 write_files:
-  - path: /etc/sysctl.d/99-helm-pilot.conf
+  - path: /etc/sysctl.d/99-pilot.conf
     permissions: '0644'
     content: |
       vm.max_map_count=262144
@@ -21,9 +21,9 @@ runcmd:
   - sysctl --system
   - curl -fsSL https://get.docker.com | sh
   - systemctl enable --now docker
-  - mkdir -p /opt/helm-pilot/current /opt/helm-pilot/shared
+  - mkdir -p /opt/pilot/current /opt/pilot/shared
   - ufw allow OpenSSH
   - ufw allow 80/tcp
   - ufw allow 443/tcp
   - ufw --force enable
-  - touch /opt/helm-pilot/cloud-init-ready
+  - touch /opt/pilot/cloud-init-ready

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-HELM Pilot — HDBSCAN opportunity clustering with LLM-generated labels.
+Pilot — HDBSCAN opportunity clustering with LLM-generated labels.
 
 Generates workspace-scoped market-theme clusters from scored opportunities.
 Each cluster gets:
@@ -32,7 +32,7 @@ from typing import Any
 
 import numpy as np
 
-log = logging.getLogger("helm-pilot.cluster")
+log = logging.getLogger("pilot.cluster")
 
 # ─── DB ──────────────────────────────────────────────────────────────────
 
@@ -292,7 +292,7 @@ def run(
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
-    parser = argparse.ArgumentParser(description="HELM Pilot — HDBSCAN opportunity clustering")
+    parser = argparse.ArgumentParser(description="Pilot — HDBSCAN opportunity clustering")
     parser.add_argument("--workspace-id", required=True)
     parser.add_argument("--database-url", default=os.getenv("DATABASE_URL"))
     parser.add_argument("--min-cluster-size", type=int, default=3)

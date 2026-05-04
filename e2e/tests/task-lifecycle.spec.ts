@@ -10,7 +10,7 @@ let ipCounter = 80;
 async function authenticate(
   request: APIRequestContext,
 ): Promise<{ token: string; workspaceId: string }> {
-  const email = `e2e-task-${Math.random().toString(36).slice(2, 10)}@helm-pilot.test`;
+  const email = `e2e-task-${Math.random().toString(36).slice(2, 10)}@pilot.test`;
   const headers = { 'x-forwarded-for': `198.51.100.${ipCounter++}` };
   await request.post('/api/auth/email/request', { headers, data: { email } });
   const requestResp = await request.post('/api/auth/email/request', { headers, data: { email } });

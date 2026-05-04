@@ -3,7 +3,7 @@ import { createCipheriv, randomBytes, scryptSync } from 'node:crypto';
 import { encryptToken, decryptToken, rotateTokenCiphertext } from '../token-store.js';
 
 function deriveWithKey(raw: string): Buffer {
-  return scryptSync(raw, 'helm-pilot-salt', 32);
+  return scryptSync(raw, 'pilot-salt', 32);
 }
 
 function encryptWithKey(plaintext: string, keyRaw: string): string {

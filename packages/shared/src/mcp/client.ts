@@ -90,7 +90,7 @@ export class McpClient {
     const result = await this.call<McpInitializeResult>('initialize', {
       protocolVersion: '2025-11-25',
       capabilities: { tools: {} },
-      clientInfo: { name: '@helm-pilot/shared', version: '0.1.0' },
+      clientInfo: { name: '@pilot/shared', version: '0.1.0' },
     });
     this.initialized = true;
     return result;

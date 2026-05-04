@@ -131,8 +131,8 @@ class OpenRouterProvider implements LlmProvider {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://helm-pilot.dev',
-        'X-Title': 'HELM Pilot',
+        'HTTP-Referer': 'https://pilot.dev',
+        'X-Title': 'Pilot',
       },
       body: JSON.stringify({
         model: this.model,

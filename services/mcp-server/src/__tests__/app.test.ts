@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Db } from '@helm-pilot/db/client';
+import type { Db } from '@pilot/db/client';
 import { createMcpApp } from '../app.js';
 
 // ─── Pilot MCP provider app tests (Phase 14 Track A) ───
@@ -75,7 +75,7 @@ describe('createMcpApp', () => {
     expect(body.jsonrpc).toBe('2.0');
     expect(body.id).toBe(1);
     expect(body.result.protocolVersion).toBe('2025-11-25');
-    expect(body.result.serverInfo.name).toBe('helm-pilot-mcp');
+    expect(body.result.serverInfo.name).toBe('pilot-mcp');
   });
 
   it('tools/list returns the DB-only whitelist', async () => {

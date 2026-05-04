@@ -1,6 +1,6 @@
 # Documentation Coverage
 
-This file is the tracked documentation-completeness certificate for `helm-pilot`.
+This file is the tracked documentation-completeness certificate for `pilot`.
 
 ## Standard
 

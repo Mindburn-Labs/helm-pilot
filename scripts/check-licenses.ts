@@ -45,7 +45,7 @@ const ALLOWED = new Set([
 const PRIVATE_MARKERS = new Set(['UNLICENSED', 'SEE LICENSE IN LICENSE', 'PROPRIETARY']);
 
 // Next.js pulls Sharp/libvips as an optional image-optimization dependency even
-// when apps do not use next/image. HELM Pilot disables image optimization and
+// when apps do not use next/image. Pilot disables image optimization and
 // prunes these binaries from the production web image.
 function isExcludedOptionalBinaryPackage(name: string): boolean {
   return name.startsWith('@img/sharp-libvips-');

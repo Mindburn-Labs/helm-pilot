@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { SlackConnector } from '@helm-pilot/connectors';
+import { SlackConnector } from '@pilot/connectors';
 import { SlackWorkspaceAgentAdapter } from './index.js';
 
 function signedHeaders(secret: string, timestamp: string, rawBody: string) {

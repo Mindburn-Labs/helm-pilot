@@ -68,7 +68,7 @@ export default function LoginPage() {
 
   return (
     <main style={{ maxWidth: 400, margin: '0 auto', padding: '4rem 2rem', textAlign: 'center' }}>
-      <h1 style={{ marginBottom: '0.5rem' }}>HELM Pilot</h1>
+      <h1 style={{ marginBottom: '0.5rem' }}>Pilot</h1>
       <p style={{ color: '#888', marginBottom: '2rem' }}>Sign in to your founder workspace</p>
 
       {error && (

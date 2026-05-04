@@ -56,7 +56,7 @@ const mockEngine = {
   })),
 };
 
-vi.mock('@helm-pilot/launch-engine', () => ({
+vi.mock('@pilot/launch-engine', () => ({
   LaunchEngine: vi.fn().mockImplementation(() => mockEngine),
   DigitalOceanProvider: vi.fn().mockImplementation(() => ({ name: 'digitalocean' })),
 }));

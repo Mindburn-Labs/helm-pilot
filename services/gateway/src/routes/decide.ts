@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
-import { opportunities } from '@helm-pilot/db/schema';
+import { opportunities } from '@pilot/db/schema';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId } from '../lib/workspace.js';
 
@@ -42,7 +42,7 @@ export function decideRoutes(deps: GatewayDeps) {
       return c.json({ error: 'No valid opportunities found in this workspace' }, 404);
     }
 
-    const { DecisionCourt } = await import('@helm-pilot/decision-court');
+    const { DecisionCourt } = await import('@pilot/decision-court');
     const court = new DecisionCourt();
 
     try {

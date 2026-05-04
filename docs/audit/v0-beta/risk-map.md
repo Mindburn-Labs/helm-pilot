@@ -1,6 +1,6 @@
 # Phase 0 — Risk Map
 
-> Migration risks, severity assessment, and mitigation strategies for the HELM Pilot production refactor.
+> Migration risks, severity assessment, and mitigation strategies for the Pilot production refactor.
 > Generated 2026-04-12.
 
 ---

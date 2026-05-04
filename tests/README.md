@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Active test surface for the helm-pilot project.
+Active test surface for the pilot project.
 
 ## Canonical Interface
 

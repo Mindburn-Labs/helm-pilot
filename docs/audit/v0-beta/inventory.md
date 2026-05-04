@@ -1,6 +1,6 @@
 # Phase 0 — Module Inventory
 
-> Exhaustive inventory of every module in HELM Pilot, categorized for the production refactor.
+> Exhaustive inventory of every module in Pilot, categorized for the production refactor.
 > Generated 2026-04-12.
 
 ---
@@ -66,7 +66,7 @@
 | `src/gateway/` | TS | 290+ | HTTP/WebSocket server, session management, channel dispatch, auth middleware, rate limiting. | REFACTOR | `services/gateway/` — extract channel abstraction + session routing. Drop unnecessary protocols. | High |
 | `src/agents/` | TS | 400+ | Agent execution, tool registry, ACP spawning, subagent delegation. | REFACTOR | `services/orchestrator/` — extract agent loop patterns. Merge with Hermes patterns. | High |
 | `src/channels/` | TS | 500+ | Channel plugin abstraction, built-in channel implementations (Telegram, web, etc.). | REFACTOR | `services/gateway/channels/` — keep Telegram + web channel, drop others for V1. | High |
-| `src/config/` | TS | 200+ | YAML config loading, Zod schema validation, hierarchical config merge. | REFACTOR | `packages/shared/config/` — keep config pattern, simplify for HELM Pilot. | Medium |
+| `src/config/` | TS | 200+ | YAML config loading, Zod schema validation, hierarchical config merge. | REFACTOR | `packages/shared/config/` — keep config pattern, simplify for Pilot. | Medium |
 | `src/infra/` | TS | 150+ | Session, auth, database, logging, error handling utilities. | REFACTOR | Split across `services/gateway/` (auth/session) and `packages/shared/` (logging/errors). | Medium |
 | `src/hooks/` | TS | 60+ | PreToolUse / PostToolUse hook system. Validates tool calls against policies. | REFACTOR | `services/orchestrator/hooks/` — merge with money-engine trust boundary pattern. | Medium |
 | `src/mcp/` | TS | 7 | MCP server bridge for channels. | KEEP | `services/gateway/mcp/` — keep for MCP integration. | Low |
@@ -78,12 +78,12 @@
 |------|------|-------|---------|----------|--------------------|--------|
 | `src/plugins/` | TS | 80+ | Plugin loading, registry, lifecycle management. | REFACTOR | `services/orchestrator/plugins/` — extract plugin pattern for operator skills. | Medium |
 | `src/skills/` | TS | 50+ | Skill file loading and execution. | REFACTOR | `services/orchestrator/skills/` — adapt for operator skill definitions. | Medium |
-| `src/tools/` | TS | 100+ | Tool definitions and execution wrappers. | REFACTOR | `services/orchestrator/tools/` — keep tool abstraction, add HELM Pilot-specific tools. | Medium |
+| `src/tools/` | TS | 100+ | Tool definitions and execution wrappers. | REFACTOR | `services/orchestrator/tools/` — keep tool abstraction, add Pilot-specific tools. | Medium |
 | `src/media/` | TS | 30+ | Media handling (images, files, voice). | KEEP | `services/gateway/media/` — needed for Telegram media messages. | Low |
 | `src/commands/` | TS | 70+ | Command parsing and routing. | REFACTOR | `apps/telegram-bot/commands/` — extract Telegram command patterns. | Medium |
 | `src/storage/` | TS | 20+ | File/blob storage abstraction. | REFACTOR | `packages/shared/storage/` — adapt for S3-compatible + local fallback. | Low |
 
-### 3.3 Subsystems to Drop (Not needed for HELM Pilot V1)
+### 3.3 Subsystems to Drop (Not needed for Pilot V1)
 
 | Path | Lang | Files | Purpose | Category | Rationale |
 |------|------|-------|---------|----------|-----------|

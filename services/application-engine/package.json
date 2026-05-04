@@ -1,5 +1,5 @@
 {
-  "name": "@helm-pilot/application-engine",
+  "name": "@pilot/application-engine",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -14,8 +14,8 @@
     ".": "./dist/index.js"
   },
   "dependencies": {
-    "@helm-pilot/db": "*",
-    "@helm-pilot/shared": "*",
+    "@pilot/db": "*",
+    "@pilot/shared": "*",
     "pino": "^9.6.0"
   },
   "devDependencies": {

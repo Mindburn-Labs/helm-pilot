@@ -1,9 +1,9 @@
 {
-  "name": "@helm-pilot/legacy-audit",
+  "name": "@pilot/legacy-audit",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Wrappers and adapters around existing HELM Pilot modules during migration (Section 27)",
+  "description": "Wrappers and adapters around existing Pilot modules during migration (Section 27)",
   "exports": {
     ".": "./dist/index.js"
   },
@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@helm-pilot/shared": "*"
+    "@pilot/shared": "*"
   },
   "devDependencies": {
     "typescript": "^5.8.0"

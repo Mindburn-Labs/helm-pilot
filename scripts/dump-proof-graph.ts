@@ -12,7 +12,7 @@
  *   DATABASE_URL=... npx tsx scripts/dump-proof-graph.ts <workspaceId> --format json
  */
 
-import { createDb } from '@helm-pilot/db/client';
+import { createDb } from '@pilot/db/client';
 import { sql } from 'drizzle-orm';
 
 interface Node {

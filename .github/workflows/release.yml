@@ -55,10 +55,10 @@ jobs:
           provenance: mode=max
           sbom: true
           tags: |
-            ghcr.io/mindburn-labs/helm-pilot:${{ steps.tag.outputs.version }}
-            ghcr.io/mindburn-labs/helm-pilot:latest
-            ${{ vars.DOCKERHUB_USERNAME != '' && format('{0}/helm-pilot:{1}', vars.DOCKERHUB_USERNAME, steps.tag.outputs.version) || '' }}
-            ${{ vars.DOCKERHUB_USERNAME != '' && format('{0}/helm-pilot:latest', vars.DOCKERHUB_USERNAME) || '' }}
+            ghcr.io/mindburn-labs/pilot:${{ steps.tag.outputs.version }}
+            ghcr.io/mindburn-labs/pilot:latest
+            ${{ vars.DOCKERHUB_USERNAME != '' && format('{0}/pilot:{1}', vars.DOCKERHUB_USERNAME, steps.tag.outputs.version) || '' }}
+            ${{ vars.DOCKERHUB_USERNAME != '' && format('{0}/pilot:latest', vars.DOCKERHUB_USERNAME) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -73,8 +73,8 @@ jobs:
           provenance: mode=max
           sbom: true
           tags: |
-            ghcr.io/mindburn-labs/helm-pilot-web:${{ steps.tag.outputs.version }}
-            ghcr.io/mindburn-labs/helm-pilot-web:latest
+            ghcr.io/mindburn-labs/pilot-web:${{ steps.tag.outputs.version }}
+            ghcr.io/mindburn-labs/pilot-web:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -84,7 +84,7 @@ jobs:
       - name: Generate CycloneDX SBOM
         uses: anchore/sbom-action@v0
         with:
-          image: ghcr.io/mindburn-labs/helm-pilot:${{ steps.tag.outputs.version }}
+          image: ghcr.io/mindburn-labs/pilot:${{ steps.tag.outputs.version }}
           format: cyclonedx-json
           output-file: sbom.cdx.json
 
@@ -94,14 +94,14 @@ jobs:
       - name: Generate SLSA build provenance
         uses: actions/attest-build-provenance@v2
         with:
-          subject-name: ghcr.io/mindburn-labs/helm-pilot
+          subject-name: ghcr.io/mindburn-labs/pilot
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
       - name: Generate web image SLSA build provenance
         uses: actions/attest-build-provenance@v2
         with:
-          subject-name: ghcr.io/mindburn-labs/helm-pilot-web
+          subject-name: ghcr.io/mindburn-labs/pilot-web
           subject-digest: ${{ steps.build-web.outputs.digest }}
           push-to-registry: true
 
@@ -110,7 +110,7 @@ jobs:
       - name: Trivy vulnerability scan
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: ghcr.io/mindburn-labs/helm-pilot:${{ steps.tag.outputs.version }}
+          image-ref: ghcr.io/mindburn-labs/pilot:${{ steps.tag.outputs.version }}
           format: sarif
           output: trivy-results.sarif
           exit-code: '1'
@@ -120,7 +120,7 @@ jobs:
       - name: Trivy vulnerability scan (web)
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: ghcr.io/mindburn-labs/helm-pilot-web:${{ steps.tag.outputs.version }}
+          image-ref: ghcr.io/mindburn-labs/pilot-web:${{ steps.tag.outputs.version }}
           format: sarif
           output: trivy-web-results.sarif
           exit-code: '1'
@@ -157,8 +157,8 @@ jobs:
           ### Docker Images
 
           \`\`\`
-          docker pull ghcr.io/mindburn-labs/helm-pilot:${{ steps.tag.outputs.version }}
-          docker pull ghcr.io/mindburn-labs/helm-pilot-web:${{ steps.tag.outputs.version }}
+          docker pull ghcr.io/mindburn-labs/pilot:${{ steps.tag.outputs.version }}
+          docker pull ghcr.io/mindburn-labs/pilot-web:${{ steps.tag.outputs.version }}
           \`\`\`
 
           Architectures: \`linux/amd64\`, \`linux/arm64\`
@@ -172,7 +172,7 @@ jobs:
           Verify provenance:
 
           \`\`\`
-          gh attestation verify --owner mindburn-labs oci://ghcr.io/mindburn-labs/helm-pilot:${{ steps.tag.outputs.version }}
+          gh attestation verify --owner mindburn-labs oci://ghcr.io/mindburn-labs/pilot:${{ steps.tag.outputs.version }}
           \`\`\`
           EOF
 

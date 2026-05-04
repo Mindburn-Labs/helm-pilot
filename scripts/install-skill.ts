@@ -3,15 +3,15 @@
  * install-skill — fetch + verify + install a skill from a registry URL.
  *
  * Usage: npm run skills:install -- <skill-name>
- * Env:   HELM_SKILLS_REGISTRY_URL (required) — base URL (no trailing slash)
- *                                 e.g. https://skills.helm-pilot.dev
+ * Env:   PILOT_SKILLS_REGISTRY_URL (required) — base URL (no trailing slash)
+ *                                 e.g. https://skills.pilot.dev
  * Exit:  0 = installed cleanly
  *        1 = SHA-256 verify failed or bad manifest
  *        2 = network / transport error / arg parse
  *
- * Install path: ~/.helm-pilot/skills/<name>/
+ * Install path: ~/.pilot/skills/<name>/
  * Matches OpenClaw ClawHub precedence: bundled (packs/skills) → user
- * override (~/.helm-pilot/skills) → subagent frontmatter inline.
+ * override (~/.pilot/skills) → subagent frontmatter inline.
  */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -25,9 +25,9 @@ async function main() {
     console.error('Usage: install-skill <skill-name>  (lowercase letters, digits, hyphens only)');
     process.exit(2);
   }
-  const registry = process.env['HELM_SKILLS_REGISTRY_URL'];
+  const registry = process.env['PILOT_SKILLS_REGISTRY_URL'];
   if (!registry) {
-    console.error('HELM_SKILLS_REGISTRY_URL is required.');
+    console.error('PILOT_SKILLS_REGISTRY_URL is required.');
     process.exit(2);
   }
   const base = registry.replace(/\/$/, '');
@@ -64,7 +64,7 @@ async function main() {
   console.log(`Integrity verified (${buffer.byteLength} bytes).`);
 
   // 3. Validate archive paths, then extract into a staging dir via system tar.
-  const installDir = join(homedir(), '.helm-pilot', 'skills', name);
+  const installDir = join(homedir(), '.pilot', 'skills', name);
   const tmpTarball = join(tmpdir(), `helm-skill-${name}-${Date.now()}.tar.gz`);
   const stagingDir = join(tmpdir(), `helm-skill-${name}-${Date.now()}-staging`);
   writeFileSync(tmpTarball, buffer);

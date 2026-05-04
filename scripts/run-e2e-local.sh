@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 POSTGRES_IMAGE="${E2E_POSTGRES_IMAGE:-pgvector/pgvector:0.8.2-pg17}"
 POSTGRES_PORT="${E2E_POSTGRES_PORT:-55432}"
 GATEWAY_PORT="${E2E_GATEWAY_PORT:-3310}"
-CONTAINER_NAME="helm-pilot-e2e-postgres-$$"
+CONTAINER_NAME="pilot-e2e-postgres-$$"
 GATEWAY_LOG="${E2E_GATEWAY_LOG:-$ROOT_DIR/.tmp/e2e-gateway.log}"
 GATEWAY_PID=""
 
@@ -35,18 +35,18 @@ docker run -d \
   --name "$CONTAINER_NAME" \
   -e POSTGRES_USER=helm \
   -e POSTGRES_PASSWORD=helm \
-  -e POSTGRES_DB=helm_pilot \
+  -e POSTGRES_DB=pilot \
   -p "127.0.0.1:${POSTGRES_PORT}:5432" \
   "$POSTGRES_IMAGE" >/dev/null
 
 for _ in $(seq 1 60); do
-  if docker exec "$CONTAINER_NAME" pg_isready -U helm -d helm_pilot >/dev/null 2>&1; then
+  if docker exec "$CONTAINER_NAME" pg_isready -U helm -d pilot >/dev/null 2>&1; then
     break
   fi
   sleep 1
 done
 
-if ! docker exec "$CONTAINER_NAME" pg_isready -U helm -d helm_pilot >/dev/null 2>&1; then
+if ! docker exec "$CONTAINER_NAME" pg_isready -U helm -d pilot >/dev/null 2>&1; then
   echo "Postgres did not become ready for release E2E." >&2
   exit 1
 fi
@@ -55,7 +55,7 @@ if [ ! -f services/gateway/dist/server.js ]; then
   npm run build
 fi
 
-export DATABASE_URL="postgresql://helm:helm@127.0.0.1:${POSTGRES_PORT}/helm_pilot"
+export DATABASE_URL="postgresql://helm:helm@127.0.0.1:${POSTGRES_PORT}/pilot"
 npm run db:migrate
 npx tsx scripts/verify-schema.ts
 

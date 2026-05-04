@@ -1,5 +1,5 @@
 {
-  "name": "@helm-pilot/sandbox",
+  "name": "@pilot/sandbox",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
     "test:coverage": "vitest run --coverage --passWithNoTests"
   },
   "dependencies": {
-    "@helm-pilot/shared": "*",
+    "@pilot/shared": "*",
     "zod": "^3.24.0"
   },
   "devDependencies": {

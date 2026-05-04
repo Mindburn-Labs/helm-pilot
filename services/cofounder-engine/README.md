@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Active service surface for the helm-pilot project.
+Active service surface for the pilot project.
 
 ## Canonical Interface
 
 - Source path: `services/cofounder-engine`
-- Package: `@helm-pilot/cofounder-engine`.
+- Package: `@pilot/cofounder-engine`.
 - Coverage record: `docs/documentation-coverage.csv`
 
 ## Local Commands

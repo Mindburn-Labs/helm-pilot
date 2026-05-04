@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-HELM Pilot — ccunpacked Knowledge Ingestion (Phase 2.2)
+Pilot — ccunpacked Knowledge Ingestion (Phase 2.2)
 
 Ingests the ccunpacked Claude Code architecture reference into the
 knowledge layer (pages + content_chunks tables).
@@ -11,7 +11,7 @@ Target: knowledge.pages (type='concept') + knowledge.content_chunks
 Tracks provenance per Section 39.4.
 
 Usage:
-    HELM_PILOT_CCUNPACKED_SOURCE=/path/to/ccunpacked_scrape python ingest_ccunpacked.py
+    PILOT_CCUNPACKED_SOURCE=/path/to/ccunpacked_scrape python ingest_ccunpacked.py
     python ingest_ccunpacked.py --source-dir /path/to   # Custom source
     python ingest_ccunpacked.py --dry-run               # Print without DB writes
     python ingest_ccunpacked.py --reference-only         # Ingest compiled reference only
@@ -42,7 +42,7 @@ CATEGORY_MAP = {
     "hidden_features": ["claude-code", "features", "undocumented"],
 }
 
-DEFAULT_SOURCE = os.environ.get("HELM_PILOT_CCUNPACKED_SOURCE", "")
+DEFAULT_SOURCE = os.environ.get("PILOT_CCUNPACKED_SOURCE", "")
 
 
 def get_db():
@@ -207,12 +207,12 @@ def main():
     args = parser.parse_args()
 
     if not args.source_dir:
-        parser.error("--source-dir or HELM_PILOT_CCUNPACKED_SOURCE is required")
+        parser.error("--source-dir or PILOT_CCUNPACKED_SOURCE is required")
 
     source_dir = os.path.abspath(args.source_dir)
     output_dir = os.path.join(source_dir, "output")
 
-    print(f"HELM Pilot ccunpacked Ingestion v{PARSER_VERSION}")
+    print(f"Pilot ccunpacked Ingestion v{PARSER_VERSION}")
     print(f"  Source: {source_dir}")
     print(f"  Dry run: {args.dry_run}")
     print()

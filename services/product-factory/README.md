@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Active service surface for the helm-pilot project.
+Active service surface for the pilot project.
 
 ## Canonical Interface
 
 - Source path: `services/product-factory`
-- Package: `@helm-pilot/product-factory`.
+- Package: `@pilot/product-factory`.
 - Coverage record: `docs/documentation-coverage.csv`
 
 ## Local Commands

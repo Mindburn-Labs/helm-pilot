@@ -1,6 +1,6 @@
 import { type Context, type Next } from 'hono';
-import { auditLog } from '@helm-pilot/db/schema';
-import { type Db } from '@helm-pilot/db/client';
+import { auditLog } from '@pilot/db/schema';
+import { type Db } from '@pilot/db/client';
 import { getWorkspaceId } from '../lib/workspace.js';
 
 /**

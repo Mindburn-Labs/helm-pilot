@@ -26,7 +26,7 @@ export default function Home() {
         }}
       >
         <div>
-          <h1 style={{ fontSize: '2rem', fontWeight: 700 }}>HELM Pilot</h1>
+          <h1 style={{ fontSize: '2rem', fontWeight: 700 }}>Pilot</h1>
           <p style={{ color: '#888', fontSize: '1.1rem' }}>
             Open-source autonomous founder operating system
           </p>
@@ -97,7 +97,7 @@ export default function Home() {
       </nav>
 
       <footer style={{ marginTop: '4rem', color: '#555', fontSize: '0.85rem' }}>
-        HELM Pilot v0.1.0 | API: {API_BASE}
+        Pilot v0.1.0 | API: {API_BASE}
       </footer>
     </main>
   );

@@ -1,4 +1,4 @@
-import { createLogger } from '@helm-pilot/shared/logger';
+import { createLogger } from '@pilot/shared/logger';
 
 const log = createLogger('gmail-connector');
 

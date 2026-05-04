@@ -1,11 +1,11 @@
 import { Hono } from 'hono';
 import { eq, desc } from 'drizzle-orm';
-import { workspaces, complianceAttestations } from '@helm-pilot/db/schema';
+import { workspaces, complianceAttestations } from '@pilot/db/schema';
 import {
   FRAMEWORKS,
   ComplianceFrameworkCodeSchema,
   type ComplianceFrameworkCode,
-} from '@helm-pilot/shared/compliance';
+} from '@pilot/shared/compliance';
 import { type GatewayDeps } from '../index.js';
 
 // ─── Compliance routes (Phase 14 Track B) ───

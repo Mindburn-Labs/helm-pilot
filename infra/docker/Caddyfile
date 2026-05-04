@@ -1,9 +1,9 @@
 {
 	# Global options
-	email {$TLS_EMAIL:admin@helm-pilot.dev}
+	email {$TLS_EMAIL:admin@pilot.dev}
 }
 
-# Main site — reverse proxy to HELM Pilot gateway
+# Main site — reverse proxy to Pilot gateway
 {$DOMAIN:localhost} {
 	# Security headers
 	header {
@@ -29,7 +29,7 @@
 
 	# SSE events (longer timeouts)
 	handle /api/events/* {
-		reverse_proxy helm-pilot:3100 {
+		reverse_proxy pilot:3100 {
 			flush_interval -1
 			transport http {
 				read_timeout 300s
@@ -39,11 +39,11 @@
 
 	# API, health, and metrics routes → gateway
 	handle /api/* {
-		reverse_proxy helm-pilot:3100
+		reverse_proxy pilot:3100
 	}
 
 	handle /health {
-		reverse_proxy helm-pilot:3100
+		reverse_proxy pilot:3100
 	}
 
 	# Metrics are scraped on the private Docker network; never expose publicly.
@@ -53,7 +53,7 @@
 
 	# Telegram miniapp static assets
 	handle /app/* {
-		reverse_proxy helm-pilot:3100
+		reverse_proxy pilot:3100
 	}
 
 	# Web app (Next.js)
