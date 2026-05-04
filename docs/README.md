@@ -1,20 +1,36 @@
-# Docs
+# Pilot Docs
 
-## Purpose
+This tree is the canonical documentation source for Pilot self-hosting, API behavior, HELM integration, security, operations, ingestion, and public positioning.
 
-Active documentation-system surface for the `pilot` project.
+## Start
 
-## Canonical Interface
+- [Self-hosting](self-hosting.md)
+- [API reference](api.md)
+- [Pilot v1 spec](spec/v1.md)
 
-- Source path: `docs`
-- Surface type: `documentation-system`
-- Package/source identity: `docs`
-- Coverage record: `docs/documentation-coverage.csv`
+## How-To
 
-## Local Commands
+- [Runbook](runbook.md)
+- [Environment reference](env-reference.md)
+- [HELM integration](helm-integration.md)
 
-- `npm run docs:coverage` from the repository root verifies coverage for this surface.
+## Reference
 
-## Documentation Contract
+- [Security hardening](security.md)
+- [Degradation matrix](degradation-matrix.md)
+- [Documentation coverage ledger](documentation-coverage.csv)
 
-This README is the canonical maintainer reference for this active documentation-system surface. Keep it aligned with the source path above and update `docs/documentation-coverage.csv` when ownership, interfaces, validation, or lifecycle status changes.
+## Explanation
+
+- [Pilot vs general-purpose autonomy](positioning/pilot-vs-general-purpose-autonomy.md)
+- [Scrapling ingestion](ingestion/scrapling-v045.md)
+- [Roadmap](roadmap.md)
+
+## Documentation Gates
+
+- `npm run docs:coverage`
+- `npm run docs:truth`
+- `npm run format:check`
+- `npm run typecheck`
+
+Update [documentation-coverage.csv](documentation-coverage.csv) whenever services, routes, migrations, deployment workflows, env vars, public docs manifests, or HELM boundary behavior change.

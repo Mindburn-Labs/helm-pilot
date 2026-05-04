@@ -33,6 +33,10 @@ Production deployments should route Pilot through the HELM sidecar. In that shap
 | `HELM_GOVERNANCE_URL` | Prod       | HELM sidecar governed API URL, e.g. `http://helm:8080` on the Docker network.             |
 | `HELM_HEALTH_URL`     | Prod       | HELM sidecar health URL, e.g. `http://helm:8081`.                                         |
 | `HELM_FAIL_CLOSED`    | Prod       | Must be `1` in production. Unreachable HELM blocks governed LLM calls.                    |
+| `HELM_UPSTREAM_URL`   | Prod       | OpenAI-compatible upstream endpoint used by the HELM sidecar after policy approval.       |
+| `HELM_PORT`           | Local      | Host port exposed by the local HELM governance API. Defaults to `8420`.                   |
+| `HELM_HEALTH_PORT`    | Local      | Host port exposed by the local HELM health API. Defaults to `8421`.                       |
+| `HELM_REGION`         | No         | Region label included in local/deployed HELM sidecar metadata and evidence context.       |
 | `PILOT_LLM_MODEL`     | No         | Model name passed through the HELM proxy.                                                 |
 | `OPENROUTER_API_KEY`  | Direct dev | OpenRouter key when Pilot runs without HELM.                                              |
 | `ANTHROPIC_API_KEY`   | Direct dev | Direct Anthropic key when Pilot runs without HELM.                                        |
@@ -85,12 +89,13 @@ YC session state is stored separately from OAuth tokens. It powers authenticated
 
 ## Security
 
-| Variable              | Required | Default                   | Description                                                                               |
-| --------------------- | -------- | ------------------------- | ----------------------------------------------------------------------------------------- |
-| `SESSION_SECRET`      | Yes      | `change-me-in-production` | Session token HMAC signing secret. **Must change in production.**                         |
-| `ENCRYPTION_KEY`      | Prod     | dev fallback              | AES-256-GCM key for encrypting connector tokens at rest. Generate: `openssl rand -hex 32` |
-| `DAILY_BUDGET_MAX`    | No       | `500`                     | Maximum daily spend (EUR) across all tasks before kill switch                             |
-| `PER_TASK_BUDGET_MAX` | No       | `100`                     | Maximum spend per individual task                                                         |
+| Variable               | Required | Default                   | Description                                                                               |
+| ---------------------- | -------- | ------------------------- | ----------------------------------------------------------------------------------------- |
+| `SESSION_SECRET`       | Yes      | `change-me-in-production` | Session token HMAC signing secret. **Must change in production.**                         |
+| `ENCRYPTION_KEY`       | Prod     | dev fallback              | AES-256-GCM key for encrypting connector tokens at rest. Generate: `openssl rand -hex 32` |
+| `EVIDENCE_SIGNING_KEY` | Prod     | dev fallback              | Ed25519 evidence-pack signing key used by governed receipt and audit flows.               |
+| `DAILY_BUDGET_MAX`     | No       | `500`                     | Maximum daily spend (EUR) across all tasks before kill switch                             |
+| `PER_TASK_BUDGET_MAX`  | No       | `100`                     | Maximum spend per individual task                                                         |
 
 > ⚠️ **Production requirement:** Both `SESSION_SECRET` and `ENCRYPTION_KEY` must be set to unique, random values.
 
