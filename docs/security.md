@@ -2,6 +2,50 @@
 
 Production-grade security configuration for Pilot.
 
+## Audience
+
+Use this page if you are operating Pilot in production, reviewing autonomous-action constraints, hardening connectors, or checking the self-hosting threat model. It is for operators, platform engineers, and security reviewers.
+
+## Outcome
+
+After this page you should be able to:
+
+- generate and rotate required secrets;
+- explain how sessions, API keys, connector tokens, and session snapshots are protected;
+- understand autonomous-action constraints and fail-closed behavior;
+- configure OAuth, webhooks, CORS, TLS, rate limits, backups, and audit logs;
+- distinguish Pilot application security from HELM governance responsibilities.
+
+## Security Boundary
+
+```mermaid
+flowchart TD
+  User["User or Telegram"] --> Gateway["Gateway auth and rate limits"]
+  Gateway --> Workspace["Workspace tenancy"]
+  Workspace --> Policy["Trust boundary policy"]
+  Policy --> Approval["Approval gates"]
+  Policy --> Helm["HELM governance"]
+  Gateway --> Secrets["Encrypted token/session storage"]
+  Gateway --> Audit["Audit events"]
+  Helm --> Receipts["Receipts and evidence packs"]
+```
+
+## Source Truth
+
+Security guidance is backed by:
+
+- `services/gateway/src/middleware/`
+- `services/gateway/src/routes/auth.ts`
+- `services/gateway/src/routes/connectors*`
+- `services/orchestrator/src/trust.ts`
+- `packages/db/src/schema/`
+- `scripts/rotate-encryption-key.ts`
+- `scripts/rotate-master-key.ts`
+- `docs/helm-integration.md`
+- `docs/degradation-matrix.md`
+
+If code and this guide disagree, update the guide before publishing.
+
 ## Secrets Management
 
 ### Required Secrets
@@ -299,3 +343,13 @@ Before going to production, verify:
 - [ ] Database password is strong and unique
 - [ ] Backups are configured and tested
 - [ ] `launch-gate.sh` passes all checks
+
+## Troubleshooting
+
+| Symptom                               | Likely Cause                                                 | Fix                                                              |
+| ------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------- |
+| users cannot log in                   | email provider, session secret, or database is misconfigured | check auth routes, email provider, and session rows              |
+| connector token cannot decrypt        | encryption key rotated without migration                     | use the rotation procedure and verify rows before deploy         |
+| webhook accepts unexpected requests   | webhook secret is missing or mismatched                      | set provider webhook secret and verify request validation        |
+| autonomous action bypasses approval   | trust boundary policy is too permissive                      | update workspace policy and require approval for sensitive tools |
+| production keeps running without HELM | fail-closed config is missing                                | set `HELM_FAIL_CLOSED=1` and verify `/health` reports HELM state |

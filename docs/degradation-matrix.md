@@ -30,7 +30,7 @@ Pilot is designed so that missing optional services cause specific, bounded feat
 The process exits non-zero if any of these fail:
 
 1. `DATABASE_URL` is missing.
-2. `SESSION_SECRET`, `ENCRYPTION_KEY`, or configured `EVIDENCE_SIGNING_KEY` is missing or still a placeholder when `NODE_ENV=production`.
+2. `SESSION_SECRET`, `ENCRYPTION_KEY`, or configured `EVIDENCE_SIGNING_KEY` is missing or still a default development value when `NODE_ENV=production`.
 3. `TELEGRAM_BOT_TOKEN` is set in production without `TELEGRAM_WEBHOOK_SECRET`.
 4. `drizzle-kit migrate` fails during startup (when `RUN_MIGRATIONS_ON_STARTUP=true`).
 5. Any connector listed in `ENABLED_CONNECTORS` has missing credentials (prod only).

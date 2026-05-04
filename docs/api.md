@@ -2,6 +2,40 @@
 
 Base URL: `http://localhost:3100` (or your deployed gateway URL)
 
+## Audience
+
+Use this page if you are writing a client, testing a self-hosted deployment, wiring a connector, or auditing API behavior. It is a public reference hub for routes, auth, workspace context, payload shapes, job surfaces, receipts, and diagnostics.
+
+## Outcome
+
+After this page you should be able to:
+
+- authenticate with email, Telegram, or API keys;
+- pass workspace context correctly;
+- use tasks, operators, knowledge, applications, connectors, launch, YC ingestion, and audit endpoints;
+- understand where HELM governance receipts appear;
+- collect useful diagnostics when an API call fails.
+
+## API Surface Map
+
+```mermaid
+flowchart LR
+  Client["Client"] --> Auth["Auth"]
+  Auth --> Workspace["Workspace context"]
+  Workspace --> Tasks["Tasks and operators"]
+  Workspace --> Knowledge["Knowledge and applications"]
+  Workspace --> Connectors["Connectors"]
+  Workspace --> Launch["Launch"]
+  Workspace --> Audit["Audit and approvals"]
+  Tasks --> Governance["Governance receipts"]
+  Connectors --> Governance
+  Launch --> Governance
+```
+
+## Source Truth
+
+Route behavior is backed by `services/gateway/src/routes/`, Zod payloads and shared types in `packages/shared/`, database domains in `packages/db/src/schema/`, and HELM receipt wiring in `packages/helm-client/`. If a route description differs from code or tests, update this file.
+
 ## Authentication
 
 All protected endpoints require one of:
@@ -354,3 +388,26 @@ List timeline events. Query: `?workspaceId=...`
 Health check (public).
 
 Response: `{ "status": "ok", "version": "0.1.0", "checks": { "db": true, "pgboss": true } }`
+
+## Receipts And Governance
+
+When HELM is configured, governed LLM calls and consequential tool actions should attach decision metadata to task runs and evidence rows. Use:
+
+- `GET /api/governance/status`
+- `GET /api/governance/receipts`
+- `GET /api/governance/receipts/:decisionId`
+- `GET /api/audit?workspaceId=...`
+
+## Error Codes And Diagnostics
+
+For a failed API call, collect method, path, workspace ID, request ID, response status, sanitized payload shape, auth mechanism, task ID if relevant, and HELM decision ID when present. Do not include secrets, raw connector tokens, or private session snapshots.
+
+## Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+| --- | --- | --- |
+| request returns 401 | missing bearer token, API key, or expired session | authenticate again and check `X-New-Token` |
+| route returns 404 for workspace data | workspace context is missing or wrong | pass `X-Workspace-Id` or use workspace-scoped path |
+| connector action fails | grant is missing, expired, or not validated | inspect connector grant status and revalidate |
+| task creates but never runs | pg-boss or orchestrator is unavailable | check `/health` and job queue status |
+| governed action has no receipt | HELM is not configured or route is not governed | check `HELM_GOVERNANCE_URL`, startup logs, and audit entries |

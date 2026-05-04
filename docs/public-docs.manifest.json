@@ -11,9 +11,9 @@
   "documents": [
     {
       "slug": "start",
-      "title": "Self-Hosting Pilot",
+      "title": "Start with Pilot",
       "section": "start",
-      "source_path": "docs/self-hosting.md",
+      "source_path": "docs/start.md",
       "docs_origin_hint": "pilot.docs.mindburn.org/start"
     },
     {
@@ -25,9 +25,9 @@
     },
     {
       "slug": "architecture",
-      "title": "Pilot Specification",
+      "title": "Pilot Architecture",
       "section": "architecture",
-      "source_path": "docs/spec/v1.md",
+      "source_path": "docs/architecture.md",
       "docs_origin_hint": "pilot.docs.mindburn.org/architecture"
     },
     {
@@ -39,9 +39,9 @@
     },
     {
       "slug": "integrations",
-      "title": "HELM Integration",
+      "title": "Integrations",
       "section": "integrations",
-      "source_path": "docs/helm-integration.md",
+      "source_path": "docs/integrations.md",
       "docs_origin_hint": "pilot.docs.mindburn.org/integrations"
     },
     {

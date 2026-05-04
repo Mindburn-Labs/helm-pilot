@@ -1,6 +1,52 @@
 # Self-Hosting Pilot
 
-Pilot is designed to run on your own infrastructure. This guide covers setup from zero to running.
+Pilot is designed to run on your own infrastructure. This operator guide covers Docker, PostgreSQL, pgvector, environment variables, upgrades, backups, restore, DigitalOcean deployment, local development, and production readiness.
+
+## Audience
+
+Use this page if you are operating Pilot rather than just trying the first founder workflow. It is for self-hosting operators, platform engineers, and developers who own runtime health, secrets, migrations, backups, upgrades, and rollback.
+
+## Outcome
+
+After this page you should be able to:
+
+- run Pilot locally or on a single-node Docker Compose deployment;
+- install the Python/Scrapling runtime;
+- configure PostgreSQL with pgvector and required environment variables;
+- configure HELM as the production governance sidecar;
+- back up and restore database plus local storage;
+- perform upgrades and diagnose common startup failures.
+
+## Deployment Topology
+
+```mermaid
+flowchart LR
+  Operator["Operator"] --> Proxy["Caddy, nginx, or tunnel"]
+  Proxy --> Gateway["Pilot gateway :3100"]
+  Proxy --> Web["Pilot web UI :3000"]
+  Gateway --> Postgres["PostgreSQL 17 + pgvector"]
+  Gateway --> Jobs["pg-boss jobs"]
+  Gateway --> Python["Python/Scrapling runtime"]
+  Gateway --> Helm["HELM sidecar"]
+  Gateway --> Storage["local or S3-compatible storage"]
+  Helm --> Upstream["OpenAI-compatible upstream"]
+```
+
+## Source Truth
+
+This page is backed by:
+
+- `scripts/setup.sh`
+- `scripts/install-python-runtime.sh`
+- `scripts/verify-python-runtime.py`
+- `infra/docker/docker-compose.yml`
+- `infra/digitalocean/README.md`
+- `infra/digitalocean/deploy.sh`
+- `docs/env-reference.md`
+- `docs/security.md`
+- `docs/degradation-matrix.md`
+
+If commands here differ from scripts or deployment files, update the docs and source together.
 
 ## Prerequisites
 
