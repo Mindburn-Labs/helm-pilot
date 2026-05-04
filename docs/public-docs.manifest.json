@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "repo": "helm-pilot",
+  "display_name": "HELM Pilot",
+  "docs_origin": {
+    "canonical_host": "pilot.docs.mindburn.org",
+    "source_repo": "Mindburn-Labs/helm-pilot",
+    "source_root": "docs/"
+  },
+  "documents": [
+    {
+      "slug": "start",
+      "title": "Self-Hosting HELM Pilot",
+      "section": "start",
+      "source_path": "docs/self-hosting.md",
+      "docs_origin_hint": "pilot.docs.mindburn.org/start"
+    },
+    {
+      "slug": "self-hosting",
+      "title": "Self-Hosting HELM Pilot",
+      "section": "self-hosting",
+      "source_path": "docs/self-hosting.md",
+      "docs_origin_hint": "pilot.docs.mindburn.org/self-hosting"
+    },
+    {
+      "slug": "architecture",
+      "title": "HELM Pilot Specification",
+      "section": "architecture",
+      "source_path": "docs/spec/v1.md",
+      "docs_origin_hint": "pilot.docs.mindburn.org/architecture"
+    },
+    {
+      "slug": "product",
+      "title": "HELM Pilot Positioning",
+      "section": "product",
+      "source_path": "docs/positioning/helm-pilot-vs-general-purpose-autonomy.md",
+      "docs_origin_hint": "pilot.docs.mindburn.org/product"
+    },
+    {
+      "slug": "integrations",
+      "title": "HELM Integration",
+      "section": "integrations",
+      "source_path": "docs/helm-integration.md",
+      "docs_origin_hint": "pilot.docs.mindburn.org/integrations"
+    },
+    {
+      "slug": "reference",
+      "title": "API Reference",
+      "section": "reference",
+      "source_path": "docs/api.md",
+      "docs_origin_hint": "pilot.docs.mindburn.org/reference"
+    },
+    {
+      "slug": "security",
+      "title": "Security",
+      "section": "security",
+      "source_path": "docs/security.md",
+      "docs_origin_hint": "pilot.docs.mindburn.org/security"
+    },
+    {
+      "slug": "changelog",
+      "title": "HELM Pilot Changelog",
+      "section": "changelog",
+      "source_path": "CHANGELOG.md",
+      "docs_origin_hint": "pilot.docs.mindburn.org/changelog"
+    },
+    {
+      "slug": "reference/env",
+      "title": "Environment Reference",
+      "section": "reference",
+      "source_path": "docs/env-reference.md",
+      "docs_origin_hint": "pilot.docs.mindburn.org/reference/env"
+    },
+    {
+      "slug": "operations/runbook",
+      "title": "Runbook",
+      "section": "self-hosting",
+      "source_path": "docs/runbook.md",
+      "docs_origin_hint": "pilot.docs.mindburn.org/operations/runbook"
+    },
+    {
+      "slug": "operations/degradation-matrix",
+      "title": "Degradation Matrix",
+      "section": "self-hosting",
+      "source_path": "docs/degradation-matrix.md",
+      "docs_origin_hint": "pilot.docs.mindburn.org/operations/degradation-matrix"
+    },
+    {
+      "slug": "ingestion/scrapling",
+      "title": "Scrapling Ingestion",
+      "section": "architecture",
+      "source_path": "docs/ingestion/scrapling-v045.md",
+      "docs_origin_hint": "pilot.docs.mindburn.org/ingestion/scrapling"
+    },
+    {
+      "slug": "telegram-miniapp",
+      "title": "Telegram Mini App",
+      "section": "integrations",
+      "source_path": "docs/telegram-miniapp-8.md",
+      "docs_origin_hint": "pilot.docs.mindburn.org/telegram-miniapp"
+    },
+    {
+      "slug": "roadmap",
+      "title": "Roadmap",
+      "section": "product",
+      "source_path": "docs/roadmap.md",
+      "docs_origin_hint": "pilot.docs.mindburn.org/roadmap"
+    }
+  ]
+}

@@ -715,7 +715,7 @@ TodoWrite
 System
 Create and manage a persistent to-do list file
 How It Works
-Writes a structured TODO list to a file that persists across sessions. Each item has an ID, status (not-started, in-progress, completed), and description. Used for task tracking.
+Writes a structured task list to a file that persists across sessions. Each item has an ID, status (not-started, in-progress, completed), and description. Used for task tracking.
 Parameters
 items
 src/tools/TodoWriteTool

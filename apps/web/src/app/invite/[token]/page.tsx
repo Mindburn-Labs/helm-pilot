@@ -27,6 +27,9 @@ export default function InvitePage() {
         return;
       }
       localStorage.setItem('helm_user', JSON.stringify(data.user));
+      if (data.token) {
+        localStorage.setItem('helm_token', data.token);
+      }
       localStorage.setItem('helm_workspace', JSON.stringify({ id: data.workspaceId }));
       window.location.href = '/';
     } catch {

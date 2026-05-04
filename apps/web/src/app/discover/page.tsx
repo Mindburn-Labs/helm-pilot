@@ -96,11 +96,11 @@ export default function DiscoverPage() {
       apiFetch<IngestionRecord[]>('/api/yc/ingestion/history?limit=5').catch(() => []),
     ]);
 
-    setOpportunities(opportunitiesData ?? []);
-    setProfile(profileData ?? null);
-    setCandidates(candidatesData ?? []);
+    setOpportunities(Array.isArray(opportunitiesData) ? opportunitiesData : []);
+    setProfile(normalizeFounderProfile(profileData));
+    setCandidates(Array.isArray(candidatesData) ? candidatesData : []);
     setYcConnector(ycConnectorData ?? null);
-    setIngestionHistory(historyData ?? []);
+    setIngestionHistory(Array.isArray(historyData) ? historyData : []);
     setLoading(false);
   }
 
@@ -135,7 +135,7 @@ export default function DiscoverPage() {
     });
     if (result) {
       const refreshed = await apiFetch<FounderProfile>('/api/founder/profile');
-      setProfile(refreshed);
+      setProfile(normalizeFounderProfile(refreshed));
       setFounderIntake('');
     } else {
       setError('Founder analysis failed');
@@ -170,17 +170,24 @@ export default function DiscoverPage() {
 
   async function handleScoreOpportunity(id: string) {
     await apiFetch(`/api/opportunities/${id}/score`, { method: 'POST' });
-    setOpportunities((prev) => prev.map((item) => (item.id === id ? { ...item, status: 'scoring' } : item)));
+    setOpportunities((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, status: 'scoring' } : item)),
+    );
   }
 
   async function handleScoreCandidate(id: string) {
-    const result = await apiFetch<{ overallScore: number }>('/api/founder/candidates/' + id + '/score', {
-      method: 'POST',
-    });
+    const result = await apiFetch<{ overallScore: number }>(
+      '/api/founder/candidates/' + id + '/score',
+      {
+        method: 'POST',
+      },
+    );
     if (!result) return;
 
     const detail = await apiFetch<Candidate>('/api/founder/candidates/' + id);
-    setCandidates((prev) => prev.map((candidate) => (candidate.id === id ? (detail ?? candidate) : candidate)));
+    setCandidates((prev) =>
+      prev.map((candidate) => (candidate.id === id ? (detail ?? candidate) : candidate)),
+    );
   }
 
   async function handlePublicIngestion() {
@@ -217,10 +224,20 @@ export default function DiscoverPage() {
 
   return (
     <main style={{ maxWidth: 1080, margin: '0 auto', padding: '2rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '1rem',
+          flexWrap: 'wrap',
+        }}
+      >
         <div>
           <h1>Discover</h1>
-          <p style={{ color: '#888' }}>Founder assessment, opportunity ranking, and real co-founder matching</p>
+          <p style={{ color: '#888' }}>
+            Founder assessment, opportunity ranking, and real co-founder matching
+          </p>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
           <button onClick={() => setShowOpportunityForm((value) => !value)} style={btnPrimary}>
@@ -234,35 +251,72 @@ export default function DiscoverPage() {
 
       {error && <div style={errorStyle}>{error}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(320px, 0.95fr)', gap: '1rem', marginTop: '1.5rem' }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1.25fr) minmax(320px, 0.95fr)',
+          gap: '1rem',
+          marginTop: '1.5rem',
+        }}
+      >
         <section style={panelStyle}>
           <div style={sectionHeaderStyle}>
             <div>
               <h2 style={h2Style}>Founder Fit</h2>
-              <p style={subtleStyle}>Analyze the founder profile and keep the startup vector current.</p>
+              <p style={subtleStyle}>
+                Analyze the founder profile and keep the startup vector current.
+              </p>
             </div>
           </div>
 
           {profile ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'flex-start' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: '1rem',
+                  alignItems: 'flex-start',
+                }}
+              >
                 <div>
                   <h3 style={{ margin: 0 }}>{profile.name}</h3>
-                  <p style={{ margin: '0.4rem 0 0', color: '#aaa' }}>{profile.background ?? 'No background summary yet.'}</p>
+                  <p style={{ margin: '0.4rem 0 0', color: '#aaa' }}>
+                    {profile.background ?? 'No background summary yet.'}
+                  </p>
                 </div>
                 <div style={pillStyle}>{profile.interests.length} interests</div>
               </div>
               {profile.startupVector && (
                 <div style={calloutStyle}>
-                  <div style={{ fontSize: '0.8rem', color: '#7dd3fc', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Startup Vector</div>
+                  <div
+                    style={{
+                      fontSize: '0.8rem',
+                      color: '#7dd3fc',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.08em',
+                    }}
+                  >
+                    Startup Vector
+                  </div>
                   <div style={{ marginTop: '0.35rem' }}>{profile.startupVector}</div>
                 </div>
               )}
               {profile.strengths.length > 0 && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.65rem' }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                    gap: '0.65rem',
+                  }}
+                >
                   {profile.strengths.map((strength) => (
                     <div key={strength.dimension} style={miniCardStyle}>
-                      <div style={{ color: '#888', fontSize: '0.8rem', textTransform: 'capitalize' }}>{strength.dimension}</div>
+                      <div
+                        style={{ color: '#888', fontSize: '0.8rem', textTransform: 'capitalize' }}
+                      >
+                        {strength.dimension}
+                      </div>
                       <div style={{ fontSize: '1.15rem', fontWeight: 700 }}>{strength.score}</div>
                       <div style={{ color: '#666', fontSize: '0.78rem' }}>{strength.evidence}</div>
                     </div>
@@ -272,11 +326,15 @@ export default function DiscoverPage() {
             </div>
           ) : (
             <div style={{ color: '#888', marginBottom: '1rem' }}>
-              No founder profile yet. Run an intake below and the system will persist the profile, strengths, and startup vector.
+              No founder profile yet. Run an intake below and the system will persist the profile,
+              strengths, and startup vector.
             </div>
           )}
 
-          <form onSubmit={handleAnalyzeFounder} style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <form
+            onSubmit={handleAnalyzeFounder}
+            style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}
+          >
             <textarea
               placeholder="Describe the founder: background, shipped products, strengths, interests, what they want to build, where they feel weak."
               value={founderIntake}
@@ -294,7 +352,9 @@ export default function DiscoverPage() {
           <div style={sectionHeaderStyle}>
             <div>
               <h2 style={h2Style}>YC Intelligence</h2>
-              <p style={subtleStyle}>Queue public YC ingestion and private co-founder matching syncs.</p>
+              <p style={subtleStyle}>
+                Queue public YC ingestion and private co-founder matching syncs.
+              </p>
             </div>
           </div>
 
@@ -312,7 +372,14 @@ export default function DiscoverPage() {
           </div>
 
           <div style={calloutStyle}>
-            <div style={{ fontSize: '0.8rem', color: '#7dd3fc', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            <div
+              style={{
+                fontSize: '0.8rem',
+                color: '#7dd3fc',
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+              }}
+            >
               YC Session
             </div>
             <div style={{ marginTop: '0.35rem' }}>
@@ -323,12 +390,20 @@ export default function DiscoverPage() {
           </div>
 
           {ingestionHistory.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.75rem',
+                marginTop: '1rem',
+              }}
+            >
               {ingestionHistory.map((record) => (
                 <div key={record.id} style={miniCardStyle}>
                   <div style={{ fontWeight: 600 }}>{record.sourceOrigin}</div>
                   <div style={{ color: '#888', fontSize: '0.82rem', marginTop: '0.35rem' }}>
-                    {record.status} | {record.itemCount ?? 0} items | {new Date(record.fetchedAt).toLocaleString()}
+                    {record.status} | {record.itemCount ?? 0} items |{' '}
+                    {new Date(record.fetchedAt).toLocaleString()}
                   </div>
                 </div>
               ))}
@@ -340,15 +415,44 @@ export default function DiscoverPage() {
           <div style={sectionHeaderStyle}>
             <div>
               <h2 style={h2Style}>Real Co-founder Matching</h2>
-              <p style={subtleStyle}>Track candidates, score complementarity, and keep notes moving.</p>
+              <p style={subtleStyle}>
+                Track candidates, score complementarity, and keep notes moving.
+              </p>
             </div>
           </div>
 
           {showCandidateForm && (
-            <form onSubmit={handleCreateCandidate} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
-              <input type="text" placeholder="Candidate name" value={candidateName} onChange={(e) => setCandidateName(e.target.value)} required style={inputStyle} />
-              <input type="text" placeholder="Headline / role focus" value={candidateHeadline} onChange={(e) => setCandidateHeadline(e.target.value)} style={inputStyle} />
-              <textarea placeholder="Relevant background, YC profile notes, or why they may fit." value={candidateBio} onChange={(e) => setCandidateBio(e.target.value)} rows={4} style={{ ...inputStyle, resize: 'vertical' }} />
+            <form
+              onSubmit={handleCreateCandidate}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.75rem',
+                marginBottom: '1rem',
+              }}
+            >
+              <input
+                type="text"
+                placeholder="Candidate name"
+                value={candidateName}
+                onChange={(e) => setCandidateName(e.target.value)}
+                required
+                style={inputStyle}
+              />
+              <input
+                type="text"
+                placeholder="Headline / role focus"
+                value={candidateHeadline}
+                onChange={(e) => setCandidateHeadline(e.target.value)}
+                style={inputStyle}
+              />
+              <textarea
+                placeholder="Relevant background, YC profile notes, or why they may fit."
+                value={candidateBio}
+                onChange={(e) => setCandidateBio(e.target.value)}
+                rows={4}
+                style={{ ...inputStyle, resize: 'vertical' }}
+              />
               <button type="submit" disabled={submitting || !candidateName} style={btnSecondary}>
                 {submitting ? 'Saving...' : 'Add Candidate'}
               </button>
@@ -361,17 +465,28 @@ export default function DiscoverPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {candidates.map((candidate) => (
                 <div key={candidate.id} style={miniCardStyle}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: '0.75rem',
+                      alignItems: 'center',
+                    }}
+                  >
                     <div>
                       <div style={{ fontWeight: 700 }}>{candidate.name}</div>
-                      <div style={{ color: '#888', fontSize: '0.85rem' }}>{candidate.headline ?? 'No headline yet'}</div>
+                      <div style={{ color: '#888', fontSize: '0.85rem' }}>
+                        {candidate.headline ?? 'No headline yet'}
+                      </div>
                     </div>
                     <button onClick={() => handleScoreCandidate(candidate.id)} style={btnSmall}>
                       Score Fit
                     </button>
                   </div>
                   {candidate.fitSummary && (
-                    <p style={{ margin: '0.6rem 0 0', color: '#aaa', fontSize: '0.86rem' }}>{candidate.fitSummary}</p>
+                    <p style={{ margin: '0.6rem 0 0', color: '#aaa', fontSize: '0.86rem' }}>
+                      {candidate.fitSummary}
+                    </p>
                   )}
                   <div style={{ marginTop: '0.6rem', color: '#666', fontSize: '0.8rem' }}>
                     Overall score: {candidate.latestScore?.overallScore ?? 'unscored'}
@@ -385,10 +500,32 @@ export default function DiscoverPage() {
       </div>
 
       {showOpportunityForm && (
-        <form onSubmit={handleCreateOpportunity} style={{ ...panelStyle, marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <form
+          onSubmit={handleCreateOpportunity}
+          style={{
+            ...panelStyle,
+            marginTop: '1rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.75rem',
+          }}
+        >
           <h2 style={h2Style}>New Opportunity</h2>
-          <input type="text" placeholder="Opportunity title" value={title} onChange={(e) => setTitle(e.target.value)} required style={inputStyle} />
-          <textarea placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
+          <input
+            type="text"
+            placeholder="Opportunity title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+            style={inputStyle}
+          />
+          <textarea
+            placeholder="Description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
+            style={{ ...inputStyle, resize: 'vertical' }}
+          />
           <select value={source} onChange={(e) => setSource(e.target.value)} style={inputStyle}>
             <option value="manual">Manual</option>
             <option value="yc">YC Research</option>
@@ -416,7 +553,14 @@ export default function DiscoverPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
             {opportunities.map((opportunity) => (
               <div key={opportunity.id} style={miniCardStyle}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: '0.75rem',
+                    alignItems: 'center',
+                  }}
+                >
                   <div>
                     <h3 style={{ margin: 0 }}>{opportunity.title}</h3>
                     <div style={{ marginTop: '0.35rem', color: '#888', fontSize: '0.85rem' }}>
@@ -435,6 +579,15 @@ export default function DiscoverPage() {
       </section>
     </main>
   );
+}
+
+function normalizeFounderProfile(profile: FounderProfile | null): FounderProfile | null {
+  if (!profile) return null;
+  return {
+    ...profile,
+    interests: Array.isArray(profile.interests) ? profile.interests : [],
+    strengths: Array.isArray(profile.strengths) ? profile.strengths : [],
+  };
 }
 
 const panelStyle: React.CSSProperties = {
@@ -467,11 +620,65 @@ const sectionHeaderStyle: React.CSSProperties = {
 };
 
 const h2Style: React.CSSProperties = { margin: 0, fontSize: '1.1rem' };
-const subtleStyle: React.CSSProperties = { margin: '0.35rem 0 0', color: '#7b8798', fontSize: '0.9rem' };
-const emptyStateStyle: React.CSSProperties = { padding: '1rem', border: '1px dashed #344154', borderRadius: 12, color: '#7b8798' };
-const pillStyle: React.CSSProperties = { padding: '0.35rem 0.65rem', borderRadius: 999, border: '1px solid #33506d', color: '#ec7866', fontSize: '0.8rem' };
-const inputStyle: React.CSSProperties = { padding: '0.75rem 1rem', background: '#0f1724', border: '1px solid #273244', borderRadius: 10, color: '#ededed', fontSize: '0.95rem' };
-const btnPrimary: React.CSSProperties = { padding: '0.65rem 1.05rem', background: '#2563eb', border: 'none', borderRadius: 10, color: '#fff', fontSize: '0.9rem', cursor: 'pointer' };
-const btnSecondary: React.CSSProperties = { padding: '0.65rem 1.05rem', background: '#0f766e', border: 'none', borderRadius: 10, color: '#fff', fontSize: '0.9rem', cursor: 'pointer' };
-const btnSmall: React.CSSProperties = { padding: '0.35rem 0.75rem', background: '#1f2937', border: '1px solid #334155', borderRadius: 8, color: '#e2e8f0', fontSize: '0.8rem', cursor: 'pointer' };
-const errorStyle: React.CSSProperties = { color: '#fca5a5', marginTop: '1rem', padding: '0.65rem 0.8rem', border: '1px solid #7f1d1d', borderRadius: 10, fontSize: '0.85rem', background: 'rgba(69, 10, 10, 0.25)' };
+const subtleStyle: React.CSSProperties = {
+  margin: '0.35rem 0 0',
+  color: '#7b8798',
+  fontSize: '0.9rem',
+};
+const emptyStateStyle: React.CSSProperties = {
+  padding: '1rem',
+  border: '1px dashed #344154',
+  borderRadius: 12,
+  color: '#7b8798',
+};
+const pillStyle: React.CSSProperties = {
+  padding: '0.35rem 0.65rem',
+  borderRadius: 999,
+  border: '1px solid #33506d',
+  color: '#ec7866',
+  fontSize: '0.8rem',
+};
+const inputStyle: React.CSSProperties = {
+  padding: '0.75rem 1rem',
+  background: '#0f1724',
+  border: '1px solid #273244',
+  borderRadius: 10,
+  color: '#ededed',
+  fontSize: '0.95rem',
+};
+const btnPrimary: React.CSSProperties = {
+  padding: '0.65rem 1.05rem',
+  background: '#2563eb',
+  border: 'none',
+  borderRadius: 10,
+  color: '#fff',
+  fontSize: '0.9rem',
+  cursor: 'pointer',
+};
+const btnSecondary: React.CSSProperties = {
+  padding: '0.65rem 1.05rem',
+  background: '#0f766e',
+  border: 'none',
+  borderRadius: 10,
+  color: '#fff',
+  fontSize: '0.9rem',
+  cursor: 'pointer',
+};
+const btnSmall: React.CSSProperties = {
+  padding: '0.35rem 0.75rem',
+  background: '#1f2937',
+  border: '1px solid #334155',
+  borderRadius: 8,
+  color: '#e2e8f0',
+  fontSize: '0.8rem',
+  cursor: 'pointer',
+};
+const errorStyle: React.CSSProperties = {
+  color: '#fca5a5',
+  marginTop: '1rem',
+  padding: '0.65rem 0.8rem',
+  border: '1px solid #7f1d1d',
+  borderRadius: 10,
+  fontSize: '0.85rem',
+  background: 'rgba(69, 10, 10, 0.25)',
+};

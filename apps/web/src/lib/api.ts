@@ -3,18 +3,26 @@
 const API = process.env.NEXT_PUBLIC_API_URL ?? '';
 
 /**
- * Authenticated fetch wrapper. Uses HttpOnly session cookies and adds
- * workspace + CSRF headers from browser-local, non-secret state.
+ * Authenticated fetch wrapper. Uses HttpOnly session cookies first, with a
+ * bearer fallback for API nodes that have not rolled out cookie sessions yet.
+ * Adds workspace + CSRF headers from browser-local, non-secret state.
  * Returns null and redirects to /login on 401.
  */
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T | null> {
   const workspaceId = typeof window !== 'undefined' ? getWorkspaceId() : null;
+  const legacyToken =
+    typeof window !== 'undefined' && path.startsWith('/api/') && !path.startsWith('/api/auth/')
+      ? localStorage.getItem('helm_token')
+      : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...((options?.headers as Record<string, string>) ?? {}),
   };
   if (workspaceId && path.startsWith('/api/') && !path.startsWith('/api/auth/')) {
     headers['X-Workspace-Id'] = workspaceId;
+  }
+  if (legacyToken && !headers.Authorization) {
+    headers.Authorization = `Bearer ${legacyToken}`;
   }
   const csrfToken = typeof document !== 'undefined' ? readCookie('helm_csrf') : null;
   if (csrfToken && isMutatingRequest(options?.method)) {
@@ -33,6 +41,10 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
       localStorage.removeItem('helm_workspace');
       window.location.href = '/login';
     }
+    return null;
+  }
+
+  if (!response.ok) {
     return null;
   }
 

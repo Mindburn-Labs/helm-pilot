@@ -310,10 +310,13 @@ Replay a previously stored raw capture through the parser.
 ```
 
 ### GET /api/yc/ingestion/history
-List recent ingestion records for the current workspace.
+List recent ingestion records for the current workspace. Records include replay tracking fields when migration `0017_ingestion_replay_columns` has been applied:
+
+- `replayCount`: number of operator-triggered parser replays for the stored capture.
+- `lastReplayedAt`: timestamp of the most recent replay, or `null`.
 
 ### GET /api/yc/ingestion/:id
-Get a single ingestion record with status, counts, provenance, and errors.
+Get a single ingestion record with status, counts, provenance, replay counters, and errors.
 List deploy targets. Query: `?workspaceId=...`
 
 ### POST /api/launch/targets

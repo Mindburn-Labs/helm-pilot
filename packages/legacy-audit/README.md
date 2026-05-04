@@ -1,0 +1,21 @@
+# Legacy Audit
+
+## Purpose
+
+Wrappers and adapters around existing HELM Pilot modules during migration (Section 27)
+
+## Canonical Interface
+
+- Source path: `packages/legacy-audit`
+- Package: `@helm-pilot/legacy-audit`.
+- Coverage record: `docs/documentation-coverage.csv`
+
+## Local Commands
+
+- `npm run build -w packages/legacy-audit`
+- `npm run dev -w packages/legacy-audit`
+- `npm run typecheck -w packages/legacy-audit`
+
+## Documentation Contract
+
+This README is the maintainer reference for this active package surface. Keep it aligned with the source path above and update `docs/documentation-coverage.csv` when ownership, interfaces, validation, or lifecycle status changes.

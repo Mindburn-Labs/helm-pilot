@@ -52,6 +52,9 @@ export default function LoginPage() {
       }
       // Store auth data
       localStorage.setItem('helm_user', JSON.stringify(data.user));
+      if (data.token) {
+        localStorage.setItem('helm_token', data.token);
+      }
       if (data.workspace) {
         localStorage.setItem('helm_workspace', JSON.stringify(data.workspace));
       }

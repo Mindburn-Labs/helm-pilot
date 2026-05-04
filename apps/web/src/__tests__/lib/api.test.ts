@@ -16,8 +16,8 @@ beforeEach(async () => {
 });
 
 describe('apiFetch', () => {
-  it('sends cookie credentials without exposing a Bearer token from localStorage', async () => {
-    localStorage.setItem('helm_token', 'legacy-token-that-should-not-be-used');
+  it('sends cookie credentials with bearer fallback when a legacy token exists', async () => {
+    localStorage.setItem('helm_token', 'legacy-token');
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       new Response(JSON.stringify({ ok: true }), {
         headers: { 'content-type': 'application/json' },
@@ -29,7 +29,7 @@ describe('apiFetch', () => {
     const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(url).toBe('/api/test');
     expect(init.credentials).toBe('include');
-    expect(init.headers['Authorization']).toBeUndefined();
+    expect(init.headers.Authorization).toBe('Bearer legacy-token');
   });
 
   it('adds CSRF header for mutating cookie-authenticated requests', async () => {
@@ -87,6 +87,18 @@ describe('apiFetch', () => {
 
     const result = await apiFetch<{ users: number[] }>('/api/users');
     expect(result).toEqual({ users: [1, 2] });
+  });
+
+  it('returns null for non-2xx JSON responses', async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'No founder profile found' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const result = await apiFetch('/api/founder/profile');
+    expect(result).toBeNull();
   });
 
   it('returns null for non-JSON responses', async () => {
