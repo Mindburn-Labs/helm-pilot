@@ -2,6 +2,8 @@
 
 Open-source, self-hostable autonomous founder operating system. Pilot helps founders assess fit, discover opportunities, evaluate real co-founder candidates, coordinate digital operators, build, launch, and apply, all behind a governed trust boundary.
 
+Production-readiness truth: Pilot is not yet production-ready as a fully autonomous startup OS. The authoritative capability states live in [`docs/capabilities.md`](docs/capabilities.md), `GET /api/capabilities`, and `packages/shared/src/capabilities/index.ts`. A feature may not be claimed production-ready unless that registry marks it `production_ready` with passing eval evidence.
+
 The ingestion and browser-automation layer is now Scrapling-first: public YC ingestion, session-backed YC matching sync, and operator-triggered fetch/extract work all run through the shared Scrapling runtime.
 
 ## Architecture

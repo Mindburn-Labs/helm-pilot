@@ -25,6 +25,7 @@
     "./eval": "./dist/eval/index.js",
     "./sanitizers": "./dist/sanitizers/index.js",
     "./compliance": "./dist/compliance/index.js",
+    "./capabilities": "./dist/capabilities/index.js",
     "./mcp": "./dist/mcp/index.js",
     "./multimodal": "./dist/multimodal/index.js",
     "./a2a": "./dist/a2a/index.js",

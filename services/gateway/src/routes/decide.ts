@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
 import { opportunities } from '@pilot/db/schema';
+import { getCapabilityRecord } from '@pilot/shared/capabilities';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId } from '../lib/workspace.js';
 
@@ -44,16 +45,17 @@ export function decideRoutes(deps: GatewayDeps) {
 
     const { DecisionCourt } = await import('@pilot/decision-court');
     const court = new DecisionCourt();
+    const capability = getCapabilityRecord('decision_court');
 
     try {
       const result = await court.runCourt({
         shortlist,
         systemContext: body.founderContext,
       });
-      return c.json(result);
+      return c.json({ ...result, capability });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Decision court failed';
-      return c.json({ error: message }, 500);
+      return c.json({ error: message, capability }, 500);
     }
   });
 
