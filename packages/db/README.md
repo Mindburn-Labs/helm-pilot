@@ -1,4 +1,5 @@
 # Db
+<!-- docs-generated: surface-readme -->
 
 ## Purpose
 
@@ -25,4 +26,4 @@ The package owns Drizzle schema and migrations. Migration `0017_ingestion_replay
 
 ## Documentation Contract
 
-This README is the maintainer reference for this active package surface. Keep it aligned with the source path above and update `docs/documentation-coverage.csv` when ownership, interfaces, validation, or lifecycle status changes.
+Generated surface README. This file is a local ownership and validation contract, not the primary docs information architecture entry point. It covers the active package surface. Keep it aligned with the source path above and update `docs/documentation-coverage.csv` when ownership, interfaces, validation, or lifecycle status changes.

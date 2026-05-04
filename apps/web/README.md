@@ -1,4 +1,5 @@
 # Web
+<!-- docs-generated: surface-readme -->
 
 ## Purpose
 
@@ -24,4 +25,4 @@ The Discover page consumes founder profile, opportunity, co-founder, connector, 
 
 ## Documentation Contract
 
-This README is the maintainer reference for this active app surface. Keep it aligned with the source path above and update `docs/documentation-coverage.csv` when ownership, interfaces, validation, or lifecycle status changes.
+Generated surface README. This file is a local ownership and validation contract, not the primary docs information architecture entry point. It covers the active app surface. Keep it aligned with the source path above and update `docs/documentation-coverage.csv` when ownership, interfaces, validation, or lifecycle status changes.

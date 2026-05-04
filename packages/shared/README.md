@@ -1,4 +1,5 @@
 # Shared
+<!-- docs-generated: surface-readme -->
 
 ## Purpose
 
@@ -20,4 +21,4 @@ Active package surface for the pilot project.
 
 ## Documentation Contract
 
-This README is the maintainer reference for this active package surface. Keep it aligned with the source path above and update `docs/documentation-coverage.csv` when ownership, interfaces, validation, or lifecycle status changes.
+Generated surface README. This file is a local ownership and validation contract, not the primary docs information architecture entry point. It covers the active package surface. Keep it aligned with the source path above and update `docs/documentation-coverage.csv` when ownership, interfaces, validation, or lifecycle status changes.

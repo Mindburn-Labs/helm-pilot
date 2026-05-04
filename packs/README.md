@@ -1,4 +1,5 @@
 # Packs
+<!-- docs-generated: surface-readme -->
 
 ## Purpose
 
@@ -17,4 +18,4 @@ Active pack surface for the `pilot` project.
 
 ## Documentation Contract
 
-This README is the canonical maintainer reference for this active pack surface. Keep it aligned with the source path above and update `docs/documentation-coverage.csv` when ownership, interfaces, validation, or lifecycle status changes.
+Generated surface README. This file is a local ownership and validation contract, not the primary docs information architecture entry point. It covers the active pack surface. Keep it aligned with the source path above and update `docs/documentation-coverage.csv` when ownership, interfaces, validation, or lifecycle status changes.
