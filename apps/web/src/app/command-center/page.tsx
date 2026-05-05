@@ -71,6 +71,20 @@ interface CommandCenterResponse {
   };
 }
 
+interface CommandCenterProofDagResponse {
+  workspaceId: string;
+  rootTaskRunId: string;
+  generatedAt: string;
+  productionReady: false;
+  capability: CapabilityRecord;
+  dag: {
+    taskRuns: DurableRow[];
+    agentHandoffs: DurableRow[];
+    evidencePacks: DurableRow[];
+  };
+  blockers: string[];
+}
+
 const navItems = [
   { label: 'Command', href: '/command-center' },
   { label: 'Ventures', href: '/discover' },
@@ -99,6 +113,10 @@ const stateOrder: CapabilityState[] = [
 
 export default function CommandCenterPage() {
   const [data, setData] = useState<CommandCenterResponse | null>(null);
+  const [selectedProofDagRunId, setSelectedProofDagRunId] = useState<string | null>(null);
+  const [proofDag, setProofDag] = useState<CommandCenterProofDagResponse | null>(null);
+  const [proofDagError, setProofDagError] = useState<string | null>(null);
+  const [proofDagLoading, setProofDagLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const isNarrow = useNarrowViewport(760);
@@ -121,11 +139,67 @@ export default function CommandCenterPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (!data || selectedProofDagRunId) return;
+    const firstRunId = data.recent.taskRuns
+      .map((row) => row.id)
+      .find((id): id is string => typeof id === 'string' && id.length > 0);
+    if (firstRunId) setSelectedProofDagRunId(firstRunId);
+  }, [data, selectedProofDagRunId]);
+
+  useEffect(() => {
+    if (!selectedProofDagRunId) {
+      setProofDag(null);
+      return;
+    }
+
+    let cancelled = false;
+    setProofDagLoading(true);
+    setProofDagError(null);
+
+    apiFetch<CommandCenterProofDagResponse>(
+      `/api/command-center/proof-dag/${encodeURIComponent(selectedProofDagRunId)}`,
+    )
+      .then((response) => {
+        if (cancelled) return;
+        if (!response) {
+          setProofDag(null);
+          setProofDagError('Proof DAG unavailable for the selected run.');
+          return;
+        }
+        setProofDag(response);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setProofDag(null);
+        setProofDagError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setProofDagLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProofDagRunId]);
+
   const capabilities = useMemo(() => {
     return [...(data?.capabilities.records ?? [])].sort((a, b) => {
       const stateDelta = stateOrder.indexOf(a.state) - stateOrder.indexOf(b.state);
       return stateDelta === 0 ? a.key.localeCompare(b.key) : stateDelta;
     });
+  }, [data]);
+
+  const proofDagCandidates = useMemo(() => {
+    return (data?.recent.taskRuns ?? [])
+      .map((row) => ({
+        id: typeof row.id === 'string' ? row.id : '',
+        lineageKind: display(row.lineageKind, 'task run'),
+        actionTool: display(row.actionTool, 'action'),
+        status: display(row.status, 'unknown'),
+      }))
+      .filter((row) => row.id.length > 0)
+      .slice(0, 8);
   }, [data]);
 
   if (typeof window !== 'undefined' && !isAuthenticated()) return null;
@@ -312,6 +386,101 @@ export default function CommandCenterPage() {
                   detail: `task ${display(row.taskId, 'unlinked')}`,
                 }))}
               />
+            </section>
+
+            <section style={proofDagSectionStyle} aria-label="Subagent proof DAG">
+              <div style={sectionHeaderStyle}>
+                <div>
+                  <h2 style={sectionTitleStyle}>Subagent Proof DAG</h2>
+                  <p style={mutedTextStyle}>
+                    Workspace-scoped lineage from parent run to spawn marker, subagent action,
+                    handoff, evidence, and receipt state.
+                  </p>
+                </div>
+                {proofDag ? <StateBadge state={proofDag.capability.state} /> : null}
+              </div>
+
+              {proofDagCandidates.length > 0 ? (
+                <div style={runSelectorStyle} aria-label="Proof DAG run selector">
+                  {proofDagCandidates.map((run) => (
+                    <button
+                      key={run.id}
+                      type="button"
+                      onClick={() => setSelectedProofDagRunId(run.id)}
+                      style={
+                        run.id === selectedProofDagRunId
+                          ? selectedRunButtonStyle
+                          : runButtonStyle
+                      }
+                    >
+                      <span style={buttonTitleStyle}>{run.lineageKind}</span>
+                      <span style={buttonMetaStyle}>
+                        {run.actionTool} / {run.status}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p style={emptyStyle}>No recent task runs are available for proof-DAG inspection.</p>
+              )}
+
+              {proofDagLoading ? <p style={loadingInlineStyle}>Loading proof DAG...</p> : null}
+              {proofDagError ? <p style={errorInlineStyle}>{proofDagError}</p> : null}
+
+              {proofDag ? (
+                <div style={proofDagGridStyle}>
+                  <TimelineSection
+                    title="Lineage Runs"
+                    empty="No related task-run rows returned."
+                    rows={proofDag.dag.taskRuns.map((row) => ({
+                      id: String(row.id ?? row.lineageKind ?? 'task-run'),
+                      title: display(row.lineageKind, 'Task run'),
+                      meta: `${display(row.status, 'unknown')} / ${display(row.actionTool, 'action')}`,
+                      detail: `parent ${display(row.parentTaskRunId, 'none')} / spawned by ${display(
+                        row.spawnedByActionId,
+                        'none',
+                      )}`,
+                    }))}
+                  />
+                  <TimelineSection
+                    title="Handoffs"
+                    empty="No durable handoff rows returned."
+                    rows={proofDag.dag.agentHandoffs.map((row) => ({
+                      id: String(row.id ?? row.childTaskRunId ?? 'handoff'),
+                      title: `${display(row.fromAgent, 'agent')} -> ${display(row.toAgent, 'agent')}`,
+                      meta: `${display(row.status, 'unknown')} / ${display(row.handoffKind, 'handoff')}`,
+                      detail: `parent ${display(row.parentTaskRunId, 'none')} / child ${display(
+                        row.childTaskRunId,
+                        'none',
+                      )}`,
+                    }))}
+                  />
+                  <TimelineSection
+                    title="Spawn Evidence"
+                    empty="No evidence packs returned for this proof DAG."
+                    rows={proofDag.dag.evidencePacks.map((row) => ({
+                      id: String(row.id ?? row.decisionId ?? 'evidence'),
+                      title: display(row.action, 'Evidence pack'),
+                      meta: `${display(row.verdict, 'verdict')} / ${display(row.policyVersion, 'policy')}`,
+                      detail: `${display(row.decisionId, 'decision')} / task run ${display(
+                        row.taskRunId,
+                        'unlinked',
+                      )}`,
+                    }))}
+                  />
+                </div>
+              ) : null}
+
+              {proofDag ? (
+                <div style={blockerStripStyle}>
+                  <span style={labelStyle}>Production blockers</span>
+                  {proofDag.blockers.map((blocker) => (
+                    <p key={blocker} style={mutedTextStyle}>
+                      {blocker}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
             </section>
 
             <section id="artifacts" style={splitStyle}>
@@ -770,6 +939,76 @@ const capabilitySectionStyle: CSSProperties = {
   marginTop: '1.4rem',
   borderTop: '1px solid var(--ds-line)',
   paddingTop: '1rem',
+};
+
+const proofDagSectionStyle: CSSProperties = {
+  marginTop: '1.4rem',
+  borderTop: '1px solid var(--ds-line)',
+  paddingTop: '1rem',
+};
+
+const runSelectorStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 170px), 1fr))',
+  gap: '0.7rem',
+  marginTop: '1rem',
+};
+
+const runButtonStyle: CSSProperties = {
+  display: 'grid',
+  gap: '0.25rem',
+  textAlign: 'left',
+  padding: '0.75rem',
+  color: 'var(--ink)',
+  border: '1px solid var(--ds-line)',
+  borderRadius: 8,
+  background: 'var(--ds-surface)',
+  cursor: 'pointer',
+};
+
+const selectedRunButtonStyle: CSSProperties = {
+  ...runButtonStyle,
+  borderColor: 'var(--accent)',
+  background: 'var(--accent-soft)',
+};
+
+const buttonTitleStyle: CSSProperties = {
+  fontWeight: 700,
+  fontSize: '0.86rem',
+  overflowWrap: 'anywhere',
+};
+
+const buttonMetaStyle: CSSProperties = {
+  color: 'var(--ink-3)',
+  fontSize: '0.78rem',
+  overflowWrap: 'anywhere',
+};
+
+const proofDagGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))',
+  gap: '1rem',
+  marginTop: '1rem',
+};
+
+const blockerStripStyle: CSSProperties = {
+  display: 'grid',
+  gap: '0.35rem',
+  marginTop: '1rem',
+  padding: '0.85rem',
+  border: '1px solid var(--warn)',
+  borderRadius: 8,
+  background: 'var(--warn-soft)',
+};
+
+const loadingInlineStyle: CSSProperties = {
+  ...mutedTextStyle,
+  marginTop: '1rem',
+};
+
+const errorInlineStyle: CSSProperties = {
+  ...loadingInlineStyle,
+  color: 'var(--danger)',
 };
 
 const capabilityGridStyle: CSSProperties = {

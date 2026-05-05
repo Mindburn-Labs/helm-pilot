@@ -15,7 +15,12 @@ describe('CommandCenterPage', () => {
   it('renders real command-center API state and non-production capability labels', async () => {
     localStorage.setItem('helm_user', JSON.stringify({ id: 'user-1' }));
     localStorage.setItem('helm_workspace', JSON.stringify({ id: 'ws-1' }));
-    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+    const rootTaskRunId = '00000000-0000-4000-8000-000000000101';
+    const spawnTaskRunId = '00000000-0000-4000-8000-000000000102';
+    const childTaskRunId = '00000000-0000-4000-8000-000000000103';
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+
+    fetchMock.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
           workspaceId: 'ws-1',
@@ -101,7 +106,15 @@ describe('CommandCenterPage', () => {
                 status: 'running',
               },
             ],
-            taskRuns: [],
+            taskRuns: [
+              {
+                id: rootTaskRunId,
+                taskId: 'task-1',
+                status: 'completed',
+                actionTool: 'score_opportunity',
+                lineageKind: 'parent_action',
+              },
+            ],
             actions: [
               {
                 id: 'action-1',
@@ -192,6 +205,74 @@ describe('CommandCenterPage', () => {
         }),
         { headers: { 'content-type': 'application/json' } },
       ),
+    ).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          workspaceId: 'ws-1',
+          rootTaskRunId,
+          generatedAt: '2026-05-05T00:00:00.000Z',
+          productionReady: false,
+          capability: {
+            key: 'subagent_lineage',
+            name: 'Subagent proof lineage',
+            state: 'implemented',
+            summary: 'Parent/spawn/child lineage is durable and inspectable.',
+            blockers: ['Proof DAG Lineage Regression pending'],
+            evalRequirement: 'Proof DAG Lineage Regression',
+          },
+          dag: {
+            taskRuns: [
+              {
+                id: rootTaskRunId,
+                status: 'completed',
+                actionTool: 'score_opportunity',
+                lineageKind: 'parent_action',
+              },
+              {
+                id: spawnTaskRunId,
+                status: 'completed',
+                actionTool: 'subagent.spawn',
+                lineageKind: 'subagent_spawn',
+                parentTaskRunId: rootTaskRunId,
+                spawnedByActionId: rootTaskRunId,
+              },
+              {
+                id: childTaskRunId,
+                status: 'completed',
+                actionTool: 'finish',
+                lineageKind: 'subagent_action',
+                parentTaskRunId: spawnTaskRunId,
+                spawnedByActionId: spawnTaskRunId,
+              },
+            ],
+            agentHandoffs: [
+              {
+                id: 'handoff-1',
+                fromAgent: 'conductor',
+                toAgent: 'opportunity_scout',
+                status: 'completed',
+                handoffKind: 'subagent_spawn',
+                parentTaskRunId: rootTaskRunId,
+                childTaskRunId: spawnTaskRunId,
+              },
+            ],
+            evidencePacks: [
+              {
+                id: 'ep-spawn',
+                taskRunId: spawnTaskRunId,
+                decisionId: 'local_spawn_1',
+                verdict: 'ALLOW',
+                policyVersion: 'founder-ops-v1',
+                action: 'SUBAGENT_SPAWN',
+              },
+            ],
+          },
+          blockers: [
+            'Proof DAG route is implemented for inspection but has not passed Proof DAG Lineage Regression',
+          ],
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
     );
 
     render(<CommandCenterPage />);
@@ -208,6 +289,14 @@ describe('CommandCenterPage', () => {
     expect(screen.getByText('Opportunity Score')).toBeTruthy();
     expect(screen.getByText('Workspace role owner')).toBeTruthy();
     expect(screen.getAllByText('Operator ownership scoping').length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getByText('Subagent Proof DAG')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('SUBAGENT_SPAWN')).toBeTruthy());
+    expect(screen.getAllByText('subagent_spawn').length).toBeGreaterThan(0);
+    expect(screen.getByText(/Proof DAG route is implemented for inspection/)).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/command-center/proof-dag/${encodeURIComponent(rootTaskRunId)}`,
+      expect.objectContaining({ credentials: 'include' }),
+    );
     expect(screen.queryByText('18/18')).toBeNull();
   });
 });

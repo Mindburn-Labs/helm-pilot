@@ -303,7 +303,7 @@ const capabilityRecords = validateCapabilityRecords([
     owner: 'Runtime Agent',
     blockers: [
       'Proof DAG Lineage Regression has not promoted the capability to production_ready',
-      'Command Center has an API proof-DAG route but still needs a founder-facing proof-DAG UI',
+      'Command Center proof-DAG UI is inspection-only and has not passed eval-backed promotion',
       'Nested mission-level replay and recovery evals have not proven lineage across checkpoint boundaries',
     ],
     evidence: [
@@ -313,6 +313,7 @@ const capabilityRecords = validateCapabilityRecords([
       'SubagentLoop persists child actions with lineage_kind=subagent_action anchored to the subagent task_run root/parent frame',
       'agent_handoffs records parent_task_run_id, child_task_run_id, handoff status, skill metadata, input, and output',
       'Gateway exposes /api/command-center/proof-dag/:taskRunId for workspace-scoped parent/spawn/child/evidence DAG inspection',
+      'apps/web /command-center renders a founder-facing proof-DAG inspection surface backed by the API route',
       'orchestrator tests cover parent anchor pre-persistence, spawn row lineage fields, child action lineage fields, evidence attachment failure, handoff persistence failure, and concurrent subagent spawn isolation',
     ],
     evalRequirement: 'Proof DAG Lineage Regression',
@@ -371,7 +372,7 @@ const capabilityRecords = validateCapabilityRecords([
     evidence: [
       'Gate 8 adds /api/command-center backed by durable task/action/tool/evidence/browser/computer/artifact/audit/approval/handoff rows',
       'Gate 8 adds /api/command-center/proof-dag/:taskRunId for subagent proof DAG inspection without production promotion',
-      'apps/web /command-center renders capability truth, blocked mission runtime, receipt chips, evidence drawers, browser/computer replay rows, and escalation state from the API',
+      'apps/web /command-center renders capability truth, blocked mission runtime, receipt chips, evidence drawers, browser/computer replay rows, subagent proof-DAG rows, and escalation state from the API',
     ],
     evalRequirement: 'Command Center Real-State UX Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,
