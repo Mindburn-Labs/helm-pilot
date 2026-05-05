@@ -456,6 +456,9 @@ export class ToolRegistry {
 
         const redacted = redactBrowserText(req.domSnapshot ?? '');
         const redactions = Array.from(new Set([...req.redactions, ...redacted.redactions]));
+        const helmDocumentVersionPins = browserHelmDocumentVersionPins(
+          evaluation.receipt.policyVersion,
+        );
         const { browserActions, browserObservations } = await import('@pilot/db/schema');
         const [browserAction] = await this.db
           .insert(browserActions)
@@ -472,11 +475,13 @@ export class ToolRegistry {
             status: 'completed',
             policyDecisionId: evaluation.receipt.decisionId,
             policyVersion: evaluation.receipt.policyVersion,
+            helmDocumentVersionPins,
             evidencePackId: evaluation.evidencePackId ?? null,
             completedAt: new Date(),
             metadata: {
               helmDecisionId: evaluation.receipt.decisionId,
               helmPolicyVersion: evaluation.receipt.policyVersion,
+              helmDocumentVersionPins,
               credentialBoundary: 'read_only_no_cookie_or_password_export',
             },
           })
@@ -511,6 +516,7 @@ export class ToolRegistry {
               ...redactRecord(req.metadata),
               helmDecisionId: evaluation.receipt.decisionId,
               helmPolicyVersion: evaluation.receipt.policyVersion,
+              helmDocumentVersionPins,
               credentialBoundary: 'read_only_no_cookie_or_password_export',
             },
           })
@@ -543,6 +549,7 @@ export class ToolRegistry {
             origin: url.origin,
             helmDecisionId: evaluation.receipt.decisionId,
             helmPolicyVersion: evaluation.receipt.policyVersion,
+            helmDocumentVersionPins,
             credentialBoundary: 'read_only_no_cookie_or_password_export',
             redactions,
           },
@@ -555,6 +562,7 @@ export class ToolRegistry {
             status: evaluation.status,
             decisionId: evaluation.receipt.decisionId,
             policyVersion: evaluation.receipt.policyVersion,
+            helmDocumentVersionPins,
             evidencePackId: evaluation.evidencePackId,
           },
           redactions,
@@ -2085,6 +2093,10 @@ function asStringArray(value: unknown): string[] {
 
 function hashText(text: string) {
   return `sha256:${createHash('sha256').update(text).digest('hex')}`;
+}
+
+function browserHelmDocumentVersionPins(policyVersion: string): Record<string, string> {
+  return { browserReadPolicy: policyVersion };
 }
 
 const SENSITIVE_BROWSER_TEXT_PATTERNS: Array<[RegExp, string]> = [

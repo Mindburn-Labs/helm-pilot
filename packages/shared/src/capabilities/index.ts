@@ -122,6 +122,7 @@ const capabilityRecords = validateCapabilityRecords([
       'HELM admin helper endpoints now have an explicit action catalog: read-only inspection is E1/no-receipt, createObligation is E2 governed write, and promoteMemory is E3 governed write',
       'Tool Broker now pins policy/document metadata on every brokered action and tool execution, including explicit local policy pins for low-risk tools without HELM decisions',
       'Launch deployment, health-check, and rollback paths now persist HELM policy/document pins into deployment and health metadata after approval',
+      'Browser read and safe computer action ledgers now persist queryable HELM document version pins beside policy decision/version metadata after approval',
     ],
     evalRequirement: 'HELM Governance Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,
