@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { appendEvidenceItem } from '@pilot/db';
 import { type Db } from '@pilot/db/client';
 import { type LlmProvider } from '@pilot/shared/llm';
 import { type PolicyConfig } from '@pilot/shared/schemas';
@@ -496,6 +497,34 @@ export class Conductor {
         })
         .returning({ id: evidencePacks.id });
       const id = row?.id ?? '';
+      if (id) {
+        await appendEvidenceItem(this.db, {
+          workspaceId: params.workspaceId,
+          evidencePackId: id,
+          evidenceType: 'subagent_spawn_receipt',
+          sourceType: 'conductor',
+          title: `Subagent spawn: ${params.def.name}`,
+          summary: params.def.description,
+          redactionState: 'redacted',
+          sensitivity: 'internal',
+          replayRef: `helm:${decisionId}`,
+          metadata: {
+            decisionId,
+            verdict: 'ALLOW',
+            policyVersion: params.policyVersion,
+            action: 'SUBAGENT_SPAWN',
+            resource: params.def.name,
+            principal: params.principal,
+            parentEvidencePackId: params.parentEvidencePackId,
+            subagent: {
+              name: params.def.name,
+              version: params.def.version,
+              operatorRole: params.def.operatorRole,
+              maxRiskClass: params.def.maxRiskClass,
+            },
+          },
+        });
+      }
       // v1.2.1 — L1 structural integrity check. Non-fatal; warnings
       // logged. Signed-blob check is off until upstream helm-oss#43 lands.
       try {

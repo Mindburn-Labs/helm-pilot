@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { computerActions } from '@pilot/db/schema';
+import { computerActions, evidenceItems } from '@pilot/db/schema';
 import { getCapabilityRecord } from '@pilot/shared/capabilities';
 import { ToolRegistry, type Tool } from '../tools.js';
 
@@ -26,6 +26,7 @@ function createRegistryWithDb(db: unknown, opts: { memory?: unknown; helmClient?
 
 function createComputerActionDb() {
   const insertedComputerActions: unknown[] = [];
+  const insertedEvidenceItems: unknown[] = [];
   const updatedComputerActions: unknown[] = [];
   const db = {
     insert: vi.fn((table: unknown) => ({
@@ -43,6 +44,16 @@ function createComputerActionDb() {
             ]),
           };
         }
+        if (table === evidenceItems) {
+          insertedEvidenceItems.push(value);
+          return {
+            returning: vi.fn(async () => [
+              {
+                id: '00000000-0000-4000-8000-000000000011',
+              },
+            ]),
+          };
+        }
         return { returning: vi.fn(async () => []) };
       }),
     })),
@@ -53,7 +64,7 @@ function createComputerActionDb() {
       }),
     })),
   };
-  return { db, insertedComputerActions, updatedComputerActions };
+  return { db, insertedComputerActions, insertedEvidenceItems, updatedComputerActions };
 }
 
 describe('ToolRegistry', () => {
@@ -512,7 +523,8 @@ describe('ToolRegistry', () => {
     });
 
     it('uses HELM, executes an allowlisted local command, and persists evidence', async () => {
-      const { db, insertedComputerActions, updatedComputerActions } = createComputerActionDb();
+      const { db, insertedComputerActions, insertedEvidenceItems, updatedComputerActions } =
+        createComputerActionDb();
       const helmClient = {
         evaluateOperatorComputerUse: vi.fn(async () => ({
           status: 'approved_for_execution',
@@ -573,6 +585,17 @@ describe('ToolRegistry', () => {
         exitCode: 0,
         outputHash: expect.stringMatching(/^sha256:/u),
       });
+      expect(insertedEvidenceItems[0]).toMatchObject({
+        workspaceId,
+        taskId,
+        actionId,
+        evidencePackId,
+        computerActionId: '00000000-0000-4000-8000-000000000010',
+        evidenceType: 'computer_action',
+        sourceType: 'computer_operator',
+        redactionState: 'redacted',
+        replayRef: 'computer:00000000-0000-4000-8000-000000000010:0',
+      });
       expect(result).toMatchObject({
         computerAction: { id: '00000000-0000-4000-8000-000000000010' },
         execution: {
@@ -587,7 +610,11 @@ describe('ToolRegistry', () => {
           policyVersion: 'founder-ops-v1',
           evidencePackId,
         },
-        evidenceIds: ['00000000-0000-4000-8000-000000000010', evidencePackId],
+        evidenceIds: [
+          '00000000-0000-4000-8000-000000000010',
+          '00000000-0000-4000-8000-000000000011',
+          evidencePackId,
+        ],
         capability: getCapabilityRecord('computer_use'),
       });
     });
@@ -810,6 +837,10 @@ describe('ToolRegistry', () => {
               typeof value === 'object' &&
               value !== null &&
               'actionType' in (value as Record<string, unknown>);
+            const isEvidenceItem =
+              typeof value === 'object' &&
+              value !== null &&
+              'evidenceType' in (value as Record<string, unknown>);
             return {
               returning: vi.fn(async () => [
                 isBrowserAction
@@ -818,6 +849,10 @@ describe('ToolRegistry', () => {
                       replayIndex: 0,
                       evidencePackId: (value as { evidencePackId?: string }).evidencePackId,
                     }
+                  : isEvidenceItem
+                    ? {
+                        id: 'evidence-item-1',
+                      }
                   : {
                       id: 'obs-1',
                       domHash: (value as { domHash?: string }).domHash,
@@ -875,6 +910,7 @@ describe('ToolRegistry', () => {
           decisionId: 'dec-browser',
           policyVersion: 'founder-ops-v1',
         },
+        evidenceItemId: 'evidence-item-1',
         capability: getCapabilityRecord('browser_execution'),
       });
       expect(inserted[0]).toMatchObject({
@@ -904,6 +940,17 @@ describe('ToolRegistry', () => {
         },
       });
       expect((inserted[1] as { domHash?: string }).domHash).toMatch(/^sha256:/u);
+      expect(inserted[2]).toMatchObject({
+        workspaceId,
+        taskId,
+        evidencePackId: '00000000-0000-4000-8000-000000000005',
+        browserObservationId: 'obs-1',
+        evidenceType: 'browser_observation',
+        sourceType: 'browser_operator',
+        redactionState: 'redacted',
+        contentHash: expect.stringMatching(/^sha256:/u),
+        replayRef: `browser:${sessionId}:0`,
+      });
     });
   });
 

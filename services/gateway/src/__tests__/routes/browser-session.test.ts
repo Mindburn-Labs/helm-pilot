@@ -5,6 +5,7 @@ import {
   browserObservations,
   browserSessionGrants,
   browserSessions,
+  evidenceItems,
 } from '@pilot/db/schema';
 import { browserSessionRoutes } from '../../routes/browser-session.js';
 import { createMockDeps, expectJson, testApp } from '../helpers.js';
@@ -64,6 +65,9 @@ function createBrowserDb(selectResults: unknown[][] = []) {
                   evidencePackId: (value as { evidencePackId?: string }).evidencePackId,
                 },
               ];
+            }
+            if (table === evidenceItems) {
+              return [{ id: 'evidence-item-1' }];
             }
             return [];
           }),
@@ -213,6 +217,7 @@ describe('browserSessionRoutes', () => {
       browserAction: { id: string; evidencePackId: string };
       observation: { id: string; domHash: string; evidencePackId: string };
       governance: { decisionId: string };
+      evidenceItemId: string;
     }>(res, 201);
 
     expect(helmClient.evaluateOperatorBrowserRead).toHaveBeenCalledWith(
@@ -226,6 +231,7 @@ describe('browserSessionRoutes', () => {
     );
     expect(body.observation.id).toBe('obs-1');
     expect(body.browserAction.id).toBe('browser-action-1');
+    expect(body.evidenceItemId).toBe('evidence-item-1');
     expect(body.observation.domHash).toMatch(/^sha256:/u);
     expect(body.governance.decisionId).toBe('dec-browser');
     expect(inserts.find((insert) => insert.table === browserActions)?.value).toMatchObject({
@@ -256,6 +262,17 @@ describe('browserSessionRoutes', () => {
         helmPolicyVersion: 'founder-ops-v1',
         credentialBoundary: 'read_only_no_cookie_or_password_export',
       },
+    });
+    expect(inserts.find((insert) => insert.table === evidenceItems)?.value).toMatchObject({
+      workspaceId,
+      taskId,
+      evidencePackId,
+      browserObservationId: 'obs-1',
+      evidenceType: 'browser_observation',
+      sourceType: 'gateway_browser_session',
+      redactionState: 'redacted',
+      contentHash: expect.stringMatching(/^sha256:/u),
+      replayRef: `browser:${sessionId}:0`,
     });
     expect(inserts.find((insert) => insert.table === auditLog)?.value).toMatchObject({
       action: 'BROWSER_OBSERVATION_CAPTURED',

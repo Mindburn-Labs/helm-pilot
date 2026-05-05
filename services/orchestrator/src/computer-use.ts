@@ -4,6 +4,7 @@ import { constants as fsConstants } from 'node:fs';
 import { access, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
+import { appendEvidenceItem } from '@pilot/db';
 import { computerActions } from '@pilot/db/schema';
 import type { Db } from '@pilot/db/client';
 import type { OperatorComputerUse } from '@pilot/shared/schemas';
@@ -139,8 +140,36 @@ export async function executeSafeComputerUse(
     })
     .where(eq(computerActions.id, record.id));
 
+  const evidenceItemId = await appendEvidenceItem(db, {
+    workspaceId: req.workspaceId,
+    taskId: req.taskId ?? null,
+    actionId: req.actionId ?? null,
+    evidencePackId: record.evidencePackId ?? governance.evidencePackId ?? null,
+    computerActionId: record.id,
+    evidenceType: 'computer_action',
+    sourceType: 'computer_operator',
+    title: `Computer ${req.operation}: ${computerActionTarget(req)}`,
+    summary:
+      completion.status === 'completed' ? req.objective : (completion.stderr ?? req.objective),
+    redactionState: 'redacted',
+    sensitivity: 'sensitive',
+    contentHash: completion.outputHash ?? null,
+    replayRef: `computer:${record.id}:${record.replayIndex ?? 0}`,
+    metadata: {
+      operation: req.operation,
+      environment: req.environment,
+      status: completion.status,
+      helmDecisionId: governance.receipt.decisionId,
+      helmPolicyVersion: governance.receipt.policyVersion,
+      exitCode: completion.exitCode ?? null,
+      durationMs: completion.durationMs ?? null,
+      executionBoundary: 'safe_local_or_sandbox_only_no_unrestricted_desktop',
+    },
+  });
+
   const evidenceIds = [
     record.id,
+    evidenceItemId,
     ...(governance.evidencePackId ? [governance.evidencePackId] : []),
   ];
   const baseExecution = {
@@ -184,6 +213,12 @@ export async function executeSafeComputerUse(
       ? {}
       : { error: completion.stderr ?? 'computer action failed' }),
   };
+}
+
+function computerActionTarget(req: OperatorComputerUse): string {
+  if (req.operation === 'terminal_command') return req.command;
+  if (req.operation === 'file_read' || req.operation === 'file_write') return req.path;
+  return req.devServerUrl ?? req.targetUrl ?? 'local-dev-server';
 }
 
 async function buildActionBase(req: OperatorComputerUse, governance: OperatorComputerUseResult) {

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { appendEvidenceItem } from '@pilot/db';
 import type { Db } from '@pilot/db/client';
 import type { MemoryService } from '@pilot/memory';
 import {
@@ -516,6 +517,34 @@ export class ToolRegistry {
             evidencePackId: browserObservations.evidencePackId,
           });
 
+        const evidenceItemId = await appendEvidenceItem(this.db, {
+          workspaceId: req.workspaceId,
+          taskId: req.taskId ?? null,
+          actionId: req.actionId ?? null,
+          evidencePackId: evaluation.evidencePackId ?? null,
+          browserObservationId: observation?.id ?? null,
+          evidenceType: 'browser_observation',
+          sourceType: 'browser_operator',
+          title: `Browser read: ${req.title ?? url.hostname}`,
+          summary: req.objective ?? `Read-only browser extraction from ${url.origin}`,
+          redactionState: redactions.length > 0 ? 'redacted' : 'clean',
+          sensitivity: 'sensitive',
+          contentHash: observation?.domHash ?? req.screenshotHash ?? null,
+          storageRef: req.screenshotRef ?? null,
+          replayRef: `browser:${req.sessionId}:${browserAction?.replayIndex ?? 0}`,
+          metadata: {
+            sessionId: req.sessionId,
+            grantId: req.grantId,
+            browserActionId: browserAction?.id ?? null,
+            url: req.url,
+            origin: url.origin,
+            helmDecisionId: evaluation.receipt.decisionId,
+            helmPolicyVersion: evaluation.receipt.policyVersion,
+            credentialBoundary: 'read_only_no_cookie_or_password_export',
+            redactions,
+          },
+        });
+
         return {
           browserAction,
           observation,
@@ -526,6 +555,7 @@ export class ToolRegistry {
             evidencePackId: evaluation.evidencePackId,
           },
           redactions,
+          evidenceItemId,
           capability,
         };
       },

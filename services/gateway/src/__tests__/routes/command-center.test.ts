@@ -143,6 +143,19 @@ describe('commandCenterRoutes', () => {
       [receipt],
       [
         {
+          id: 'ev-1',
+          workspaceId,
+          evidenceType: 'tool_receipt',
+          sourceType: 'agent_loop',
+          title: 'TOOL_USE ALLOW',
+          redactionState: 'redacted',
+          evidencePackId: 'ep-1',
+          replayRef: 'helm:dec-1',
+          observedAt: new Date('2026-05-05T09:02:30Z'),
+        },
+      ],
+      [
+        {
           id: 'approval-1',
           workspaceId,
           taskId: 'task-1',
@@ -220,11 +233,17 @@ describe('commandCenterRoutes', () => {
         summary: { productionReady: number };
         records: Array<{ key: string; state: string }>;
       };
-      status: { activeTasks: number; pendingApprovals: number; recentEvidence: number };
+      status: {
+        activeTasks: number;
+        pendingApprovals: number;
+        recentEvidence: number;
+        evidenceItems: number;
+      };
       recent: {
         tasks: Array<{ id: string; title: string }>;
         actions: Array<{ id: string; policyDecisionId: string }>;
         evidencePacks: Array<{ id: string; decisionId: string }>;
+        evidenceItems: Array<{ id: string; evidenceType: string; replayRef: string }>;
         browserObservations: Array<{ id: string; domHash: string }>;
         computerActions: Array<{ id: string; actionType: string }>;
       };
@@ -246,9 +265,11 @@ describe('commandCenterRoutes', () => {
     expect(body.status.activeTasks).toBe(1);
     expect(body.status.pendingApprovals).toBe(1);
     expect(body.status.recentEvidence).toBe(1);
+    expect(body.status.evidenceItems).toBe(1);
     expect(body.recent.tasks[0]?.title).toBe('Score opportunity');
     expect(body.recent.actions[0]?.policyDecisionId).toBe('dec-1');
     expect(body.recent.evidencePacks[0]?.decisionId).toBe('dec-1');
+    expect(body.recent.evidenceItems[0]?.replayRef).toBe('helm:dec-1');
     expect(body.recent.browserObservations[0]?.domHash).toBe('sha256:dom');
     expect(body.recent.computerActions[0]?.actionType).toBe('terminal_command');
   });

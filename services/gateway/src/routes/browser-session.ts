@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Hono } from 'hono';
 import { and, desc, eq } from 'drizzle-orm';
+import { appendEvidenceItem } from '@pilot/db';
 import {
   auditLog,
   browserActions,
@@ -294,6 +295,34 @@ export function browserSessionRoutes(deps: GatewayDeps) {
         evidencePackId: browserObservations.evidencePackId,
       });
 
+    const evidenceItemId = await appendEvidenceItem(deps.db, {
+      workspaceId: parsed.data.workspaceId,
+      taskId: parsed.data.taskId ?? null,
+      actionId: parsed.data.actionId ?? null,
+      evidencePackId: evaluation.evidencePackId ?? null,
+      browserObservationId: observation?.id ?? null,
+      evidenceType: 'browser_observation',
+      sourceType: 'gateway_browser_session',
+      title: `Browser read: ${parsed.data.title ?? url.hostname}`,
+      summary: parsed.data.objective ?? `Read-only browser extraction from ${url.origin}`,
+      redactionState: redactions.length > 0 ? 'redacted' : 'clean',
+      sensitivity: 'sensitive',
+      contentHash: observation?.domHash ?? parsed.data.screenshotHash ?? null,
+      storageRef: parsed.data.screenshotRef ?? null,
+      replayRef: `browser:${parsed.data.sessionId}:${browserAction?.replayIndex ?? 0}`,
+      metadata: {
+        sessionId: parsed.data.sessionId,
+        grantId: parsed.data.grantId,
+        browserActionId: browserAction?.id ?? null,
+        url: parsed.data.url,
+        origin: url.origin,
+        helmDecisionId: evaluation.receipt.decisionId,
+        helmPolicyVersion: evaluation.receipt.policyVersion,
+        credentialBoundary: 'read_only_no_cookie_or_password_export',
+        redactions,
+      },
+    });
+
     await deps.db.insert(auditLog).values({
       workspaceId: parsed.data.workspaceId,
       action: 'BROWSER_OBSERVATION_CAPTURED',
@@ -308,6 +337,7 @@ export function browserSessionRoutes(deps: GatewayDeps) {
         helmDecisionId: evaluation.receipt.decisionId,
         helmPolicyVersion: evaluation.receipt.policyVersion,
         evidencePackId: evaluation.evidencePackId ?? null,
+        evidenceItemId,
         redactions,
       },
     });
@@ -322,6 +352,7 @@ export function browserSessionRoutes(deps: GatewayDeps) {
           policyVersion: evaluation.receipt.policyVersion,
           evidencePackId: evaluation.evidencePackId,
         },
+        evidenceItemId,
       },
       201,
     );
