@@ -204,6 +204,13 @@
       "when": 1778025600000,
       "tag": "0027_browser_computer_policy_pins",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1778029200000,
+      "tag": "0028_managed_telegram_governance_metadata",
+      "breakpoints": true
     }
   ]
 }

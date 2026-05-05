@@ -1,4 +1,13 @@
-import { pgTable, uuid, text, timestamp, integer, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  uuid,
+  text,
+  timestamp,
+  integer,
+  index,
+  uniqueIndex,
+  jsonb,
+} from 'drizzle-orm/pg-core';
 import { users } from './identity.js';
 import { workspaces } from './workspace.js';
 import { approvals } from './audit.js';
@@ -33,6 +42,10 @@ export const managedTelegramBots = pgTable(
     launchUrl: text('launch_url'),
     supportPrompt: text('support_prompt').default('Send your question and we will follow up.'),
     lastError: text('last_error'),
+    governanceMetadata: jsonb('governance_metadata')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     disabledAt: timestamp('disabled_at', { withTimezone: true }),
@@ -122,6 +135,10 @@ export const managedTelegramBotMessages = pgTable(
     replyStatus: text('reply_status').notNull().default('none'),
     sentMessageId: text('sent_message_id'),
     error: text('error'),
+    governanceMetadata: jsonb('governance_metadata')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     repliedAt: timestamp('replied_at', { withTimezone: true }),

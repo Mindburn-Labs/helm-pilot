@@ -40,6 +40,7 @@ export const TELEGRAM_MANAGED_ACTIONS = {
 } as const;
 
 type ManagedTelegramEffectLevel = 'E1' | 'E2' | 'E3' | 'E4';
+type ManagedTelegramGovernanceMetadata = ReturnType<typeof managedTelegramGovernanceMetadata>;
 
 export function managedTelegramActionEffectLevel(action: string): ManagedTelegramEffectLevel {
   switch (action) {
@@ -233,12 +234,15 @@ export class ManagedTelegramBotService {
       );
     }
 
-    await this.evaluateAction({
+    const claimGovernance = await this.evaluateAction({
       workspaceId: request.workspaceId,
       action: TELEGRAM_MANAGED_ACTIONS.CLAIM,
       resource: `telegram:${telegramBotId}`,
       context: { telegramBotId, telegramBotUsername, requestId: request.id },
     });
+    const claimGovernanceMetadata = claimGovernance
+      ? managedTelegramGovernanceMetadata(TELEGRAM_MANAGED_ACTIONS.CLAIM, claimGovernance)
+      : undefined;
 
     const managerBotToken = this.opts.managerBotToken;
     if (!managerBotToken) throw new ManagedTelegramBotError('TELEGRAM_BOT_TOKEN is required', 503);
@@ -266,16 +270,28 @@ export class ManagedTelegramBotService {
         webhookSecretHash,
         welcomeCopy: DEFAULT_WELCOME,
         supportPrompt: DEFAULT_SUPPORT_PROMPT,
+        governanceMetadata: claimGovernanceMetadata
+          ? { claim: claimGovernanceMetadata }
+          : undefined,
       })
       .returning();
     if (!row) throw new ManagedTelegramBotError('Failed to persist managed Telegram bot', 500);
 
     try {
       await this.secrets.set(request.workspaceId, tokenSecretRef, token);
-      await this.configureChildWebhook(row, token, webhookSecret);
+      const webhookGovernance = await this.configureChildWebhook(row, token, webhookSecret);
       const [updated] = await this.opts.db
         .update(managedTelegramBots)
-        .set({ status: 'active', lastError: null, updatedAt: new Date() })
+        .set({
+          status: 'active',
+          lastError: null,
+          governanceMetadata: appendGovernanceMetadata(
+            row.governanceMetadata,
+            'setWebhook',
+            webhookGovernance,
+          ),
+          updatedAt: new Date(),
+        })
         .where(
           and(
             eq(managedTelegramBots.id, row.id),
@@ -408,14 +424,20 @@ export class ManagedTelegramBotService {
       .limit(1);
     if (!message) throw new ManagedTelegramBotError('Message not found', 404);
 
-    await this.evaluateAction({
+    const governed = await this.evaluateAction({
       workspaceId,
       action: TELEGRAM_MANAGED_ACTIONS.SEND_MESSAGE,
       resource: `telegram-managed-message:${message.id}`,
       context: { managedBotId: message.managedBotId, messageId, manual: true },
     });
 
-    return this.sendMessageRow(message, text);
+    return this.sendMessageRow(
+      message,
+      text,
+      governed
+        ? managedTelegramGovernanceMetadata(TELEGRAM_MANAGED_ACTIONS.SEND_MESSAGE, governed)
+        : undefined,
+    );
   }
 
   async sendApprovedMessage(approvalId: string) {
@@ -428,13 +450,19 @@ export class ManagedTelegramBotService {
     const text = message.replyText ?? message.aiDraft;
     if (!text) return false;
 
-    await this.evaluateAction({
+    const governed = await this.evaluateAction({
       workspaceId: message.workspaceId,
       action: TELEGRAM_MANAGED_ACTIONS.SEND_MESSAGE,
       resource: `telegram-managed-message:${message.id}`,
       context: { managedBotId: message.managedBotId, messageId: message.id, approvalId },
     });
-    await this.sendMessageRow(message, text);
+    await this.sendMessageRow(
+      message,
+      text,
+      governed
+        ? managedTelegramGovernanceMetadata(TELEGRAM_MANAGED_ACTIONS.SEND_MESSAGE, governed)
+        : undefined,
+    );
     return true;
   }
 
@@ -445,7 +473,7 @@ export class ManagedTelegramBotService {
     const managerBotToken = this.opts.managerBotToken;
     if (!managerBotToken) throw new ManagedTelegramBotError('TELEGRAM_BOT_TOKEN is required', 503);
 
-    await this.evaluateAction({
+    const rotateGovernance = await this.evaluateAction({
       workspaceId,
       action: TELEGRAM_MANAGED_ACTIONS.ROTATE_TOKEN,
       resource: `telegram:${bot.telegramBotId}`,
@@ -455,7 +483,7 @@ export class ManagedTelegramBotService {
     await this.secrets.set(workspaceId, asSecretKind(bot.tokenSecretRef), newToken);
 
     const webhookSecret = randomBytes(32).toString('hex');
-    await this.configureChildWebhook(bot, newToken, webhookSecret);
+    const webhookGovernance = await this.configureChildWebhook(bot, newToken, webhookSecret);
     this.childBotCache.delete(bot.id);
 
     const [updated] = await this.opts.db
@@ -463,6 +491,20 @@ export class ManagedTelegramBotService {
       .set({
         webhookSecretHash: hashSecret(webhookSecret),
         lastError: null,
+        governanceMetadata: appendGovernanceMetadata(
+          appendGovernanceMetadata(
+            bot.governanceMetadata,
+            'rotateToken',
+            rotateGovernance
+              ? managedTelegramGovernanceMetadata(
+                  TELEGRAM_MANAGED_ACTIONS.ROTATE_TOKEN,
+                  rotateGovernance,
+                )
+              : undefined,
+          ),
+          'setWebhook',
+          webhookGovernance,
+        ),
         updatedAt: new Date(),
       })
       .where(
@@ -477,7 +519,7 @@ export class ManagedTelegramBotService {
     const bot = await this.getActiveBot(workspaceId);
     if (!bot) throw new ManagedTelegramBotError('Launch/support bot not found', 404);
 
-    await this.evaluateAction({
+    const governed = await this.evaluateAction({
       workspaceId,
       action: TELEGRAM_MANAGED_ACTIONS.DISABLE,
       resource: `telegram:${bot.telegramBotId}`,
@@ -496,6 +538,13 @@ export class ManagedTelegramBotService {
       .set({
         status: 'disabled',
         webhookSecretHash: null,
+        governanceMetadata: appendGovernanceMetadata(
+          bot.governanceMetadata,
+          'disable',
+          governed
+            ? managedTelegramGovernanceMetadata(TELEGRAM_MANAGED_ACTIONS.DISABLE, governed)
+            : undefined,
+        ),
         disabledAt: new Date(),
         updatedAt: new Date(),
       })
@@ -655,14 +704,21 @@ export class ManagedTelegramBotService {
 
     if (row.responseMode === 'autonomous_helm') {
       try {
-        await this.evaluateAction({
+        const governed = await this.evaluateAction({
           workspaceId: row.workspaceId,
           action: TELEGRAM_MANAGED_ACTIONS.SEND_MESSAGE,
           resource: `telegram-managed-message:${message.id}`,
           context: { managedBotId: row.id, messageId: message.id, autonomous: true },
         });
         const sent = await ctx.reply(draft);
-        await this.markMessageSent(message, draft, String(sent.message_id));
+        await this.markMessageSent(
+          message,
+          draft,
+          String(sent.message_id),
+          governed
+            ? managedTelegramGovernanceMetadata(TELEGRAM_MANAGED_ACTIONS.SEND_MESSAGE, governed)
+            : undefined,
+        );
         return;
       } catch {
         // Fall back to approval below.
@@ -679,13 +735,18 @@ export class ManagedTelegramBotService {
     }
     const webhookSecret = randomBytes(32).toString('hex');
     try {
-      await this.configureChildWebhook(row, token, webhookSecret);
+      const webhookGovernance = await this.configureChildWebhook(row, token, webhookSecret);
       const [updated] = await this.opts.db
         .update(managedTelegramBots)
         .set({
           status: 'active',
           webhookSecretHash: hashSecret(webhookSecret),
           lastError: null,
+          governanceMetadata: appendGovernanceMetadata(
+            row.governanceMetadata,
+            'setWebhook',
+            webhookGovernance,
+          ),
           updatedAt: new Date(),
         })
         .where(
@@ -770,7 +831,11 @@ export class ManagedTelegramBotService {
     }
   }
 
-  private async sendMessageRow(message: ManagedMessageRow, text: string) {
+  private async sendMessageRow(
+    message: ManagedMessageRow,
+    text: string,
+    governance?: ManagedTelegramGovernanceMetadata,
+  ) {
     // lint-tenancy: ok — caller has already loaded the workspace-scoped
     // message row; managedBotId is a FK from that row.
     const bot = await this.getManagedBot(message.managedBotId);
@@ -778,7 +843,7 @@ export class ManagedTelegramBotService {
     const token = await this.secrets.get(bot.workspaceId, asSecretKind(bot.tokenSecretRef));
     if (!token) throw new ManagedTelegramBotError('Managed bot token not configured', 503);
     const sent = await sendTelegramMessage(token, message.telegramChatId, text);
-    await this.markMessageSent(message, text, String(sent.message_id ?? ''));
+    await this.markMessageSent(message, text, String(sent.message_id ?? ''), governance);
     return serializeMessage({
       ...message,
       replyText: text,
@@ -789,7 +854,12 @@ export class ManagedTelegramBotService {
     });
   }
 
-  private async markMessageSent(message: ManagedMessageRow, text: string, sentMessageId: string) {
+  private async markMessageSent(
+    message: ManagedMessageRow,
+    text: string,
+    sentMessageId: string,
+    governance?: ManagedTelegramGovernanceMetadata,
+  ) {
     await this.opts.db
       .update(managedTelegramBotMessages)
       .set({
@@ -797,6 +867,11 @@ export class ManagedTelegramBotService {
         replyStatus: 'sent',
         sentMessageId,
         error: null,
+        governanceMetadata: appendGovernanceMetadata(
+          message.governanceMetadata,
+          'sendMessage',
+          governance,
+        ),
         repliedAt: new Date(),
         updatedAt: new Date(),
       })
@@ -808,12 +883,16 @@ export class ManagedTelegramBotService {
       );
   }
 
-  private async configureChildWebhook(row: ManagedBotRow, token: string, secret: string) {
+  private async configureChildWebhook(
+    row: ManagedBotRow,
+    token: string,
+    secret: string,
+  ): Promise<ManagedTelegramGovernanceMetadata | undefined> {
     const appUrl = stripTrailingSlash(this.opts.appUrl ?? process.env['APP_URL']);
     if (!appUrl)
       throw new ManagedTelegramBotError('APP_URL is required for child bot webhook setup', 503);
 
-    await this.evaluateAction({
+    const governed = await this.evaluateAction({
       workspaceId: row.workspaceId,
       action: TELEGRAM_MANAGED_ACTIONS.SET_WEBHOOK,
       resource: `telegram:${row.telegramBotId}`,
@@ -823,6 +902,9 @@ export class ManagedTelegramBotService {
     const url = `${appUrl}/api/telegram/managed/${row.id}/webhook`;
     await setWebhook(token, url, secret);
     await setCommands(token);
+    return governed
+      ? managedTelegramGovernanceMetadata(TELEGRAM_MANAGED_ACTIONS.SET_WEBHOOK, governed)
+      : undefined;
   }
 
   private async getActiveBot(workspaceId: string) {
@@ -973,6 +1055,47 @@ async function sendTelegramMessage(token: string, chatId: string, text: string) 
     chat_id: chatId,
     text,
   });
+}
+
+function managedTelegramGovernanceMetadata(action: string, governed: EvaluateResult) {
+  const helmDocumentVersionPins = managedTelegramHelmDocumentVersionPins(
+    governed.receipt.policyVersion,
+  );
+  return {
+    surface: 'managed_telegram',
+    action,
+    policyDecisionId: governed.receipt.decisionId,
+    policyVersion: governed.receipt.policyVersion,
+    helmDocumentVersionPins,
+    evidencePackId: governed.evidencePackId ?? null,
+    policyPin: {
+      policyDecisionId: governed.receipt.decisionId,
+      policyVersion: governed.receipt.policyVersion,
+      decisionRequired: true,
+      documentVersionPins: helmDocumentVersionPins,
+    },
+  };
+}
+
+function managedTelegramHelmDocumentVersionPins(policyVersion: string): Record<string, string> {
+  return { managedTelegramPolicy: policyVersion };
+}
+
+function appendGovernanceMetadata(
+  current: unknown,
+  key: string,
+  governance: ManagedTelegramGovernanceMetadata | undefined,
+) {
+  const base = isRecord(current) ? current : {};
+  if (!governance) return base;
+  return {
+    ...base,
+    [key]: governance,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 async function telegramApi<T>(
