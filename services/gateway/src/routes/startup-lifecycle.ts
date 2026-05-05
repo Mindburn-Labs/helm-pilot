@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { and, eq } from 'drizzle-orm';
 import {
   goals,
   missionEdges,
@@ -12,6 +13,8 @@ import {
   CompileStartupLifecycleInputSchema,
   PersistStartupLifecycleInputSchema,
   PersistedStartupLifecycleMissionSchema,
+  ScheduledStartupMissionSchema,
+  ScheduleStartupMissionInputSchema,
   compileStartupLifecycleMission,
   getStartupLifecycleTemplates,
 } from '@pilot/shared/schemas';
@@ -243,6 +246,115 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
     });
 
     return c.json(response, 201);
+  });
+
+  app.post('/missions/:missionId/schedule', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'schedule startup lifecycle mission');
+    if (roleDenied) return roleDenied;
+
+    const raw = await c.req.json().catch(() => ({}));
+    if (workspaceIdMismatch(c, (raw as { workspaceId?: string }).workspaceId)) {
+      return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
+    }
+
+    const parsed = ScheduleStartupMissionInputSchema.safeParse({
+      ...(raw as Record<string, unknown>),
+      workspaceId,
+      missionId: c.req.param('missionId'),
+    });
+    if (!parsed.success) {
+      return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
+    }
+
+    const [mission] = await _deps.db
+      .select()
+      .from(missions)
+      .where(and(eq(missions.id, parsed.data.missionId), eq(missions.workspaceId, workspaceId)))
+      .limit(1);
+    if (!mission) return c.json({ error: 'Mission not found' }, 404);
+
+    const nodeRows = await _deps.db
+      .select()
+      .from(missionNodes)
+      .where(eq(missionNodes.missionId, mission.id));
+    const edgeRows = await _deps.db
+      .select()
+      .from(missionEdges)
+      .where(eq(missionEdges.missionId, mission.id));
+    const taskLinks = await _deps.db
+      .select()
+      .from(missionTasks)
+      .where(eq(missionTasks.missionId, mission.id));
+
+    const taskIdByNodeId = new Map(
+      taskLinks
+        .filter((link) => Boolean(link.nodeId))
+        .map((link) => [String(link.nodeId), link.taskId]),
+    );
+    const completedNodeKeys = new Set(
+      nodeRows
+        .filter((node) => node.status === 'completed' || node.status === 'skipped')
+        .map((node) => node.nodeKey),
+    );
+
+    const ready = [];
+    const blocked = [];
+    for (const node of nodeRows.filter((item) => item.status === 'pending')) {
+      const waitingOn = edgeRows
+        .filter((edge) => edge.toNodeKey === node.nodeKey)
+        .map((edge) => edge.fromNodeKey)
+        .filter((dependency) => !completedNodeKeys.has(dependency));
+      const scheduledNode = {
+        nodeId: node.id,
+        nodeKey: node.nodeKey,
+        stage: node.stage,
+        title: node.title,
+        taskId: taskIdByNodeId.get(node.id),
+        waitingOn,
+      };
+      if (waitingOn.length === 0 && ready.length < parsed.data.maxNodes) {
+        ready.push(scheduledNode);
+      } else {
+        blocked.push({
+          ...scheduledNode,
+          waitingOn: waitingOn.length > 0 ? waitingOn : ['scheduler_batch_limit'],
+        });
+      }
+    }
+
+    for (const node of ready) {
+      await _deps.db
+        .update(missionNodes)
+        .set({ status: 'ready', updatedAt: new Date() })
+        .where(and(eq(missionNodes.id, node.nodeId), eq(missionNodes.workspaceId, workspaceId)));
+    }
+
+    await _deps.db
+      .update(missions)
+      .set({ status: 'scheduled_not_executing', updatedAt: new Date() })
+      .where(and(eq(missions.id, mission.id), eq(missions.workspaceId, workspaceId)));
+
+    const response = ScheduledStartupMissionSchema.parse({
+      workspaceId,
+      missionId: mission.id,
+      schedulerVersion: 'mission-scheduler.v1',
+      productionReady: false,
+      status: 'scheduled_not_executing',
+      readyNodes: ready,
+      blockedNodes: blocked,
+      queuedTaskIds: ready
+        .map((node) => node.taskId)
+        .filter((taskId): taskId is string => Boolean(taskId)),
+      executionStarted: false,
+      blockers: [
+        'Mission scheduler identifies ready nodes and task rows but does not dispatch autonomous execution yet',
+        'Mission runtime remains blocked until node execution, checkpointing, recovery, and Full Startup Launch Eval pass',
+      ],
+    });
+
+    return c.json(response, 200);
   });
 
   return app;

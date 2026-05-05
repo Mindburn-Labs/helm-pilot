@@ -478,6 +478,10 @@ Compile a founder goal into a non-production governed lifecycle DAG draft. Requi
 
 Compile and persist a founder goal as durable venture, goal, mission, mission node, mission edge, and optional task rows. Requires at least the workspace `partner` role. The response is `persisted_not_executing`; this route does not dispatch agents, call tools, perform external actions, or promote `startup_lifecycle` to `production_ready`.
 
+### POST /api/startup-lifecycle/missions/:missionId/schedule
+
+Inspect a persisted lifecycle mission, identify dependency-ready pending nodes, mark those nodes `ready`, and return linked task IDs. Requires at least the workspace `partner` role. The response is `scheduled_not_executing`; this route does not call the orchestrator, dispatch agents, start browser/computer sessions, or promote mission runtime to `production_ready`.
+
 ### GET /api/evals/production-suite
 
 Return the Gate 10 production autonomy eval suite. Requires at least the workspace `partner` role. The response lists the required eval scenarios, mapped capability keys, required tools/integrations/HELM policies, success and failure criteria, evidence requirements, and audit requirements.
