@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { evidenceItems } from '@pilot/db/schema';
 import { connectorRoutes } from '../../routes/connector.js';
 import { testApp, expectJson, createMockDeps } from '../helpers.js';
 
@@ -54,6 +55,29 @@ function createConnectorsMock() {
     getTokenRecord: vi.fn(async () => null),
     getSessionRecord: vi.fn(async () => null),
   };
+}
+
+function captureEvidenceItemInserts(deps: ReturnType<typeof createMockDeps>) {
+  const insertedEvidenceItems: Array<Record<string, unknown>> = [];
+  const originalInsert = deps.db.insert;
+
+  deps.db.insert = vi.fn((table: unknown) => {
+    if (table === evidenceItems) {
+      return {
+        values: vi.fn((value: unknown) => {
+          insertedEvidenceItems.push(value as Record<string, unknown>);
+          return {
+            returning: vi.fn(async () => [
+              { id: `evidence-item-${insertedEvidenceItems.length}` },
+            ]),
+          };
+        }),
+      };
+    }
+    return originalInsert(table);
+  }) as typeof deps.db.insert;
+
+  return insertedEvidenceItems;
 }
 
 describe('connectorRoutes', () => {
@@ -164,15 +188,32 @@ describe('connectorRoutes', () => {
       const connectors = createConnectorsMock();
       connectors.getGrantByWorkspaceConnector.mockResolvedValue(ownedGrant);
       const deps = createMockDeps({ connectors: connectors as any });
+      const evidence = captureEvidenceItemInserts(deps);
       const { fetch } = testApp(connectorRoutes, deps);
 
       const res = await fetch('POST', '/github/grant', { workspaceId: 'ws-1' }, wsHeader);
-      const body = await expectJson<{ grantId: string; status: { connectionState: string } }>(
-        res,
-        201,
-      );
+      const body = await expectJson<{
+        grantId: string;
+        status: { connectionState: string };
+        evidenceItemId: string;
+      }>(res, 201);
       expect(body.grantId).toBe('grant-1');
       expect(body.status.connectionState).toBe('granted');
+      expect(body.evidenceItemId).toBe('evidence-item-1');
+      expect(evidence).toHaveLength(1);
+      expect(evidence[0]).toMatchObject({
+        workspaceId: 'ws-1',
+        evidenceType: 'connector_granted',
+        sourceType: 'gateway_connector',
+        redactionState: 'redacted',
+        sensitivity: 'sensitive',
+        replayRef: 'connector:github:grant:grant-1',
+        metadata: expect.objectContaining({
+          connectorId: 'github',
+          grantId: 'grant-1',
+          productionReady: false,
+        }),
+      });
     });
   });
 
@@ -180,12 +221,23 @@ describe('connectorRoutes', () => {
     it('revokes grant and returns { revoked: true }', async () => {
       const connectors = createConnectorsMock();
       const deps = createMockDeps({ connectors: connectors as any });
+      const evidence = captureEvidenceItemInserts(deps);
       const { fetch } = testApp(connectorRoutes, deps);
 
       const res = await fetch('DELETE', '/github/grant', undefined, wsHeader);
-      const body = await expectJson<{ revoked: boolean }>(res, 200);
+      const body = await expectJson<{ revoked: boolean; evidenceItemId: string }>(res, 200);
       expect(body.revoked).toBe(true);
+      expect(body.evidenceItemId).toBe('evidence-item-1');
       expect(connectors.revokeConnector).toHaveBeenCalledWith('ws-1', 'github');
+      expect(evidence[0]).toMatchObject({
+        workspaceId: 'ws-1',
+        evidenceType: 'connector_revoked',
+        replayRef: 'connector:github:grant:revoked',
+        metadata: expect.objectContaining({
+          connectorId: 'github',
+          productionReady: false,
+        }),
+      });
     });
   });
 
@@ -204,6 +256,7 @@ describe('connectorRoutes', () => {
       const connectors = createConnectorsMock();
       connectors.getGrantByWorkspaceConnector.mockResolvedValue(ownedGrant);
       const deps = createMockDeps({ connectors: connectors as any });
+      const evidence = captureEvidenceItemInserts(deps);
       const { fetch } = testApp(connectorRoutes, deps);
 
       const res = await fetch(
@@ -215,14 +268,26 @@ describe('connectorRoutes', () => {
         },
         wsHeader,
       );
-      const body = await expectJson<{ stored: boolean }>(res, 200);
+      const body = await expectJson<{ stored: boolean; evidenceItemId: string }>(res, 200);
       expect(body.stored).toBe(true);
+      expect(body.evidenceItemId).toBe('evidence-item-1');
       expect(connectors.storeToken).toHaveBeenCalledWith(
         'grant-1',
         'ghp_abc123',
         undefined,
         undefined,
       );
+      expect(evidence[0]).toMatchObject({
+        workspaceId: 'ws-1',
+        evidenceType: 'connector_token_stored',
+        replayRef: 'connector:github:token:grant-1',
+        metadata: expect.objectContaining({
+          connectorId: 'github',
+          grantId: 'grant-1',
+          credentialBoundary: 'encrypted_at_rest_no_token_material_in_evidence',
+        }),
+      });
+      expect(JSON.stringify(evidence)).not.toContain('ghp_abc123');
     });
 
     it('rejects token storage for a cross-workspace grantId', async () => {
@@ -257,6 +322,7 @@ describe('connectorRoutes', () => {
         id: '00000000-0000-4000-8000-000000000001',
       });
       const deps = createMockDeps({ connectors: connectors as any });
+      const evidence = captureEvidenceItemInserts(deps);
       const { fetch } = testApp(connectorRoutes, deps);
       const grantId = '00000000-0000-4000-8000-000000000001';
 
@@ -270,14 +336,27 @@ describe('connectorRoutes', () => {
         },
         wsHeader,
       );
-      const body = await expectJson<{ stored: boolean }>(res, 200);
+      const body = await expectJson<{ stored: boolean; evidenceItemId: string }>(res, 200);
       expect(body.stored).toBe(true);
+      expect(body.evidenceItemId).toBe('evidence-item-1');
       expect(connectors.storeSession).toHaveBeenCalledWith(
         grantId,
         { cookies: [] },
         'browser_storage_state',
         undefined,
       );
+      expect(evidence[0]).toMatchObject({
+        workspaceId: 'ws-1',
+        evidenceType: 'connector_session_stored',
+        replayRef: `connector:yc:session:${grantId}`,
+        metadata: expect.objectContaining({
+          connectorId: 'yc',
+          grantId,
+          sessionType: 'browser_storage_state',
+          credentialBoundary: 'session_encrypted_at_rest_no_cookie_export_in_evidence',
+        }),
+      });
+      expect(JSON.stringify(evidence)).not.toContain('cookies');
     });
 
     it('rejects session storage for a cross-workspace grantId', async () => {
@@ -319,6 +398,7 @@ describe('connectorRoutes', () => {
         sessionType: 'browser_storage_state',
       });
       const deps = createMockDeps({ connectors: connectors as any });
+      const evidence = captureEvidenceItemInserts(deps);
       const { fetch } = testApp(connectorRoutes, deps);
 
       const res = await fetch(
@@ -327,8 +407,12 @@ describe('connectorRoutes', () => {
         { grantId, action: 'validate', limit: 10 },
         { 'X-Workspace-Id': 'ws-1' },
       );
-      const body = await expectJson<{ queued: boolean; queue: string }>(res, 200);
+      const body = await expectJson<{ queued: boolean; queue: string; evidenceItemId: string }>(
+        res,
+        200,
+      );
       expect(body).toMatchObject({ queued: true, queue: 'pipeline.yc-private' });
+      expect(body.evidenceItemId).toBe('evidence-item-1');
       expect(deps.orchestrator.boss.send).toHaveBeenCalledWith('pipeline.yc-private', {
         workspaceId: 'ws-1',
         grantId,
@@ -336,6 +420,18 @@ describe('connectorRoutes', () => {
         limit: 10,
       });
       expect(connectors.markSessionValidated).toHaveBeenCalled();
+      expect(evidence[0]).toMatchObject({
+        workspaceId: 'ws-1',
+        evidenceType: 'connector_session_validation_queued',
+        replayRef: `connector:yc:session-validation:${grantId}`,
+        metadata: expect.objectContaining({
+          connectorId: 'yc',
+          grantId,
+          queue: 'pipeline.yc-private',
+          action: 'validate',
+          limit: 10,
+        }),
+      });
     });
   });
 
@@ -344,12 +440,23 @@ describe('connectorRoutes', () => {
       const connectors = createConnectorsMock();
       connectors.getGrantByWorkspaceConnector.mockResolvedValue(ownedGrant);
       const deps = createMockDeps({ connectors: connectors as any });
+      const evidence = captureEvidenceItemInserts(deps);
       const { fetch } = testApp(connectorRoutes, deps);
 
       const res = await fetch('DELETE', '/yc/session?grantId=grant-1', undefined, wsHeader);
-      const body = await expectJson<{ deleted: boolean }>(res, 200);
+      const body = await expectJson<{ deleted: boolean; evidenceItemId: string }>(res, 200);
       expect(body.deleted).toBe(true);
+      expect(body.evidenceItemId).toBe('evidence-item-1');
       expect(connectors.deleteSession).toHaveBeenCalledWith('grant-1');
+      expect(evidence[0]).toMatchObject({
+        workspaceId: 'ws-1',
+        evidenceType: 'connector_session_deleted',
+        replayRef: 'connector:yc:session-deleted:grant-1',
+        metadata: expect.objectContaining({
+          connectorId: 'yc',
+          grantId: 'grant-1',
+        }),
+      });
     });
   });
 
@@ -365,12 +472,54 @@ describe('connectorRoutes', () => {
 
     it('returns authUrl when OAuth is configured', async () => {
       const deps = createMockDeps({ connectors: createConnectorsMock() as any });
+      const evidence = captureEvidenceItemInserts(deps);
       const { fetch } = testApp(connectorRoutes, deps);
 
       const res = await fetch('GET', '/github/oauth/initiate', undefined, wsHeader);
-      const body = await expectJson<{ authUrl: string; connector: string }>(res, 200);
+      const body = await expectJson<{
+        authUrl: string;
+        connector: string;
+        evidenceItemId: string;
+      }>(res, 200);
       expect(body.connector).toBe('github');
       expect(body.authUrl).toContain('auth.example.com');
+      expect(body.evidenceItemId).toBe('evidence-item-1');
+      expect(evidence[0]).toMatchObject({
+        workspaceId: 'ws-1',
+        evidenceType: 'connector_oauth_initiated',
+        replayRef: 'connector:github:oauth:initiate',
+        metadata: expect.objectContaining({
+          connectorId: 'github',
+          credentialBoundary: 'oauth_url_not_stored_in_evidence',
+        }),
+      });
+      expect(JSON.stringify(evidence)).not.toContain('auth.example.com');
+    });
+  });
+
+  describe('GET /:name/oauth/callback', () => {
+    it('records OAuth callback evidence without storing raw callback parameters', async () => {
+      const deps = createMockDeps({ connectors: createConnectorsMock() as any });
+      const evidence = captureEvidenceItemInserts(deps);
+      const { fetch } = testApp(connectorRoutes, deps);
+
+      const res = await fetch('GET', '/github/oauth/callback?code=secret-code&state=secret-state');
+      const html = await res.text();
+
+      expect(res.status).toBe(200);
+      expect(html).toContain('Connected github successfully');
+      expect(evidence[0]).toMatchObject({
+        workspaceId: 'ws-1',
+        evidenceType: 'connector_oauth_connected',
+        replayRef: 'connector:github:oauth:callback:grant-1',
+        metadata: expect.objectContaining({
+          connectorId: 'github',
+          grantId: 'grant-1',
+          credentialBoundary: 'oauth_callback_no_raw_token_evidence',
+        }),
+      });
+      expect(JSON.stringify(evidence)).not.toContain('secret-code');
+      expect(JSON.stringify(evidence)).not.toContain('secret-state');
     });
   });
 
@@ -386,11 +535,55 @@ describe('connectorRoutes', () => {
           refreshToken: vi.fn(async () => null),
         } as any,
       });
+      const evidence = captureEvidenceItemInserts(deps);
       const { fetch } = testApp(connectorRoutes, deps);
 
       const res = await fetch('POST', '/github/oauth/refresh', { grantId: 'grant-1' }, wsHeader);
-      const body = await expectJson<{ error: string }>(res, 401);
+      const body = await expectJson<{ error: string; evidenceItemId: string }>(res, 401);
       expect(body.error).toContain('Token refresh failed');
+      expect(body.evidenceItemId).toBe('evidence-item-1');
+      expect(evidence[0]).toMatchObject({
+        workspaceId: 'ws-1',
+        evidenceType: 'connector_oauth_refresh_failed',
+        replayRef: 'connector:github:oauth-refresh-failed:grant-1',
+        metadata: expect.objectContaining({
+          connectorId: 'github',
+          grantId: 'grant-1',
+          credentialBoundary: 'no_raw_tokens_in_evidence',
+        }),
+      });
+    });
+
+    it('records successful token refresh without exposing token material', async () => {
+      const deps = createMockDeps({
+        connectors: {
+          ...createConnectorsMock(),
+          getGrantByWorkspaceConnector: vi.fn(async () => ownedGrant),
+        } as any,
+        oauth: {
+          ...createMockDeps().oauth,
+          refreshToken: vi.fn(async () => 'new-token'),
+        } as any,
+      });
+      const evidence = captureEvidenceItemInserts(deps);
+      const { fetch } = testApp(connectorRoutes, deps);
+
+      const res = await fetch('POST', '/github/oauth/refresh', { grantId: 'grant-1' }, wsHeader);
+      const body = await expectJson<{ refreshed: boolean; evidenceItemId: string }>(res, 200);
+
+      expect(body.refreshed).toBe(true);
+      expect(body.evidenceItemId).toBe('evidence-item-1');
+      expect(evidence[0]).toMatchObject({
+        workspaceId: 'ws-1',
+        evidenceType: 'connector_oauth_refreshed',
+        replayRef: 'connector:github:oauth-refresh:grant-1',
+        metadata: expect.objectContaining({
+          connectorId: 'github',
+          grantId: 'grant-1',
+          credentialBoundary: 'no_raw_tokens_in_evidence',
+        }),
+      });
+      expect(JSON.stringify(evidence)).not.toContain('new-token');
     });
 
     it('rejects token refresh for a cross-workspace grantId', async () => {
