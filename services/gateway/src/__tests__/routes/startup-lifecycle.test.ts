@@ -378,6 +378,7 @@ describe('startupLifecycleRoutes', () => {
           status: 'pending',
         },
       ],
+      [{ id: operatorId }],
       [
         {
           id: nodeId,
@@ -505,6 +506,78 @@ describe('startupLifecycleRoutes', () => {
         iterationBudget: 3,
       }),
     );
+  });
+
+  it('rejects mission node execution when the task operator is outside the workspace', async () => {
+    const deps = createMockDeps();
+    const missionId = '00000000-0000-4000-8000-000000000130';
+    const ventureId = '00000000-0000-4000-8000-000000000131';
+    const nodeId = '00000000-0000-4000-8000-000000000132';
+    const taskId = '00000000-0000-4000-8000-000000000133';
+    const operatorId = '00000000-0000-4000-8000-000000000134';
+    const selectResults = [
+      [
+        {
+          id: missionId,
+          workspaceId,
+          ventureId,
+          title: 'Launch EvidenceOS',
+          status: 'scheduled_not_executing',
+          startedAt: null,
+        },
+      ],
+      [
+        {
+          id: nodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'founder_onboarding',
+          stage: 'founder_onboarding',
+          title: 'Founder DNA and access charter',
+          objective: 'Draft founder DNA and access boundaries.',
+          status: 'ready',
+          requiredEvidence: ['founder goal intake'],
+          acceptanceCriteria: ['Founder DNA draft exists'],
+          helmPolicyClasses: ['access', 'audit'],
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000135',
+          workspaceId,
+          missionId,
+          nodeId,
+          taskId,
+        },
+      ],
+      [
+        {
+          id: taskId,
+          workspaceId,
+          operatorId,
+          title: '[Lifecycle] Founder DNA and access charter',
+          description: 'Draft founder DNA and access boundaries.',
+          status: 'pending',
+        },
+      ],
+      [],
+    ];
+    let selectCall = 0;
+    const originalSelect = deps.db.select;
+    deps.db.select = vi.fn(() => {
+      deps.db._setResult(selectResults[selectCall] ?? []);
+      selectCall += 1;
+      return originalSelect();
+    }) as typeof deps.db.select;
+
+    const { fetch } = testApp(startupLifecycleRoutes, deps);
+    const res = await fetch('POST', `/missions/${missionId}/nodes/${nodeId}/execute`, {}, wsHeader);
+    const body = await expectJson<{ error: string; remediation: string }>(res, 403);
+
+    expect(body.error).toBe('operatorId does not belong to authenticated workspace');
+    expect(body.remediation).toContain('Reassign');
+    expect(deps.db.update).not.toHaveBeenCalled();
+    expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
   });
 
   it('executes bounded ready mission nodes in dependency order without production promotion', async () => {

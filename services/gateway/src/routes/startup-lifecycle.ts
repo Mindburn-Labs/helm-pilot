@@ -27,7 +27,12 @@ import {
 } from '@pilot/shared/schemas';
 import { getCapabilityRecord } from '@pilot/shared/capabilities';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId, requireWorkspaceRole, workspaceIdMismatch } from '../lib/workspace.js';
+import {
+  getWorkspaceId,
+  requireWorkspaceRole,
+  workspaceIdMismatch,
+  workspaceOperatorBelongsToWorkspace,
+} from '../lib/workspace.js';
 
 type MissionContextRunTask = (params: {
   taskId: string;
@@ -593,7 +598,7 @@ async function executeReadyMissionNode(
   | { ok: true; response: typeof ExecutedStartupMissionNodeSchema._type }
   | {
       ok: false;
-      status: 404 | 409 | 502;
+      status: 403 | 404 | 409 | 502;
       body: Record<string, unknown>;
     }
 > {
@@ -626,6 +631,16 @@ async function executeReadyMissionNode(
     .limit(1);
   if (!task) {
     return { ok: false, status: 404, body: { error: 'Mission node task not found' } };
+  }
+  if (!(await workspaceOperatorBelongsToWorkspace(deps.db, workspaceId, task.operatorId))) {
+    return {
+      ok: false,
+      status: 403,
+      body: {
+        error: 'operatorId does not belong to authenticated workspace',
+        remediation: 'Reassign the mission task to an operator owned by this workspace.',
+      },
+    };
   }
 
   await deps.db
