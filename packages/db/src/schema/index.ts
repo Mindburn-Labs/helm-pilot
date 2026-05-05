@@ -20,3 +20,4 @@ export * from './agent.js';
 export * from './tooling.js';
 export * from './browser.js';
 export * from './computer.js';
+export * from './eval.js';

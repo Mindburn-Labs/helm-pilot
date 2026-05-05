@@ -4,6 +4,7 @@ import {
   checkCapabilityPromotionReadiness,
   getPilotProductionEvalSuite,
   getRequiredEvalForCapability,
+  RecordPilotEvalRunInputSchema,
 } from '../eval/index.js';
 
 const workspaceId = '00000000-0000-4000-8000-000000000001';
@@ -56,6 +57,7 @@ describe('production eval suite', () => {
           capabilityKey: 'startup_lifecycle',
           evidenceRefs: [],
           auditReceiptRefs: ['audit:1'],
+          metadata: {},
           completedAt: '2026-05-05T00:00:00.000Z',
         },
       ],
@@ -73,6 +75,7 @@ describe('production eval suite', () => {
           capabilityKey: 'startup_lifecycle',
           evidenceRefs: ['evidence:startup-launch'],
           auditReceiptRefs: ['audit:startup-launch'],
+          metadata: {},
           completedAt: '2026-05-05T00:00:00.000Z',
         },
       ],
@@ -80,5 +83,30 @@ describe('production eval suite', () => {
 
     expect(passed.canPromote).toBe(true);
     expect(passed.matchedEvalId).toBe('full_startup_launch');
+  });
+
+  it('validates recordable eval runs before promotion checks can use them', () => {
+    expect(
+      RecordPilotEvalRunInputSchema.safeParse({
+        evalId: 'helm_governance',
+        status: 'passed',
+        evidenceRefs: ['evidence:helm'],
+        auditReceiptRefs: ['audit:helm'],
+      }).success,
+    ).toBe(true);
+
+    const missingEvidence = RecordPilotEvalRunInputSchema.safeParse({
+      evalId: 'helm_governance',
+      status: 'passed',
+      evidenceRefs: [],
+      auditReceiptRefs: ['audit:helm'],
+    });
+    expect(missingEvidence.success).toBe(false);
+
+    const failedWithoutReason = RecordPilotEvalRunInputSchema.safeParse({
+      evalId: 'helm_governance',
+      status: 'failed',
+    });
+    expect(failedWithoutReason.success).toBe(false);
   });
 });

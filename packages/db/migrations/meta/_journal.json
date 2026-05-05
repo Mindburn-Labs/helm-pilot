@@ -169,6 +169,13 @@
       "when": 1778007600000,
       "tag": "0022_computer_safe_actions",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1778011200000,
+      "tag": "0023_eval_suite_promotion",
+      "breakpoints": true
     }
   ]
 }

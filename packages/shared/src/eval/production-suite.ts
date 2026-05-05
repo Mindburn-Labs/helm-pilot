@@ -28,6 +28,9 @@ export const PilotEvalIdSchema = z.enum([
 ]);
 
 export const PilotEvalStatusSchema = z.enum(['not_run', 'running', 'passed', 'failed']);
+export const RecordablePilotEvalStatusSchema = z.enum(['running', 'passed', 'failed']);
+
+const JsonRecordSchema = z.record(z.unknown());
 
 export const PilotEvalScenarioSchema = z.object({
   id: PilotEvalIdSchema,
@@ -54,8 +57,57 @@ export const PilotEvalRunRecordSchema = z.object({
   auditReceiptRefs: z.array(z.string().min(1)).default([]),
   runRef: z.string().min(1).optional(),
   failureReason: z.string().min(1).optional(),
+  metadata: JsonRecordSchema.default({}),
   completedAt: z.string().datetime().optional(),
 });
+
+export const PilotEvalStepRecordSchema = z.object({
+  stepKey: z.string().min(1),
+  status: RecordablePilotEvalStatusSchema.default('running'),
+  evidenceRefs: z.array(z.string().min(1)).default([]),
+  auditReceiptRefs: z.array(z.string().min(1)).default([]),
+  metadata: JsonRecordSchema.default({}),
+  completedAt: z.string().datetime().optional(),
+});
+
+export const RecordPilotEvalRunInputSchema = z
+  .object({
+    workspaceId: z.string().uuid().optional(),
+    evalId: PilotEvalIdSchema,
+    status: RecordablePilotEvalStatusSchema.default('running'),
+    capabilityKey: CapabilityKeySchema.optional(),
+    evidenceRefs: z.array(z.string().min(1)).default([]),
+    auditReceiptRefs: z.array(z.string().min(1)).default([]),
+    runRef: z.string().min(1).optional(),
+    failureReason: z.string().min(1).optional(),
+    summary: z.string().min(1).optional(),
+    metadata: JsonRecordSchema.default({}),
+    completedAt: z.string().datetime().optional(),
+    steps: z.array(PilotEvalStepRecordSchema).default([]),
+  })
+  .superRefine((input, ctx) => {
+    if (input.status === 'failed' && !input.failureReason && !input.summary) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['failureReason'],
+        message: 'failed eval runs must include failureReason or summary',
+      });
+    }
+    if (input.status === 'passed' && input.evidenceRefs.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['evidenceRefs'],
+        message: 'passed eval runs must include at least one evidence reference',
+      });
+    }
+    if (input.status === 'passed' && input.auditReceiptRefs.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['auditReceiptRefs'],
+        message: 'passed eval runs must include at least one audit receipt reference',
+      });
+    }
+  });
 
 export const CapabilityPromotionCheckSchema = z.object({
   capability: CapabilityRecordSchema,
@@ -70,6 +122,8 @@ export const CapabilityPromotionCheckSchema = z.object({
 export type PilotEvalId = z.infer<typeof PilotEvalIdSchema>;
 export type PilotEvalScenario = z.infer<typeof PilotEvalScenarioSchema>;
 export type PilotEvalRunRecord = z.infer<typeof PilotEvalRunRecordSchema>;
+export type PilotEvalStepRecord = z.infer<typeof PilotEvalStepRecordSchema>;
+export type RecordPilotEvalRunInput = z.infer<typeof RecordPilotEvalRunInputSchema>;
 export type CapabilityPromotionCheck = z.infer<typeof CapabilityPromotionCheckSchema>;
 
 export const pilotProductionEvalSuite: readonly PilotEvalScenario[] = [
