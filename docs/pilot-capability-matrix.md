@@ -21,7 +21,7 @@ This document is a human-readable Gate 0 mirror. The API and UI must read the sh
 | `helm_receipts`              | `implemented` | HELM Governance Eval                                           | HELM Governance Eval has not promoted the capability to production_ready                   |
 | `workspace_rbac`             | `implemented` | HELM Governance Eval and RBAC regressions                      | HELM Governance Eval has not promoted the capability to production_ready                   |
 | `operator_scoping`           | `implemented` | Cross-workspace operator rejection regression                  | Cross-workspace operator rejection regression has not promoted the capability              |
-| `decision_court`             | `stub`        | Decision Court Governed Model Eval                             | API can construct Decision Court without a governed LLM provider                           |
+| `decision_court`             | `implemented` | Decision Court Governed Model Eval                             | Decision Court Governed Model Eval has not promoted the capability to production_ready     |
 | `skill_registry_runtime`     | `implemented` | Skill Invocation Governance Eval                               | Skill Invocation Governance Eval has not promoted the capability to production_ready       |
 | `opportunity_scoring`        | `stub`        | PMF Discovery Eval                                             | `score_opportunity` is not a complete evidence-backed implementation                       |
 | `browser_metadata_connector` | `scaffolded`  | YC Logged-In Browser Extraction Eval                           | Browser metadata is not a governed read/extract path                                       |

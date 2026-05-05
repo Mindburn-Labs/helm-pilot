@@ -154,17 +154,19 @@ const capabilityRecords = validateCapabilityRecords([
   {
     key: 'decision_court',
     name: 'Decision Court',
-    state: 'stub',
+    state: 'implemented',
     summary:
-      'Decision Court can present heuristic adversarial output, but the production path is not split into heuristic_preview, governed_llm_court, and unavailable states.',
+      'Decision Court now exposes explicit heuristic_preview, governed_llm_court, and unavailable modes; governed mode requires HELM-governed model-call receipts.',
     owner: 'Decision Agent',
     blockers: [
-      'Gateway can construct DecisionCourt without a governed LLM provider',
-      'Bull, bear, and referee model calls are not persisted with costs, receipts, and evidence',
-      'No unavailable response when governed provider is absent',
+      'Decision Court Governed Model Eval has not promoted the capability to production_ready',
+      'Court audit records are persisted to audit_log, but first-class evidence/artifact links still need the Gate 5+ ledger',
+      'Provider availability depends on HELM_GOVERNANCE_URL and a configured upstream model provider',
     ],
     evidence: [
-      'Gate 4 must prevent silent degradation from governed adversarial reasoning to heuristics',
+      'Gate 4 prevents silent fallback from governed_llm_court to heuristic reasoning',
+      'Gateway persists Decision Court run records with mode, status, participants, prompts, model usage, costs, policy decisions, and final recommendation metadata',
+      'Tests cover unavailable, heuristic preview, governed calls with receipts, missing-governance denial, and referee failure',
     ],
     evalRequirement: 'Decision Court Governed Model Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,

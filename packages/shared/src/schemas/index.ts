@@ -55,8 +55,10 @@ export {
 } from './validators.js';
 
 export {
+  type DecisionCourtRequest,
   type OperatorComputerUse,
   type ScraplingFetch,
+  DecisionCourtRequestInput,
   OperatorComputerUseInput,
   ScraplingFetchInput,
 } from './tool-inputs.js';

@@ -1,9 +1,12 @@
 import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
-import { opportunities } from '@pilot/db/schema';
+import { auditLog, opportunities } from '@pilot/db/schema';
+import { HelmLlmProvider } from '@pilot/helm-client';
 import { getCapabilityRecord } from '@pilot/shared/capabilities';
+import { DecisionCourtRequestInput } from '@pilot/shared/schemas';
+import type { CourtResult, DecisionCourtRequestedMode } from '@pilot/decision-court';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId } from '../lib/workspace.js';
+import { getWorkspaceId, requireWorkspaceRole } from '../lib/workspace.js';
 
 /**
  * Decision Court routes (Phase 4).
@@ -16,19 +19,25 @@ export function decideRoutes(deps: GatewayDeps) {
   app.post('/court', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'run decision court');
+    if (roleDenied) return roleDenied;
 
-    const body = (await c.req.json().catch(() => ({}))) as {
-      opportunityIds?: string[];
-      founderContext?: string;
-    };
-
-    if (!Array.isArray(body.opportunityIds) || body.opportunityIds.length < 1) {
-      return c.json({ error: 'opportunityIds must contain at least one id' }, 400);
+    const parsed = DecisionCourtRequestInput.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json(
+        {
+          error: 'Invalid decision court request',
+          details: parsed.error.flatten(),
+        },
+        400,
+      );
     }
+    const body = parsed.data;
+    const opportunityIds = body.opportunityIds;
 
     // Fetch opportunity data for the shortlist (workspace-scoped)
     const shortlist = [];
-    for (const oppId of body.opportunityIds) {
+    for (const oppId of opportunityIds) {
       const [opp] = await deps.db
         .select()
         .from(opportunities)
@@ -44,13 +53,23 @@ export function decideRoutes(deps: GatewayDeps) {
     }
 
     const { DecisionCourt } = await import('@pilot/decision-court');
-    const court = new DecisionCourt();
     const capability = getCapabilityRecord('decision_court');
+    const requestedMode = normalizeCourtMode(body.mode);
+    const court = new DecisionCourt({
+      mode: requestedMode,
+      llm: createDecisionCourtProvider(deps, workspaceId, requestedMode),
+    });
 
     try {
       const result = await court.runCourt({
         shortlist,
         systemContext: body.founderContext,
+        mode: requestedMode,
+      });
+      await persistDecisionCourtRun(deps, workspaceId, {
+        result,
+        opportunityIds,
+        founderContextProvided: Boolean(body.founderContext?.trim()),
       });
       return c.json({ ...result, capability });
     } catch (err) {
@@ -60,4 +79,55 @@ export function decideRoutes(deps: GatewayDeps) {
   });
 
   return app;
+}
+
+function normalizeCourtMode(mode: unknown): DecisionCourtRequestedMode {
+  return mode === 'heuristic_preview' ? 'heuristic_preview' : 'governed_llm_court';
+}
+
+function createDecisionCourtProvider(
+  deps: GatewayDeps,
+  workspaceId: string,
+  mode: DecisionCourtRequestedMode,
+) {
+  if (mode !== 'governed_llm_court' || !deps.helmClient) return undefined;
+  return new HelmLlmProvider({
+    helm: deps.helmClient,
+    defaultPrincipal: `workspace:${workspaceId}/operator:decision_court`,
+    model: process.env['PILOT_LLM_MODEL'] ?? 'anthropic/claude-sonnet-4',
+  });
+}
+
+async function persistDecisionCourtRun(
+  deps: GatewayDeps,
+  workspaceId: string,
+  params: {
+    result: CourtResult;
+    opportunityIds: string[];
+    founderContextProvided: boolean;
+  },
+): Promise<void> {
+  await deps.db.insert(auditLog).values({
+    workspaceId,
+    action: 'DECISION_COURT_RUN',
+    actor: `workspace:${workspaceId}`,
+    target: params.result.mode,
+    verdict: params.result.status,
+    reason:
+      params.result.governanceDenialReason ??
+      params.result.unavailableReason ??
+      params.result.finalRecommendation?.reasoning ??
+      null,
+    metadata: {
+      requestedOpportunityIds: params.opportunityIds,
+      founderContextProvided: params.founderContextProvided,
+      mode: params.result.mode,
+      status: params.result.status,
+      productionReady: params.result.productionReady,
+      finalRecommendation: params.result.finalRecommendation ?? null,
+      ranking: params.result.ranking,
+      stages: params.result.stages,
+      modelCalls: params.result.modelCalls,
+    },
+  });
 }

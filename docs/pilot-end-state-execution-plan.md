@@ -10,7 +10,7 @@ This is the control artifact for moving Pilot from a governed agent/task prototy
 - Gateway exposes the read-only registry through `services/gateway/src/routes/capabilities.ts`, mounted at `/api/capabilities` behind the normal `/api/*` authentication path.
 - Web exposes `/capabilities` in `apps/web/src/app/capabilities/page.tsx` and reads the API instead of route-local mock state.
 - README and roadmap already warn that Pilot is not production-ready as a fully autonomous startup OS.
-- Decision Court API still constructs `new DecisionCourt()` without injecting a governed model provider, so it must remain `stub`.
+- Decision Court now splits `heuristic_preview`, `governed_llm_court`, and `unavailable`; governed mode requires HELM-governed model-call receipts and no longer silently falls back to fake adversarial output.
 - `operator.computer_use` currently stops at HELM preflight and does not execute a real browser/computer action, so it must remain `stub`.
 - `score_opportunity` currently enqueues/marks scoring rather than producing the required evidence-backed scorecard, so it must remain `stub`.
 - Skill registry code exists under `packages/shared/src/skills`, and Gate 3 wires it into gateway/orchestrator/conductor with audited skill metadata on subagent spawns. It is still not `production_ready` because skills are not fully Tool Broker callable and have not passed the Skill Invocation Governance Eval.
@@ -27,7 +27,7 @@ This is the control artifact for moving Pilot from a governed agent/task prototy
 | `helm_receipts`              | `implemented` | Governance Agent | HELM Governance Eval                                           |
 | `workspace_rbac`             | `implemented` | Governance Agent | HELM Governance Eval and RBAC regressions                      |
 | `operator_scoping`           | `implemented` | Governance Agent | Cross-workspace operator rejection regression                  |
-| `decision_court`             | `stub`        | Decision Agent   | Decision Court Governed Model Eval                             |
+| `decision_court`             | `implemented` | Decision Agent   | Decision Court Governed Model Eval                             |
 | `skill_registry_runtime`     | `implemented` | Runtime Agent    | Skill Invocation Governance Eval                               |
 | `opportunity_scoring`        | `stub`        | Tooling Agent    | PMF Discovery Eval                                             |
 | `browser_metadata_connector` | `scaffolded`  | Browser Agent    | YC Logged-In Browser Extraction Eval                           |
@@ -91,7 +91,7 @@ No row may move to `production_ready` without passing eval metadata in the regis
 
 ## Known Blockers
 
-- Decision Court needs a HELM-governed model provider and durable participant/model-call records.
+- Decision Court needs the governed model eval and first-class evidence/artifact ledger links before it can become `production_ready`.
 - Browser execution needs a real read-only session execution bridge, active tab grants, evidence, redaction, and replay.
 - Computer use needs a safe execution substrate, Tool Broker routing, command/file evidence, and deny policy.
 - Subagent lineage needs durable root/parent/spawn action anchoring and proof DAG queries.

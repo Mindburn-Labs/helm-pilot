@@ -28,3 +28,11 @@ export const OperatorComputerUseInput = z.object({
 });
 
 export type OperatorComputerUse = z.infer<typeof OperatorComputerUseInput>;
+
+export const DecisionCourtRequestInput = z.object({
+  opportunityIds: z.array(z.string().min(1)).min(1).max(25),
+  founderContext: z.string().max(8000).optional(),
+  mode: z.enum(['heuristic_preview', 'governed_llm_court']).default('governed_llm_court'),
+});
+
+export type DecisionCourtRequest = z.infer<typeof DecisionCourtRequestInput>;

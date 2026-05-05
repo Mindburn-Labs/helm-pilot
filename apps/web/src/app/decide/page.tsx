@@ -11,12 +11,38 @@ interface Opportunity {
   status: string;
 }
 
+type CourtMode = 'heuristic_preview' | 'governed_llm_court';
+
+interface RankedOpportunity {
+  opportunityId: string;
+  rank: number;
+  verdict: string;
+  confidence: number;
+  reasoning: string;
+  bullCase: string;
+  bearCase: string;
+}
+
+interface CourtModelCall {
+  participant: string;
+  opportunityId: string;
+  status: string;
+  model?: string;
+  tokensIn: number;
+  tokensOut: number;
+  costUsd: number;
+  policyDecisionId?: string;
+}
+
 interface CourtResult {
-  ranked?: Array<{ opportunityId: string; rank: number; rationale: string }>;
-  bull?: Array<{ opportunityId: string; thesis: string; confidence: string }>;
-  bear?: Array<{ opportunityId: string; thesis: string; confidence: string }>;
-  referee?: { verdict: string; rationale: string };
-  scenarios?: Array<{ opportunityId: string; upside: string; base: string; downside: string }>;
+  mode?: CourtMode | 'unavailable';
+  status?: 'completed' | 'unavailable' | 'governance_denied' | 'referee_failed';
+  productionReady?: false;
+  ranking?: RankedOpportunity[];
+  finalRecommendation?: RankedOpportunity;
+  modelCalls?: CourtModelCall[];
+  unavailableReason?: string;
+  governanceDenialReason?: string;
   capability?: { key: string; state: string; evalRequirement: string };
   error?: string;
 }
@@ -25,6 +51,7 @@ export default function DecidePage() {
   const [opps, setOpps] = useState<Opportunity[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [context, setContext] = useState('');
+  const [mode, setMode] = useState<CourtMode>('governed_llm_court');
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<CourtResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +88,7 @@ export default function DecidePage() {
       const body = {
         opportunityIds: Array.from(selected),
         founderContext: context.trim() || undefined,
+        mode,
       };
       const data = await apiFetch<CourtResult>('/api/decide/court', {
         method: 'POST',
@@ -146,6 +174,30 @@ export default function DecidePage() {
         />
       </section>
 
+      <section style={{ marginBottom: 24 }}>
+        <label htmlFor="court-mode" style={{ display: 'block', fontSize: 14, marginBottom: 6 }}>
+          Court mode
+        </label>
+        <select
+          id="court-mode"
+          value={mode}
+          onChange={(event) => setMode(event.target.value as CourtMode)}
+          style={{
+            width: '100%',
+            padding: 10,
+            background: '#111',
+            color: '#ededed',
+            border: '1px solid #2a2a2a',
+            borderRadius: 6,
+            fontFamily: 'inherit',
+            fontSize: 14,
+          }}
+        >
+          <option value="governed_llm_court">Governed LLM court</option>
+          <option value="heuristic_preview">Heuristic preview</option>
+        </select>
+      </section>
+
       <button
         type="button"
         onClick={runCourt}
@@ -201,7 +253,38 @@ export default function DecidePage() {
             </div>
           )}
 
-          {result.referee && (
+          <div
+            style={{
+              padding: 12,
+              border: '1px solid var(--ds-line)',
+              borderRadius: 8,
+              marginBottom: 16,
+              fontSize: 13,
+              background: 'var(--ds-surface)',
+            }}
+          >
+            Mode: <code>{result.mode ?? 'unknown'}</code>. Status:{' '}
+            <strong>{result.status ?? 'unknown'}</strong>. Production-ready:{' '}
+            <strong>{String(Boolean(result.productionReady))}</strong>.
+          </div>
+
+          {(result.unavailableReason || result.governanceDenialReason) && (
+            <div
+              role="status"
+              style={{
+                padding: 12,
+                background: '#3a2812',
+                border: '1px solid #5a4420',
+                borderRadius: 8,
+                marginBottom: 20,
+                fontSize: 14,
+              }}
+            >
+              {result.governanceDenialReason ?? result.unavailableReason}
+            </div>
+          )}
+
+          {result.finalRecommendation && (
             <div
               style={{
                 padding: 16,
@@ -211,26 +294,30 @@ export default function DecidePage() {
                 marginBottom: 20,
               }}
             >
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Referee verdict</div>
+              <div style={{ fontSize: 12, opacity: 0.7 }}>Final recommendation</div>
               <div style={{ fontSize: 18, fontWeight: 600, marginTop: 4 }}>
-                {result.referee.verdict}
+                {opps.find((o) => o.id === result.finalRecommendation?.opportunityId)?.title ??
+                  result.finalRecommendation.opportunityId}
               </div>
               <div style={{ fontSize: 14, marginTop: 8, opacity: 0.9 }}>
-                {result.referee.rationale}
+                {result.finalRecommendation.verdict} at {result.finalRecommendation.confidence}%
+                confidence. {result.finalRecommendation.reasoning}
               </div>
             </div>
           )}
 
-          {Array.isArray(result.ranked) && result.ranked.length > 0 && (
+          {Array.isArray(result.ranking) && result.ranking.length > 0 && (
             <div style={{ marginBottom: 20 }}>
               <h3 style={{ fontSize: 16 }}>Ranking</h3>
               <ol style={{ paddingLeft: 24 }}>
-                {result.ranked.map((r) => {
+                {result.ranking.map((r) => {
                   const opp = opps.find((o) => o.id === r.opportunityId);
                   return (
                     <li key={r.opportunityId} style={{ marginBottom: 10 }}>
                       <strong>{opp?.title ?? r.opportunityId}</strong>
-                      <div style={{ fontSize: 13, opacity: 0.8, marginTop: 4 }}>{r.rationale}</div>
+                      <div style={{ fontSize: 13, opacity: 0.8, marginTop: 4 }}>
+                        {r.verdict} / {r.confidence}% - {r.reasoning}
+                      </div>
                     </li>
                   );
                 })}
@@ -238,13 +325,13 @@ export default function DecidePage() {
             </div>
           )}
 
-          {Array.isArray(result.bull) && result.bull.length > 0 && (
+          {Array.isArray(result.ranking) && result.ranking.length > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <div>
                 <h3 style={{ fontSize: 14, color: '#3ec28f' }}>Bull</h3>
-                {result.bull.map((b) => (
+                {result.ranking.map((r) => (
                   <div
-                    key={b.opportunityId}
+                    key={r.opportunityId}
                     style={{
                       padding: 10,
                       background: '#0e1f16',
@@ -254,19 +341,16 @@ export default function DecidePage() {
                       fontSize: 13,
                     }}
                   >
-                    <strong>{opps.find((o) => o.id === b.opportunityId)?.title}</strong>
-                    <div style={{ marginTop: 4 }}>{b.thesis}</div>
-                    <div style={{ marginTop: 4, fontSize: 11, opacity: 0.7 }}>
-                      confidence: {b.confidence}
-                    </div>
+                    <strong>{opps.find((o) => o.id === r.opportunityId)?.title}</strong>
+                    <div style={{ marginTop: 4 }}>{r.bullCase}</div>
                   </div>
                 ))}
               </div>
               <div>
                 <h3 style={{ fontSize: 14, color: '#e27a7a' }}>Bear</h3>
-                {(result.bear ?? []).map((b) => (
+                {result.ranking.map((r) => (
                   <div
-                    key={b.opportunityId}
+                    key={r.opportunityId}
                     style={{
                       padding: 10,
                       background: '#1f0e0e',
@@ -276,14 +360,40 @@ export default function DecidePage() {
                       fontSize: 13,
                     }}
                   >
-                    <strong>{opps.find((o) => o.id === b.opportunityId)?.title}</strong>
-                    <div style={{ marginTop: 4 }}>{b.thesis}</div>
-                    <div style={{ marginTop: 4, fontSize: 11, opacity: 0.7 }}>
-                      confidence: {b.confidence}
-                    </div>
+                    <strong>{opps.find((o) => o.id === r.opportunityId)?.title}</strong>
+                    <div style={{ marginTop: 4 }}>{r.bearCase}</div>
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {Array.isArray(result.modelCalls) && result.modelCalls.length > 0 && (
+            <div style={{ marginTop: 20 }}>
+              <h3 style={{ fontSize: 16 }}>Governed model calls</h3>
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                {result.modelCalls.map((call, index) => (
+                  <li
+                    key={`${call.participant}-${call.opportunityId}-${index}`}
+                    style={{
+                      padding: 10,
+                      background: '#111',
+                      border: '1px solid #2a2a2a',
+                      borderRadius: 6,
+                      marginBottom: 8,
+                      fontSize: 13,
+                    }}
+                  >
+                    <strong>{call.participant}</strong> on {call.opportunityId}: {call.status}
+                    {call.policyDecisionId ? (
+                      <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
+                        receipt {call.policyDecisionId}; {call.tokensIn + call.tokensOut} tokens; $
+                        {call.costUsd.toFixed(6)}
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </section>

@@ -32,7 +32,7 @@ describe('capabilityRoutes', () => {
     const json = await expectJson<CapabilityResponse>(res, 200);
 
     expect(json.capabilities.find((capability) => capability.key === 'decision_court')?.state).toBe(
-      'stub',
+      'implemented',
     );
     expect(json.capabilities.find((capability) => capability.key === 'helm_receipts')?.state).toBe(
       'implemented',
