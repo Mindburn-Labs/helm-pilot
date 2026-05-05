@@ -1,6 +1,6 @@
 'use client';
 
-import type { CSSProperties } from 'react';
+import React, { type CSSProperties } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { apiFetch, isAuthenticated } from '../../lib/api';
