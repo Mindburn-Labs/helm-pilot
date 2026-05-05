@@ -346,14 +346,18 @@ const capabilityRecords = validateCapabilityRecords([
     name: 'Evidence ledger',
     state: 'prototype',
     summary:
-      'Evidence-like records exist in governance paths, but evidence is not yet a first-class redacted, linked, replayable ledger across tools, browser, computer, artifacts, and decisions.',
+      'A canonical evidence_items schema exists to link governance receipts, tool executions, browser observations, computer actions, artifacts, audit events, and runtime rows, but writers do not yet append evidence for every meaningful action.',
     owner: 'Foundation Agent',
     blockers: [
-      'No canonical evidence_items/artifacts/action linkage for every meaningful action',
+      'Runtime writers do not yet append evidence_items for every meaningful action',
       'No browser/computer observation replay contract',
       'No mandatory evidence persistence before medium/high/restricted action execution',
     ],
-    evidence: ['Gate 1 and Gate 2 must make evidence a runtime invariant'],
+    evidence: [
+      'packages/db/src/schema/evidence.ts defines evidence_items with workspace, venture, mission, task, task_run, action, tool_execution, evidence_pack, browser_observation, computer_action, artifact, and audit_event links',
+      'packages/db/migrations/0025_evidence_items.sql creates the canonical evidence_items ledger and indexes cross-surface lookup fields',
+      'packages/db/src/__tests__/foundation-lineage-schema.test.ts verifies evidence item columns are exported',
+    ],
     evalRequirement: 'HELM Governance Eval and Recovery Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,
   },
