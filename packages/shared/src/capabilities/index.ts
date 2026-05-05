@@ -108,7 +108,7 @@ const capabilityRecords = validateCapabilityRecords([
     blockers: [
       'HELM Governance Eval has not promoted the capability to production_ready',
       'Policy and document version pinning is not attached to every meaningful action',
-      'Non-evaluate HELM helper endpoints still need explicit action-catalog classification',
+      'Non-evaluate HELM admin inspection and obligation helper endpoints still need explicit action-catalog classification',
     ],
     evidence: [
       'Gate 2A adds required_for_elevated receipt persistence to @pilot/helm-client evaluate()',
@@ -117,6 +117,8 @@ const capabilityRecords = validateCapabilityRecords([
       'AgentLoop denies elevated tool execution when no HELM governance client is configured; Tool Broker rejects elevated calls without policy metadata; ToolRegistry refuses elevated implementations without brokered HELM context',
       'Launch deploy, health-check, and rollback routes require HELM governance for elevated launch actions and pass explicit effect levels into evaluation',
       'Managed Telegram claim, webhook, send, token rotation, and disable actions require HELM governance and pass explicit effect levels into evaluation',
+      'Operator computer-use and browser-read helper tests prove those elevated helpers inherit generic evaluate() receipt-sink fail-closed behavior',
+      'HelmClient.chatCompletion classifies LLM_INFERENCE as receipt-required under required_for_elevated and checks for a receipt sink before model calls',
     ],
     evalRequirement: 'HELM Governance Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,

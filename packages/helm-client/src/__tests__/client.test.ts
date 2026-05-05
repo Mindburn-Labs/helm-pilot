@@ -122,6 +122,38 @@ describe('HelmClient.chatCompletion', () => {
     expect(onReceipt.mock.calls[1][0].verdict).toBe('DENY');
   });
 
+  it('requires a receipt sink before governed LLM inference when elevated receipts are required', async () => {
+    const client = new HelmClient({
+      baseUrl: 'http://helm:8080',
+      fetchImpl: fetchMock,
+      receiptPersistence: 'required_for_elevated',
+    });
+
+    await expect(client.chatCompletion('p', { model: 'gpt-4', messages: [] })).rejects.toThrow(
+      'HELM receipt sink is required before evaluating LLM_INFERENCE:gpt-4',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when required LLM receipt persistence fails', async () => {
+    fetchMock.mockResolvedValue(
+      makeResponse({ status: 200, body: sampleChatBody(), headers: goodReceiptHeaders('ALLOW') }),
+    );
+    const client = new HelmClient({
+      baseUrl: 'http://helm:8080',
+      fetchImpl: fetchMock,
+      receiptPersistence: 'required_for_elevated',
+      onReceipt: vi.fn(async () => {
+        throw new Error('receipt db down');
+      }),
+    });
+
+    await expect(client.chatCompletion('p', { model: 'gpt-4', messages: [] })).rejects.toThrow(
+      'HELM receipt persistence failed for LLM_INFERENCE:gpt-4',
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it('fails closed when 2xx response is missing governance headers (protocol violation)', async () => {
     fetchMock.mockResolvedValue(
       makeResponse({
@@ -404,6 +436,29 @@ describe('HelmClient.evaluate', () => {
 });
 
 describe('HelmClient.evaluateOperatorComputerUse', () => {
+  it('fails closed before computer-use helper fetch when elevated receipts have no sink', async () => {
+    const fetchMock = vi.fn();
+    const client = new HelmClient({
+      baseUrl: 'http://helm:8080',
+      fetchImpl: fetchMock,
+      receiptPersistence: 'required_for_elevated',
+    });
+
+    await expect(
+      client.evaluateOperatorComputerUse({
+        principal: 'workspace:ws-1/operator:agent',
+        workspaceId: 'ws-1',
+        taskId: 'task-1',
+        objective: 'Check project status',
+        environment: 'local',
+        operation: 'terminal_command',
+        command: 'git',
+        args: ['status', '--short'],
+      }),
+    ).rejects.toBeInstanceOf(HelmUnreachableError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('routes Operator computer-use requests through HELM evaluate', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       makeResponse({
@@ -450,6 +505,45 @@ describe('HelmClient.evaluateOperatorComputerUse', () => {
 });
 
 describe('HelmClient.evaluateOperatorBrowserRead', () => {
+  it('fails closed when elevated browser-read receipt persistence fails', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      makeResponse({
+        status: 200,
+        body: {
+          allow: true,
+          verdict: 'ALLOW',
+          receipt_id: 'rcpt-browser-fail',
+          decision_id: 'dec-browser-fail',
+          decision_hash: 'sha256:browser-fail',
+          policy_ref: 'founder-ops-v1',
+          evidence_pack_id: 'pack-browser-fail',
+        },
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = new HelmClient({
+      baseUrl: 'http://helm:8080',
+      fetchImpl: fetchMock,
+      receiptPersistence: 'required_for_elevated',
+      onReceipt: vi.fn(async () => {
+        throw new Error('receipt sink unavailable');
+      }),
+    });
+
+    await expect(
+      client.evaluateOperatorBrowserRead({
+        principal: 'workspace:ws-1/browser:session-1',
+        workspaceId: 'ws-1',
+        sessionId: 'session-1',
+        grantId: 'grant-1',
+        objective: 'Read YC profile',
+        url: 'https://www.ycombinator.com/account',
+        taskId: 'task-1',
+      }),
+    ).rejects.toBeInstanceOf(HelmUnreachableError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('routes read-only browser observations through HELM evaluate', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       makeResponse({
