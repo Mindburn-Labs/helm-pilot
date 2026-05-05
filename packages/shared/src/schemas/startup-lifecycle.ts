@@ -149,12 +149,14 @@ export const ExecutedStartupMissionNodeSchema = z.object({
   productionReady: z.literal(false),
   executionStarted: z.literal(true),
   status: z.enum(['completed', 'failed', 'awaiting_approval', 'blocked']),
+  missionStatus: z.enum(['completed', 'scheduled_not_executing', 'blocked', 'awaiting_approval']),
   run: z.object({
     status: z.enum(['completed', 'budget_exhausted', 'blocked', 'awaiting_approval']),
     iterationsUsed: z.number().int().nonnegative(),
     iterationBudget: z.number().int().positive(),
     actionCount: z.number().int().nonnegative(),
   }),
+  advancedReadyNodes: z.array(ScheduledStartupMissionNodeSchema),
   blockers: z.array(z.string().min(1)),
 });
 

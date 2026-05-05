@@ -278,6 +278,8 @@ describe('startupLifecycleRoutes', () => {
     const nodeId = '00000000-0000-4000-8000-000000000032';
     const taskId = '00000000-0000-4000-8000-000000000033';
     const operatorId = '00000000-0000-4000-8000-000000000034';
+    const ideationNodeId = '00000000-0000-4000-8000-000000000036';
+    const ideationTaskId = '00000000-0000-4000-8000-000000000037';
     const selectResults = [
       [
         {
@@ -323,6 +325,54 @@ describe('startupLifecycleRoutes', () => {
           status: 'pending',
         },
       ],
+      [
+        {
+          id: nodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'founder_onboarding',
+          stage: 'founder_onboarding',
+          title: 'Founder DNA and access charter',
+          objective: 'Draft founder DNA and access boundaries.',
+          status: 'completed',
+          requiredEvidence: ['founder goal intake'],
+          acceptanceCriteria: ['Founder DNA draft exists'],
+          helmPolicyClasses: ['access', 'audit'],
+        },
+        {
+          id: ideationNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'ideation',
+          stage: 'ideation',
+          title: 'Venture hypothesis generation',
+          objective: 'Generate venture hypotheses.',
+          status: 'pending',
+          requiredEvidence: ['idea scoring evidence'],
+          acceptanceCriteria: ['At least one venture hypothesis exists'],
+          helmPolicyClasses: ['data_handling', 'audit'],
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000038',
+          workspaceId,
+          missionId,
+          edgeKey: 'founder_onboarding->ideation',
+          fromNodeKey: 'founder_onboarding',
+          toNodeKey: 'ideation',
+          reason: 'Ideation depends on founder onboarding',
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000039',
+          workspaceId,
+          missionId,
+          nodeId: ideationNodeId,
+          taskId: ideationTaskId,
+        },
+      ],
     ];
     let selectCall = 0;
     const originalSelect = deps.db.select;
@@ -346,7 +396,9 @@ describe('startupLifecycleRoutes', () => {
       productionReady: boolean;
       executionStarted: boolean;
       status: string;
+      missionStatus: string;
       run: { status: string; iterationsUsed: number; iterationBudget: number; actionCount: number };
+      advancedReadyNodes: Array<{ nodeKey: string; taskId?: string; waitingOn: string[] }>;
       blockers: string[];
     }>(res, 200);
 
@@ -356,6 +408,14 @@ describe('startupLifecycleRoutes', () => {
     expect(body.productionReady).toBe(false);
     expect(body.executionStarted).toBe(true);
     expect(body.status).toBe('completed');
+    expect(body.missionStatus).toBe('scheduled_not_executing');
+    expect(body.advancedReadyNodes).toEqual([
+      expect.objectContaining({
+        nodeKey: 'ideation',
+        taskId: ideationTaskId,
+        waitingOn: [],
+      }),
+    ]);
     expect(body.run).toMatchObject({
       status: 'completed',
       iterationsUsed: 1,

@@ -481,6 +481,10 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
         .set({ status: 'failed', updatedAt: failedAt, completedAt: failedAt })
         .where(and(eq(missionNodes.id, node.id), eq(missionNodes.workspaceId, workspaceId)));
       await _deps.db
+        .update(missions)
+        .set({ status: 'blocked', updatedAt: failedAt })
+        .where(and(eq(missions.id, mission.id), eq(missions.workspaceId, workspaceId)));
+      await _deps.db
         .update(tasks)
         .set({ status: 'failed', updatedAt: failedAt, completedAt: failedAt })
         .where(and(eq(tasks.id, task.id), eq(tasks.workspaceId, workspaceId)));
@@ -512,6 +516,22 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
       })
       .where(and(eq(tasks.id, task.id), eq(tasks.workspaceId, workspaceId)));
 
+    const advancement =
+      nodeStatus === 'completed'
+        ? await advanceReadyMissionNodes(_deps, workspaceId, mission.id)
+        : {
+            advancedReadyNodes: [],
+            missionStatus: mapRunStatusToMissionStatus(run.status),
+          };
+    await _deps.db
+      .update(missions)
+      .set({
+        status: advancement.missionStatus,
+        updatedAt: new Date(),
+        completedAt: advancement.missionStatus === 'completed' ? new Date() : null,
+      })
+      .where(and(eq(missions.id, mission.id), eq(missions.workspaceId, workspaceId)));
+
     const response = ExecutedStartupMissionNodeSchema.parse({
       workspaceId,
       missionId: mission.id,
@@ -522,12 +542,14 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
       productionReady: false,
       executionStarted: true,
       status: nodeStatus,
+      missionStatus: advancement.missionStatus,
       run: {
         status: run.status,
         iterationsUsed: run.iterationsUsed,
         iterationBudget: run.iterationBudget,
         actionCount: run.actions.length,
       },
+      advancedReadyNodes: advancement.advancedReadyNodes,
       blockers: missionNodeExecutionBlockers(run.status),
     });
 
@@ -596,6 +618,89 @@ function mapRunStatusToTaskStatus(
   if (status === 'completed') return 'completed';
   if (status === 'awaiting_approval') return 'awaiting_approval';
   return 'failed';
+}
+
+function mapRunStatusToMissionStatus(
+  status: 'completed' | 'budget_exhausted' | 'blocked' | 'awaiting_approval',
+) {
+  if (status === 'awaiting_approval') return 'awaiting_approval';
+  return 'blocked';
+}
+
+async function advanceReadyMissionNodes(
+  deps: GatewayDeps,
+  workspaceId: string,
+  missionId: string,
+): Promise<{
+  advancedReadyNodes: Array<{
+    nodeId: string;
+    nodeKey: string;
+    stage: string;
+    title: string;
+    taskId?: string;
+    waitingOn: string[];
+  }>;
+  missionStatus: 'completed' | 'scheduled_not_executing' | 'blocked' | 'awaiting_approval';
+}> {
+  const nodeRows = await deps.db
+    .select()
+    .from(missionNodes)
+    .where(and(eq(missionNodes.missionId, missionId), eq(missionNodes.workspaceId, workspaceId)));
+  const edgeRows = await deps.db
+    .select()
+    .from(missionEdges)
+    .where(and(eq(missionEdges.missionId, missionId), eq(missionEdges.workspaceId, workspaceId)));
+  const taskLinks = await deps.db
+    .select()
+    .from(missionTasks)
+    .where(and(eq(missionTasks.missionId, missionId), eq(missionTasks.workspaceId, workspaceId)));
+
+  const taskIdByNodeId = new Map(
+    taskLinks
+      .filter((link) => Boolean(link.nodeId))
+      .map((link) => [String(link.nodeId), link.taskId]),
+  );
+  const completedNodeKeys = new Set(
+    nodeRows
+      .filter((node) => node.status === 'completed' || node.status === 'skipped')
+      .map((node) => node.nodeKey),
+  );
+  const advancedReadyNodes = [];
+  for (const node of nodeRows.filter((item) => item.status === 'pending')) {
+    const waitingOn = edgeRows
+      .filter((edge) => edge.toNodeKey === node.nodeKey)
+      .map((edge) => edge.fromNodeKey)
+      .filter((dependency) => !completedNodeKeys.has(dependency));
+    if (waitingOn.length > 0) continue;
+    const taskId = taskIdByNodeId.get(node.id);
+    const advanced = {
+      nodeId: node.id,
+      nodeKey: node.nodeKey,
+      stage: node.stage,
+      title: node.title,
+      waitingOn,
+      ...(taskId ? { taskId } : {}),
+    };
+    await deps.db
+      .update(missionNodes)
+      .set({ status: 'ready', updatedAt: new Date() })
+      .where(and(eq(missionNodes.id, node.id), eq(missionNodes.workspaceId, workspaceId)));
+    advancedReadyNodes.push(advanced);
+  }
+
+  if (
+    nodeRows.length > 0 &&
+    nodeRows.every((node) => node.status === 'completed' || node.status === 'skipped')
+  ) {
+    return { advancedReadyNodes, missionStatus: 'completed' };
+  }
+  if (advancedReadyNodes.length > 0) {
+    return { advancedReadyNodes, missionStatus: 'scheduled_not_executing' };
+  }
+  if (nodeRows.some((node) => node.status === 'awaiting_approval')) {
+    return { advancedReadyNodes, missionStatus: 'awaiting_approval' };
+  }
+  return { advancedReadyNodes, missionStatus: 'blocked' };
 }
 
 function missionNodeExecutionBlockers(

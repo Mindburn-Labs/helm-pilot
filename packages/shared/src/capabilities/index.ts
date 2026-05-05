@@ -80,19 +80,19 @@ const capabilityRecords = validateCapabilityRecords([
     name: 'Mission runtime',
     state: 'blocked',
     summary:
-      'Pilot now has durable venture, goal, mission, DAG, task, action, and tool ledgers plus scheduler and narrow mission-node task dispatch, but execution is not yet automatically chained, checkpointed, recovered, rolled back, and evaluated as the runtime backbone.',
+      'Pilot now has durable venture, goal, mission, DAG, task, action, and tool ledgers plus scheduler, narrow mission-node task dispatch, and post-completion dependency advancement, but execution is not yet automatically dispatched end-to-end, checkpointed, recovered, rolled back, and evaluated as the runtime backbone.',
     owner: 'Foundation Agent',
     blockers: [
       'Mission node execution is narrow one-node dispatch, not an autonomous DAG executor',
       'No mission-level checkpoint, recovery, and rollback executor',
-      'No automatic next-node scheduler/dispatcher after node completion',
+      'No automatic next-node execution after dependency-unblocked nodes are advanced to ready',
       'Current task APIs must remain compatible until mission-backed equivalents pass regression gates',
     ],
     evidence: [
       'Gate 5 adds durable actions and tool executions with missionId fields',
       'Gate 9 adds durable ventures, goals, missions, mission_nodes, mission_edges, and mission_tasks plus /api/startup-lifecycle/persist',
       'Gateway exposes /api/startup-lifecycle/missions/:missionId/schedule to identify dependency-ready nodes and queued task rows without dispatching execution',
-      'Gateway exposes /api/startup-lifecycle/missions/:missionId/nodes/:nodeId/execute for partner-scoped execution of a scheduled ready node through orchestrator.runTask with missionId context',
+      'Gateway exposes /api/startup-lifecycle/missions/:missionId/nodes/:nodeId/execute for partner-scoped execution of a scheduled ready node through orchestrator.runTask with missionId context and advances newly unblocked pending nodes to ready',
     ],
     evalRequirement: 'Full Startup Launch Eval and Multi-Agent Parallel Build Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,
@@ -365,11 +365,11 @@ const capabilityRecords = validateCapabilityRecords([
     name: 'Startup lifecycle engine',
     state: 'prototype',
     summary:
-      'Pilot can compile, persist, schedule, and execute one ready lifecycle node through the governed task runtime across onboarding, PMF, build, launch, growth, sales, formation, fundraising, and operations, but it does not execute the mission DAG autonomously end-to-end yet.',
+      'Pilot can compile, persist, schedule, execute one ready lifecycle node, and advance newly unblocked nodes through the governed task runtime across onboarding, PMF, build, launch, growth, sales, formation, fundraising, and operations, but it does not execute the mission DAG autonomously end-to-end yet.',
     owner: 'Runtime Agent',
     blockers: [
       'Lifecycle node execution is manual one-node dispatch, not a single autonomous startup launch workflow',
-      'No automatic dependency advancement, retry, checkpoint, recovery, or rollback over the mission DAG',
+      'Dependency advancement marks nodes ready, but retry, checkpoint, recovery, rollback, and next-node execution over the mission DAG are incomplete',
       'Legal/financial/external communication escalation contracts are compiled but not enforced by a running lifecycle engine',
       'No end-to-end startup launch eval passing against the lifecycle engine',
     ],
