@@ -411,6 +411,13 @@ export class Conductor {
     if (!subagentTaskRunId) {
       throw new Error(`Failed to persist subagent task run for "${def.name}".`);
     }
+    const evidenceAttached = await this.attachSpawnEvidencePackToTaskRun(
+      spawnPackId,
+      subagentTaskRunId,
+    );
+    if (!evidenceAttached) {
+      throw new Error(`Failed to anchor SUBAGENT_SPAWN evidence to task run for "${def.name}".`);
+    }
     let handoffId: string | null;
     try {
       handoffId = await this.writeAgentHandoff({
@@ -431,7 +438,7 @@ export class Conductor {
     return {
       parentTaskRunId: subagentTaskRunId,
       rootTaskRunId: parentCtx.rootTaskRunId ?? parentCtx.parentTaskRunId ?? subagentTaskRunId,
-      spawnedByActionId: parentCtx.parentTaskRunId,
+      spawnedByActionId: subagentTaskRunId,
       parentEvidencePackId: spawnPackId,
       operatorRole: def.operatorRole,
       budgetSliceAllocated: allocatedUsd,
@@ -514,6 +521,23 @@ export class Conductor {
       return id;
     } catch {
       return '';
+    }
+  }
+
+  private async attachSpawnEvidencePackToTaskRun(
+    spawnPackId: string,
+    taskRunId: string,
+  ): Promise<boolean> {
+    try {
+      const { evidencePacks } = await import('@pilot/db/schema');
+      const { eq } = await import('drizzle-orm');
+      await this.db
+        .update(evidencePacks)
+        .set({ taskRunId })
+        .where(eq(evidencePacks.id, spawnPackId));
+      return true;
+    } catch {
+      return false;
     }
   }
 
