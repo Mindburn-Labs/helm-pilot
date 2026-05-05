@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { computerActions, evidenceItems } from '@pilot/db/schema';
+import { artifactVersions, artifacts, computerActions, evidenceItems } from '@pilot/db/schema';
 import { getCapabilityRecord } from '@pilot/shared/capabilities';
 import { ToolRegistry, type Tool } from '../tools.js';
 
@@ -65,6 +65,46 @@ function createComputerActionDb() {
     })),
   };
   return { db, insertedComputerActions, insertedEvidenceItems, updatedComputerActions };
+}
+
+function createArtifactDb() {
+  const insertedArtifacts: unknown[] = [];
+  const insertedArtifactVersions: unknown[] = [];
+  const insertedEvidenceItems: unknown[] = [];
+  const db = {
+    insert: vi.fn((table: unknown) => ({
+      values: vi.fn((value: unknown) => {
+        if (table === artifacts) {
+          insertedArtifacts.push(value);
+          return {
+            returning: vi.fn(async () => [
+              {
+                id: '00000000-0000-4000-8000-000000000020',
+                name: (value as { name: string }).name,
+                type: (value as { type: string }).type,
+              },
+            ]),
+          };
+        }
+        if (table === artifactVersions) {
+          insertedArtifactVersions.push(value);
+          return {};
+        }
+        if (table === evidenceItems) {
+          insertedEvidenceItems.push(value);
+          return {
+            returning: vi.fn(async () => [
+              {
+                id: '00000000-0000-4000-8000-000000000021',
+              },
+            ]),
+          };
+        }
+        return { returning: vi.fn(async () => []) };
+      }),
+    })),
+  };
+  return { db, insertedArtifacts, insertedArtifactVersions, insertedEvidenceItems };
 }
 
 describe('ToolRegistry', () => {
@@ -464,6 +504,76 @@ describe('ToolRegistry', () => {
 
       const result = await registry.execute('analyze', input);
       expect(result).toEqual(input);
+    });
+  });
+
+  describe('built-in: create_artifact', () => {
+    it('persists the artifact, initial version, and canonical evidence item', async () => {
+      const workspaceId = '00000000-0000-4000-8000-000000000001';
+      const taskId = '00000000-0000-4000-8000-000000000002';
+      const actionId = '00000000-0000-4000-8000-000000000003';
+      const { db, insertedArtifacts, insertedArtifactVersions, insertedEvidenceItems } =
+        createArtifactDb();
+      const registry = createRegistryWithDb(db);
+
+      const result = await registry.execute(
+        'create_artifact',
+        {
+          type: 'landing_page',
+          name: 'pilot-homepage-copy.md',
+          description: 'Homepage copy draft',
+          content: '# Pilot\nAutonomous founder OS',
+        },
+        { workspaceId, taskId, actionId },
+      );
+
+      expect(insertedArtifacts[0]).toMatchObject({
+        workspaceId,
+        type: 'landing_page',
+        name: 'pilot-homepage-copy.md',
+        description: 'Homepage copy draft',
+        storagePath: 'inline://pilot-homepage-copy.md',
+        mimeType: 'text/plain',
+        sizeBytes: 29,
+        metadata: { content: '# Pilot\nAutonomous founder OS' },
+      });
+      expect(insertedArtifactVersions[0]).toMatchObject({
+        artifactId: '00000000-0000-4000-8000-000000000020',
+        version: 1,
+        storagePath: 'inline://pilot-homepage-copy.md',
+        sizeBytes: 29,
+        changelog: 'Initial version',
+      });
+      expect(insertedEvidenceItems[0]).toMatchObject({
+        workspaceId,
+        taskId,
+        actionId,
+        artifactId: '00000000-0000-4000-8000-000000000020',
+        evidenceType: 'artifact_created',
+        sourceType: 'tool_registry',
+        title: 'Artifact created: pilot-homepage-copy.md',
+        summary: 'Homepage copy draft',
+        redactionState: 'redacted',
+        sensitivity: 'internal',
+        contentHash: expect.stringMatching(/^sha256:/u),
+        storageRef: 'inline://pilot-homepage-copy.md',
+        replayRef: 'artifact:00000000-0000-4000-8000-000000000020:1',
+        metadata: {
+          artifactType: 'landing_page',
+          version: 1,
+          mimeType: 'text/plain',
+          sizeBytes: 29,
+          storageMode: 'inline_artifact_metadata',
+          tool: 'create_artifact',
+        },
+      });
+      expect(result).toMatchObject({
+        id: '00000000-0000-4000-8000-000000000020',
+        name: 'pilot-homepage-copy.md',
+        type: 'landing_page',
+        version: 1,
+        evidenceItemId: '00000000-0000-4000-8000-000000000021',
+      });
     });
   });
 

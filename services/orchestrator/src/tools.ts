@@ -996,8 +996,10 @@ export class ToolRegistry {
         'Create an artifact (document, code, design). Input: {"workspaceId": "...", "type": "landing_page|pdf|code|design|copy|pitch_deck", "name": "...", "description": "...", "content": "..."}',
       modes: ['build', 'launch'],
       execute: async (input) => {
-        const { workspaceId, type, name, description, content } = input as {
+        const { workspaceId, taskId, actionId, type, name, description, content } = input as {
           workspaceId: string;
+          taskId?: string;
+          actionId?: string;
           type: string;
           name: string;
           description?: string;
@@ -1028,7 +1030,36 @@ export class ToolRegistry {
           sizeBytes: content?.length ?? 0,
           changelog: 'Initial version',
         });
-        return { id: artifact.id, name: artifact.name, type: artifact.type, version: 1 };
+        const evidenceItemId = await appendEvidenceItem(this.db, {
+          workspaceId,
+          taskId: taskId ?? null,
+          actionId: actionId ?? null,
+          artifactId: artifact.id,
+          evidenceType: 'artifact_created',
+          sourceType: 'tool_registry',
+          title: `Artifact created: ${artifact.name}`,
+          summary: description ?? `Created ${type} artifact`,
+          redactionState: 'redacted',
+          sensitivity: 'internal',
+          contentHash: content ? hashText(content) : null,
+          storageRef: storagePath,
+          replayRef: `artifact:${artifact.id}:1`,
+          metadata: {
+            artifactType: type,
+            version: 1,
+            mimeType: 'text/plain',
+            sizeBytes: content?.length ?? 0,
+            storageMode: 'inline_artifact_metadata',
+            tool: 'create_artifact',
+          },
+        });
+        return {
+          id: artifact.id,
+          name: artifact.name,
+          type: artifact.type,
+          version: 1,
+          evidenceItemId,
+        };
       },
     });
 
