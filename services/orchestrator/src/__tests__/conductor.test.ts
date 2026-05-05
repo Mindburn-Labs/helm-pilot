@@ -3,10 +3,7 @@ import { Conductor, type ParentContext } from '../conductor.js';
 import { ToolRegistry } from '../tools.js';
 import type { PolicyConfig } from '@pilot/shared/schemas';
 import type { LlmProvider } from '@pilot/shared/llm';
-import {
-  SubagentRegistry,
-  type SubagentDefinition,
-} from '@pilot/shared/subagents';
+import { SubagentRegistry, type SubagentDefinition } from '@pilot/shared/subagents';
 
 vi.mock('@pilot/db/schema', () => ({
   taskRuns: 'taskRuns',
@@ -16,9 +13,8 @@ vi.mock('@pilot/db/schema', () => ({
 }));
 
 vi.mock('@pilot/shared/schemas', async () => {
-  const actual = await vi.importActual<typeof import('@pilot/shared/schemas')>(
-    '@pilot/shared/schemas',
-  );
+  const actual =
+    await vi.importActual<typeof import('@pilot/shared/schemas')>('@pilot/shared/schemas');
   return { ...actual, MAX_ITERATION_BUDGET: 200 };
 });
 
@@ -157,6 +153,16 @@ describe('Conductor.spawn', () => {
     expect(spawnPack?.['resource']).toBe('scout_x');
     expect(spawnPack?.['verdict']).toBe('ALLOW');
     expect(String(spawnPack?.['principal'])).toContain('subagent:scout_x:');
+
+    const spawnRun = valuesPayloads.find((p) => p['actionTool'] === 'subagent.spawn');
+    expect(spawnRun).toEqual(
+      expect.objectContaining({
+        parentTaskRunId: 'tr-parent',
+        rootTaskRunId: 'tr-parent',
+        spawnedByActionId: 'tr-parent',
+        lineageKind: 'subagent_spawn',
+      }),
+    );
   });
 });
 
@@ -196,9 +202,7 @@ describe('Conductor.parallel', () => {
     ]);
 
     expect(results.some((r) => r.verdict === 'failed')).toBe(true);
-    expect(results.find((r) => r.verdict === 'failed')?.error).toBe(
-      'subagent_not_found',
-    );
+    expect(results.find((r) => r.verdict === 'failed')?.error).toBe('subagent_not_found');
   });
 
   it('concurrent spawns of the same subagent get distinct principal suffixes', async () => {

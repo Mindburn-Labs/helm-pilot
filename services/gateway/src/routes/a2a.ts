@@ -1,10 +1,13 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
+import { and, asc, eq } from 'drizzle-orm';
+import { a2aMessages, a2aThreads, tasks as tasksTable } from '@pilot/db/schema';
 import {
   buildPilotAgentCard,
   type A2AMessage,
   type Task,
+  type TaskState,
   type TaskSendRequest,
 } from '@pilot/shared/a2a';
 import { type GatewayDeps } from '../index.js';
@@ -15,21 +18,14 @@ import { type GatewayDeps } from '../index.js';
 //   GET  /.well-known/agent-card.json  — public discovery doc
 //   POST /a2a                          — JSON-RPC 2.0 task lifecycle
 //
-// v1 task storage is an in-memory Map — sufficient for smoke interop
-// testing with Microsoft Agent Framework + Gemini CLI. Production-grade
-// task persistence (DB-backed) follows in a 1.2.1 patch.
-//
 // Auth: requires `PILOT_A2A_TOKEN` env var set. Constant-time compare
 // against the bearer header. Refuses all calls when the var is unset.
-
-const tasks = new Map<string, Task>();
 
 export function a2aRoutes(deps: GatewayDeps) {
   const app = new Hono();
 
   app.get('/.well-known/agent-card.json', (c) => {
-    const publicBase =
-      process.env['PILOT_A2A_PUBLIC_URL'] ?? 'http://localhost:3100';
+    const publicBase = process.env['PILOT_A2A_PUBLIC_URL'] ?? 'http://localhost:3100';
     const card = buildPilotAgentCard({
       url: `${publicBase}/a2a`,
       version: process.env['PILOT_VERSION'] ?? '1.2.0',
@@ -57,9 +53,7 @@ export function a2aRoutes(deps: GatewayDeps) {
     }
     const presented = Buffer.from(auth.slice(7));
     const expectedBuf = Buffer.from(expected);
-    const ok =
-      presented.length === expectedBuf.length &&
-      timingSafeEqual(presented, expectedBuf);
+    const ok = presented.length === expectedBuf.length && timingSafeEqual(presented, expectedBuf);
     if (!ok) return rpcError(c, null, -32001, 'Unauthorized', 401);
 
     let body: {
@@ -101,7 +95,6 @@ export function a2aRoutes(deps: GatewayDeps) {
           }
 
           // 1. Persist a tasks row so runConduct's tenancy gate accepts taskId.
-          const { tasks: tasksTable } = await import('@pilot/db/schema');
           const [taskRow] = await deps.db
             .insert(tasksTable)
             .values({
@@ -136,7 +129,15 @@ export function a2aRoutes(deps: GatewayDeps) {
               },
               history: [req.message],
             };
-            tasks.set(taskId, failed);
+            await persistA2aTask(deps, {
+              workspaceId,
+              externalTaskId: taskId,
+              pilotTaskId,
+              state: 'failed',
+              userMessage: req.message,
+              agentMessage: failed.status.message,
+              metadata: { jsonrpcId: id, error: err instanceof Error ? err.message : String(err) },
+            });
             return c.json({ jsonrpc: '2.0', id, result: { task: failed } });
           }
 
@@ -145,8 +146,8 @@ export function a2aRoutes(deps: GatewayDeps) {
             result.status === 'completed'
               ? 'completed'
               : result.status === 'awaiting_approval'
-              ? 'input-required'
-              : 'failed';
+                ? 'input-required'
+                : 'failed';
           const finish = (result.actions ?? [])
             .slice()
             .reverse()
@@ -168,7 +169,15 @@ export function a2aRoutes(deps: GatewayDeps) {
             },
             history: [req.message],
           };
-          tasks.set(taskId, task);
+          await persistA2aTask(deps, {
+            workspaceId,
+            externalTaskId: taskId,
+            pilotTaskId,
+            state,
+            userMessage: req.message,
+            agentMessage: task.status.message,
+            metadata: { jsonrpcId: id, conductStatus: result.status },
+          });
           return c.json({ jsonrpc: '2.0', id, result: { task } });
         }
         case 'tasks/get': {
@@ -176,7 +185,16 @@ export function a2aRoutes(deps: GatewayDeps) {
           if (typeof params.id !== 'string') {
             return rpcError(c, id, -32602, 'params.id required');
           }
-          const task = tasks.get(params.id);
+          const workspaceId = process.env['PILOT_A2A_WORKSPACE_ID'];
+          if (!workspaceId) {
+            return rpcError(
+              c,
+              id,
+              -32000,
+              'PILOT_A2A_WORKSPACE_ID not configured; cannot dispatch',
+            );
+          }
+          const task = await loadA2aTask(deps, workspaceId, params.id);
           if (!task) return rpcError(c, id, -32004, 'task_not_found');
           return c.json({ jsonrpc: '2.0', id, result: { task } });
         }
@@ -185,25 +203,43 @@ export function a2aRoutes(deps: GatewayDeps) {
           if (typeof params.id !== 'string') {
             return rpcError(c, id, -32602, 'params.id required');
           }
-          const task = tasks.get(params.id);
+          const workspaceId = process.env['PILOT_A2A_WORKSPACE_ID'];
+          if (!workspaceId) {
+            return rpcError(
+              c,
+              id,
+              -32000,
+              'PILOT_A2A_WORKSPACE_ID not configured; cannot dispatch',
+            );
+          }
+          const task = await loadA2aTask(deps, workspaceId, params.id);
           if (!task) return rpcError(c, id, -32004, 'task_not_found');
-          const canceled: Task = {
-            ...task,
-            status: { state: 'canceled', timestamp: new Date().toISOString() },
-          };
-          tasks.set(params.id, canceled);
-          return c.json({ jsonrpc: '2.0', id, result: { task: canceled } });
+          const canceledAt = new Date();
+          await deps.db
+            .update(a2aThreads)
+            .set({ status: 'canceled', updatedAt: canceledAt, completedAt: canceledAt })
+            .where(
+              and(
+                eq(a2aThreads.workspaceId, workspaceId),
+                eq(a2aThreads.externalTaskId, params.id),
+              ),
+            );
+          return c.json({
+            jsonrpc: '2.0',
+            id,
+            result: {
+              task: {
+                ...task,
+                status: { state: 'canceled', timestamp: canceledAt.toISOString() },
+              },
+            },
+          });
         }
         default:
           return rpcError(c, id, -32601, `Method not found: ${body.method}`);
       }
     } catch (err) {
-      return rpcError(
-        c,
-        id,
-        -32603,
-        err instanceof Error ? err.message : 'Internal error',
-      );
+      return rpcError(c, id, -32603, err instanceof Error ? err.message : 'Internal error');
     }
   });
 
@@ -230,7 +266,117 @@ function agentText(text: string): A2AMessage {
   return { role: 'agent', parts: [{ type: 'text', text }] };
 }
 
-/** Test hook — drop in-memory task store. */
+async function persistA2aTask(
+  deps: GatewayDeps,
+  params: {
+    workspaceId: string;
+    externalTaskId: string;
+    pilotTaskId: string;
+    state: TaskState;
+    userMessage: A2AMessage;
+    agentMessage?: A2AMessage;
+    metadata: Record<string, unknown>;
+  },
+): Promise<void> {
+  const completedAt =
+    params.state === 'completed' || params.state === 'failed' || params.state === 'canceled'
+      ? new Date()
+      : null;
+  const [thread] = await deps.db
+    .insert(a2aThreads)
+    .values({
+      workspaceId: params.workspaceId,
+      externalTaskId: params.externalTaskId,
+      pilotTaskId: params.pilotTaskId || null,
+      status: params.state,
+      metadata: params.metadata,
+      completedAt,
+    })
+    .returning({ id: a2aThreads.id });
+
+  if (!thread?.id) {
+    throw new Error('A2A thread persistence failed');
+  }
+
+  const messages = [
+    {
+      threadId: thread.id,
+      workspaceId: params.workspaceId,
+      role: params.userMessage.role,
+      parts: params.userMessage.parts,
+      sequence: 1,
+    },
+  ];
+  if (params.agentMessage) {
+    messages.push({
+      threadId: thread.id,
+      workspaceId: params.workspaceId,
+      role: params.agentMessage.role,
+      parts: params.agentMessage.parts,
+      sequence: 2,
+    });
+  }
+  await deps.db.insert(a2aMessages).values(messages);
+}
+
+async function loadA2aTask(
+  deps: GatewayDeps,
+  workspaceId: string,
+  externalTaskId: string,
+): Promise<Task | null> {
+  const [thread] = await deps.db
+    .select()
+    .from(a2aThreads)
+    .where(
+      and(eq(a2aThreads.workspaceId, workspaceId), eq(a2aThreads.externalTaskId, externalTaskId)),
+    )
+    .limit(1);
+  if (!thread) return null;
+
+  const rows = await deps.db
+    .select()
+    .from(a2aMessages)
+    .where(and(eq(a2aMessages.workspaceId, workspaceId), eq(a2aMessages.threadId, thread.id)))
+    .orderBy(asc(a2aMessages.sequence));
+
+  const history = rows.map((row) => ({
+    role: row.role === 'agent' ? 'agent' : 'user',
+    parts: Array.isArray(row.parts) ? row.parts : [],
+  })) as A2AMessage[];
+  const agentMessage = [...history].reverse().find((message) => message.role === 'agent');
+  const timestamp = (
+    thread.completedAt ??
+    thread.updatedAt ??
+    thread.createdAt ??
+    new Date()
+  ).toISOString();
+
+  return {
+    id: thread.externalTaskId,
+    status: {
+      state: coerceTaskState(thread.status),
+      timestamp,
+      ...(agentMessage ? { message: agentMessage } : {}),
+    },
+    history,
+  };
+}
+
+function coerceTaskState(state: string): TaskState {
+  if (
+    state === 'submitted' ||
+    state === 'working' ||
+    state === 'input-required' ||
+    state === 'completed' ||
+    state === 'canceled' ||
+    state === 'failed'
+  ) {
+    return state;
+  }
+  return 'failed';
+}
+
+/** Test hook retained for backward-compatible tests; A2A state is DB-backed. */
 export function __resetA2aTasks(): void {
-  tasks.clear();
+  // no-op
 }

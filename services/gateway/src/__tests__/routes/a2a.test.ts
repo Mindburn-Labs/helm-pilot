@@ -1,6 +1,37 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { a2aMessages, a2aThreads } from '@pilot/db/schema';
 import { a2aRoutes, __resetA2aTasks } from '../../routes/a2a.js';
 import { createMockDeps, testApp } from '../helpers.js';
+
+vi.mock('@pilot/db/schema', () => ({
+  a2aThreads: {
+    id: 'a2aThreads.id',
+    workspaceId: 'a2aThreads.workspaceId',
+    externalTaskId: 'a2aThreads.externalTaskId',
+    pilotTaskId: 'a2aThreads.pilotTaskId',
+    status: 'a2aThreads.status',
+    updatedAt: 'a2aThreads.updatedAt',
+    completedAt: 'a2aThreads.completedAt',
+  },
+  a2aMessages: {
+    id: 'a2aMessages.id',
+    threadId: 'a2aMessages.threadId',
+    workspaceId: 'a2aMessages.workspaceId',
+    role: 'a2aMessages.role',
+    parts: 'a2aMessages.parts',
+    sequence: 'a2aMessages.sequence',
+  },
+  tasks: {
+    id: 'tasks.id',
+    workspaceId: 'tasks.workspaceId',
+  },
+}));
+
+vi.mock('drizzle-orm', () => ({
+  and: vi.fn((...conditions: unknown[]) => ({ op: 'and', conditions })),
+  asc: vi.fn((col: unknown) => ({ op: 'asc', col })),
+  eq: vi.fn((col: unknown, value: unknown) => ({ op: 'eq', col, value })),
+}));
 
 const BEARER = 'test123abc456def789012345';
 const WS_ID = 'ws-a2a-1';
@@ -113,6 +144,69 @@ describe('a2aRoutes', () => {
     expect(body.result.task.status.state).toBe('completed');
     expect(body.result.task.status.message?.parts[0]?.text).toBe('All done.');
     expect(runConductMock).toHaveBeenCalledTimes(1);
+    expect(deps.db.insert).toHaveBeenCalledWith(a2aThreads);
+    expect(deps.db.insert).toHaveBeenCalledWith(a2aMessages);
+  });
+
+  it('tasks/get reconstructs durable A2A state from DB after route re-instantiation', async () => {
+    const deps = createMockDeps();
+    let selectCount = 0;
+    deps.db.select = vi.fn(() => {
+      selectCount++;
+      if (selectCount === 1) {
+        return {
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(async () => [
+                {
+                  id: 'thread-1',
+                  workspaceId: WS_ID,
+                  externalTaskId: 'durable-task-1',
+                  status: 'completed',
+                  createdAt: new Date('2026-05-05T10:00:00.000Z'),
+                  updatedAt: new Date('2026-05-05T10:00:01.000Z'),
+                  completedAt: new Date('2026-05-05T10:00:02.000Z'),
+                },
+              ]),
+            })),
+          })),
+        };
+      }
+      return {
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            orderBy: vi.fn(async () => [
+              {
+                role: 'user',
+                parts: [{ type: 'text', text: 'Find AI opportunities' }],
+                sequence: 1,
+              },
+              {
+                role: 'agent',
+                parts: [{ type: 'text', text: 'All done.' }],
+                sequence: 2,
+              },
+            ]),
+          })),
+        })),
+      };
+    }) as unknown as typeof deps.db.select;
+
+    const { fetch } = testApp(a2aRoutes, deps);
+    const res = await fetch(
+      'POST',
+      '/a2a',
+      { jsonrpc: '2.0', id: 2, method: 'tasks/get', params: { id: 'durable-task-1' } },
+      { authorization: `Bearer ${BEARER}` },
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      result: { task: { id: string; status: { state: string; message?: { parts: unknown[] } } } };
+    };
+    expect(body.result.task.id).toBe('durable-task-1');
+    expect(body.result.task.status.state).toBe('completed');
+    expect(body.result.task.status.message?.parts).toEqual([{ type: 'text', text: 'All done.' }]);
   });
 
   it('tasks/get for unknown id returns task_not_found', async () => {

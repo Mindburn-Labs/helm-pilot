@@ -1,5 +1,6 @@
 import { type Db } from '@pilot/db/client';
 import { createHash } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import { type LlmGovernance, type LlmProvider, type LlmUsage } from '@pilot/shared/llm';
 import {
   HelmDeniedError,
@@ -251,11 +252,27 @@ export class AgentLoop {
       }
 
       // 3. Execute action
-      const output = await this.executeAction(params, action);
-      actions.push({ ...action, output, verdict: 'allow', iteration });
+      const pendingTaskRunId = await this.ensureToolLineageAnchor(params.taskId, {
+        ...action,
+        output: null,
+        verdict: 'allow',
+        iteration,
+      });
+      const output = await this.executeAction(params, action, undefined, pendingTaskRunId);
+      actions.push({ ...action, output, verdict: 'allow', iteration, taskRunId: pendingTaskRunId });
 
       // Persist action (A5 — task progress tracking)
-      await this.persistAction(params.taskId, { ...action, output, verdict: 'allow', iteration });
+      await this.persistAction(
+        params.taskId,
+        {
+          ...action,
+          output,
+          verdict: 'allow',
+          iteration,
+          taskRunId: pendingTaskRunId,
+        },
+        { mirrorEvidence: !pendingTaskRunId },
+      );
 
       emitConductEvent({
         type: 'action.completed',
@@ -379,7 +396,12 @@ export class AgentLoop {
         return this.result('blocked', startIteration - 1, maxIterations, actions, reason);
       }
 
-      const output = await this.executeAction(params, lastAction, resumeApproval.approvalId);
+      const output = await this.executeAction(
+        params,
+        lastAction,
+        resumeApproval.approvalId,
+        lastAction.taskRunId,
+      );
       lastAction.output = output;
       lastAction.verdict = 'allow';
       await this.persistAction(params.taskId, lastAction);
@@ -461,9 +483,25 @@ export class AgentLoop {
         );
       }
 
-      const output = await this.executeAction(params, action);
-      actions.push({ ...action, output, verdict: 'allow', iteration });
-      await this.persistAction(params.taskId, { ...action, output, verdict: 'allow', iteration });
+      const pendingTaskRunId = await this.ensureToolLineageAnchor(params.taskId, {
+        ...action,
+        output: null,
+        verdict: 'allow',
+        iteration,
+      });
+      const output = await this.executeAction(params, action, undefined, pendingTaskRunId);
+      actions.push({ ...action, output, verdict: 'allow', iteration, taskRunId: pendingTaskRunId });
+      await this.persistAction(
+        params.taskId,
+        {
+          ...action,
+          output,
+          verdict: 'allow',
+          iteration,
+          taskRunId: pendingTaskRunId,
+        },
+        { mirrorEvidence: !pendingTaskRunId },
+      );
 
       if (action.tool === 'finish') {
         return this.result('completed', iteration, maxIterations, actions);
@@ -682,10 +720,24 @@ export class AgentLoop {
     }
   }
 
+  private async ensureToolLineageAnchor(
+    taskId: string,
+    action: ActionRecord,
+  ): Promise<string | undefined> {
+    if (!action.tool.startsWith('subagent.')) return undefined;
+
+    const taskRunId = await this.persistPendingAction(taskId, action);
+    if (!taskRunId) {
+      throw new Error('Subagent spawn blocked: failed to persist parent task_run anchor');
+    }
+    return taskRunId;
+  }
+
   private async executeAction(
     params: AgentRunParams,
     action: Pick<ActionRecord, 'tool' | 'input'>,
     approvalId?: string,
+    parentTaskRunId?: string,
   ): Promise<unknown> {
     if (!this.tools) return { error: 'No tool registry configured' };
     try {
@@ -696,6 +748,10 @@ export class AgentLoop {
         actionHash: computeActionHash(action),
         ...(params.operatorId ? { operatorId: params.operatorId } : {}),
         ...(approvalId ? { approvalId } : {}),
+        ...(parentTaskRunId ? { parentTaskRunId } : {}),
+        ...(this.currentSubagentFrame?.rootTaskRunId
+          ? { rootTaskRunId: this.currentSubagentFrame.rootTaskRunId }
+          : {}),
       };
       return await this.tools.execute(action.tool, action.input, context);
     } catch (err) {
@@ -762,17 +818,10 @@ export class AgentLoop {
     }
   }
 
-  /**
-   * Persist an action record to the task_runs table for audit + resume.
-   *
-   * When the planning LLM call was HELM-governed, the governance anchor is
-   * written onto the task_runs row (helm_decision_id / helm_policy_version /
-   * helm_reason_code) and a mirror row is inserted into evidence_packs so the
-   * Governance admin surface can browse receipts without round-tripping to
-   * HELM. All persistence errors are swallowed — the loop never crashes
-   * because the audit layer degraded.
-   */
-  private async persistAction(taskId: string, action: ActionRecord): Promise<void> {
+  private async persistPendingAction(
+    taskId: string,
+    action: ActionRecord,
+  ): Promise<string | undefined> {
     const toolGov = this.lastToolGovernance;
     const gov = toolGov ?? this.lastGovernance;
     const govAction = toolGov ? 'TOOL_USE' : 'LLM_INFERENCE';
@@ -780,7 +829,7 @@ export class AgentLoop {
     const workspaceId = this.currentWorkspaceId;
     const frame = this.currentSubagentFrame;
     const actionHash = action.actionHash ?? computeActionHash(action);
-    let taskRunId: string | undefined;
+
     try {
       const { taskRuns } = await import('@pilot/db/schema');
       const [row] = await this.db
@@ -799,12 +848,16 @@ export class AgentLoop {
           tokensOut: this.runUsage.tokensOut,
           costUsd: this.runCost.toFixed(4),
           error: action.verdict === 'deny' ? stringifyError(action.output) : undefined,
-          completedAt: action.verdict === 'require_approval' ? undefined : new Date(),
+          completedAt: undefined,
           helmDecisionId: gov?.decisionId ?? null,
           helmPolicyVersion: gov?.policyVersion ?? null,
           helmReasonCode: gov?.reason ?? null,
-          // Phase 12 — subagent lineage. All four stay null on the main path.
           parentTaskRunId: frame?.parentTaskRunId ?? null,
+          rootTaskRunId: frame?.rootTaskRunId ?? frame?.parentTaskRunId ?? null,
+          spawnedByActionId: frame?.spawnedByActionId ?? null,
+          lineageKind: frame ? 'subagent_action' : 'parent_action',
+          runSequence: action.iteration,
+          checkpointId: null,
           operatorRole: frame?.operatorRole ?? null,
           budgetSliceUsed: frame ? this.runCost.toFixed(4) : undefined,
           budgetSliceAllocated:
@@ -813,63 +866,161 @@ export class AgentLoop {
               : null,
         })
         .returning({ id: taskRuns.id });
-      taskRunId = row?.id;
+      const taskRunId = row?.id;
+      if (taskRunId) this.lastTaskRunId = taskRunId;
+      if (gov && workspaceId && taskRunId) {
+        await this.mirrorGovernanceEvidence({
+          gov,
+          workspaceId,
+          taskRunId,
+          govAction,
+          govResource,
+          frame,
+        });
+      }
+      return taskRunId;
+    } catch (err) {
+      captureException(err, {
+        tags: { source: 'persistPendingAction', taskId },
+        extra: { tool: action.tool },
+      });
+      return undefined;
+    }
+  }
+
+  /**
+   * Persist an action record to the task_runs table for audit + resume.
+   *
+   * When the planning LLM call was HELM-governed, the governance anchor is
+   * written onto the task_runs row (helm_decision_id / helm_policy_version /
+   * helm_reason_code) and a mirror row is inserted into evidence_packs so the
+   * Governance admin surface can browse receipts without round-tripping to
+   * HELM. All persistence errors are swallowed — the loop never crashes
+   * because the audit layer degraded.
+   */
+  private async persistAction(
+    taskId: string,
+    action: ActionRecord,
+    options: { mirrorEvidence?: boolean } = {},
+  ): Promise<void> {
+    const toolGov = this.lastToolGovernance;
+    const gov = toolGov ?? this.lastGovernance;
+    const govAction = toolGov ? 'TOOL_USE' : 'LLM_INFERENCE';
+    const govResource = toolGov ? action.tool : this.runUsage.model || 'agent-loop';
+    const workspaceId = this.currentWorkspaceId;
+    const frame = this.currentSubagentFrame;
+    const actionHash = action.actionHash ?? computeActionHash(action);
+    let taskRunId: string | undefined = action.taskRunId;
+    const values = {
+      taskId,
+      status: mapActionStatus(action),
+      actionTool: action.tool,
+      actionInput: toJsonValue(action.input),
+      actionHash,
+      actionOutput: toJsonValue(action.output),
+      verdict: action.verdict,
+      iterationsUsed: action.iteration,
+      modelUsed: this.runUsage.model || 'agent-loop',
+      tokensIn: this.runUsage.tokensIn,
+      tokensOut: this.runUsage.tokensOut,
+      costUsd: this.runCost.toFixed(4),
+      error: action.verdict === 'deny' ? stringifyError(action.output) : undefined,
+      completedAt: action.verdict === 'require_approval' ? undefined : new Date(),
+      helmDecisionId: gov?.decisionId ?? null,
+      helmPolicyVersion: gov?.policyVersion ?? null,
+      helmReasonCode: gov?.reason ?? null,
+      parentTaskRunId: frame?.parentTaskRunId ?? null,
+      rootTaskRunId: frame?.rootTaskRunId ?? frame?.parentTaskRunId ?? null,
+      spawnedByActionId: frame?.spawnedByActionId ?? null,
+      lineageKind: frame ? 'subagent_action' : 'parent_action',
+      runSequence: action.iteration,
+      checkpointId: null,
+      operatorRole: frame?.operatorRole ?? null,
+      budgetSliceUsed: frame ? this.runCost.toFixed(4) : undefined,
+      budgetSliceAllocated:
+        frame?.budgetSliceAllocated !== undefined ? frame.budgetSliceAllocated.toFixed(4) : null,
+    };
+
+    try {
+      const { taskRuns } = await import('@pilot/db/schema');
+      if (taskRunId) {
+        await this.db.update(taskRuns).set(values).where(eq(taskRuns.id, taskRunId));
+      } else {
+        const [row] = await this.db.insert(taskRuns).values(values).returning({ id: taskRuns.id });
+        taskRunId = row?.id;
+      }
       if (taskRunId) this.lastTaskRunId = taskRunId;
     } catch {
       // Non-critical — don't crash the loop if persistence fails
     }
 
-    // Mirror the HELM receipt into evidence_packs. Workspace-scoped so the
-    // founder can browse "every governed decision in my workspace" without
-    // joining task_runs → tasks.
-    if (gov && workspaceId) {
+    if (gov && workspaceId && options.mirrorEvidence !== false) {
+      await this.mirrorGovernanceEvidence({
+        gov,
+        workspaceId,
+        taskRunId: taskRunId ?? null,
+        govAction,
+        govResource,
+        frame,
+      });
+    }
+  }
+
+  private async mirrorGovernanceEvidence(params: {
+    gov: LlmGovernance | HelmReceipt;
+    workspaceId: string;
+    taskRunId: string | null;
+    govAction: string;
+    govResource: string;
+    frame: SubagentFrame | null;
+  }): Promise<void> {
+    const { gov, workspaceId, taskRunId, govAction, govResource, frame } = params;
+    try {
+      const { evidencePacks } = await import('@pilot/db/schema');
+      await this.db.insert(evidencePacks).values({
+        workspaceId,
+        decisionId: gov.decisionId,
+        taskRunId,
+        verdict: gov.verdict,
+        reasonCode: gov.reason ?? null,
+        policyVersion: gov.policyVersion,
+        decisionHash: gov.decisionHash ?? null,
+        action: govAction,
+        resource: govResource,
+        principal: gov.principal,
+        signedBlob: gov.signedBlob ?? null,
+        // Phase 12 — anchor child's receipt to parent's SUBAGENT_SPAWN pack.
+        parentEvidencePackId: frame?.parentEvidencePackId ?? null,
+      });
+      // v1.2.1 — L1 structural integrity check. Non-fatal; warnings logged.
       try {
-        const { evidencePacks } = await import('@pilot/db/schema');
-        await this.db.insert(evidencePacks).values({
-          workspaceId,
+        const result = validateL1({
+          id: '', // the insert doesn't return id here; id-less pack still validates other fields
           decisionId: gov.decisionId,
-          taskRunId: taskRunId ?? null,
           verdict: gov.verdict,
-          reasonCode: gov.reason ?? null,
           policyVersion: gov.policyVersion,
-          decisionHash: gov.decisionHash ?? null,
           action: govAction,
           resource: govResource,
           principal: gov.principal,
+          receivedAt: new Date(),
+          decisionHash: gov.decisionHash ?? null,
           signedBlob: gov.signedBlob ?? null,
-          // Phase 12 — anchor child's receipt to parent's SUBAGENT_SPAWN pack.
           parentEvidencePackId: frame?.parentEvidencePackId ?? null,
         });
-        // v1.2.1 — L1 structural integrity check. Non-fatal; warnings logged.
-        try {
-          const result = validateL1({
-            id: '', // the insert doesn't return id here; id-less pack still validates other fields
-            decisionId: gov.decisionId,
-            verdict: gov.verdict,
-            policyVersion: gov.policyVersion,
-            action: govAction,
-            resource: govResource,
-            principal: gov.principal,
-            receivedAt: new Date(),
-            decisionHash: gov.decisionHash ?? null,
-            signedBlob: gov.signedBlob ?? null,
-            parentEvidencePackId: frame?.parentEvidencePackId ?? null,
-          });
-          const errors = result.findings.filter((f) => f.level === 'error');
-          // 'l1.missing_field' on `id` is expected here (see note above); filter.
-          const realErrors = errors.filter((f) => f.field !== 'id');
-          if (realErrors.length > 0) {
-            l1InferenceLog.error(
-              { decisionId: gov.decisionId, findings: realErrors },
-              'LLM_INFERENCE pack failed L1 validation',
-            );
-          }
-        } catch (err) {
-          l1InferenceLog.warn({ err }, 'validateL1 threw on LLM_INFERENCE pack');
+        const errors = result.findings.filter((f) => f.level === 'error');
+        // 'l1.missing_field' on `id` is expected here (see note above); filter.
+        const realErrors = errors.filter((f) => f.field !== 'id');
+        if (realErrors.length > 0) {
+          l1InferenceLog.error(
+            { decisionId: gov.decisionId, findings: realErrors },
+            'LLM_INFERENCE pack failed L1 validation',
+          );
         }
-      } catch {
-        // Non-critical — governance mirroring is best-effort
+      } catch (err) {
+        l1InferenceLog.warn({ err }, 'validateL1 threw on LLM_INFERENCE pack');
       }
+    } catch {
+      // Non-critical — governance mirroring is best-effort
     }
   }
 
@@ -1107,6 +1258,7 @@ export interface ActionRecord {
   verdict: string;
   iteration: number;
   actionHash?: string;
+  taskRunId?: string;
 }
 
 interface ResumeApprovalCheck {
@@ -1135,6 +1287,8 @@ interface ApprovalResumeRow {
  */
 export interface SubagentFrame {
   parentTaskRunId: string;
+  rootTaskRunId?: string | null;
+  spawnedByActionId?: string | null;
   parentEvidencePackId: string | null;
   operatorRole: string;
   budgetSliceAllocated?: number;

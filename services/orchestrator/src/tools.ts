@@ -179,6 +179,15 @@ export class ToolRegistry {
     if (!tool) return { error: `Unknown tool: ${name}` };
     const boundInput =
       context && !name.startsWith('mcp.') ? bindToolContext(input, context) : input;
+    const previousParentContext = this.parentContext;
+    if (this.parentContext && context?.parentTaskRunId) {
+      this.parentContext = {
+        ...this.parentContext,
+        parentTaskRunId: context.parentTaskRunId,
+        rootTaskRunId:
+          context.rootTaskRunId ?? this.parentContext.rootTaskRunId ?? context.parentTaskRunId,
+      };
+    }
     // Phase 13 (Track D) — emit an `execute_tool` OTel span. Best-effort
     // conversation id pulled from server context first, then input.taskId.
     const conversationId =
@@ -192,6 +201,8 @@ export class ToolRegistry {
         raw = await tool.execute(boundInput);
       } catch (err) {
         return { error: err instanceof Error ? err.message : 'Tool execution failed' };
+      } finally {
+        this.parentContext = previousParentContext;
       }
       // v1.2.1 — sanitize untrusted tool output (connectors, scrapling, vision)
       // against Trojan Source / zero-width / homoglyph injection. Trusted
@@ -1473,8 +1484,7 @@ export class ToolRegistry {
     connectorName: string,
   ): Promise<string | null> {
     try {
-      const { connectors, connectorGrants, connectorTokens } =
-        await import('@pilot/db/schema');
+      const { connectors, connectorGrants, connectorTokens } = await import('@pilot/db/schema');
       const { eq, and } = await import('drizzle-orm');
       const { decryptToken } = await import('@pilot/connectors');
 
@@ -1535,6 +1545,8 @@ export interface ToolExecutionContext {
   approvalId?: string;
   policyVersion?: string;
   actionHash?: string;
+  parentTaskRunId?: string;
+  rootTaskRunId?: string;
 }
 
 function bindToolContext(input: unknown, context: ToolExecutionContext): unknown {
@@ -1548,5 +1560,7 @@ function bindToolContext(input: unknown, context: ToolExecutionContext): unknown
     ...(context.approvalId ? { approvalId: context.approvalId } : {}),
     ...(context.policyVersion ? { policyVersion: context.policyVersion } : {}),
     ...(context.actionHash ? { actionHash: context.actionHash } : {}),
+    ...(context.parentTaskRunId ? { parentTaskRunId: context.parentTaskRunId } : {}),
+    ...(context.rootTaskRunId ? { rootTaskRunId: context.rootTaskRunId } : {}),
   };
 }
