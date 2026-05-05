@@ -120,6 +120,7 @@ const capabilityRecords = validateCapabilityRecords([
       'Operator computer-use and browser-read helper tests prove those elevated helpers inherit generic evaluate() receipt-sink fail-closed behavior',
       'HelmClient.chatCompletion classifies LLM_INFERENCE as receipt-required under required_for_elevated and checks for a receipt sink before model calls',
       'HELM admin helper endpoints now have an explicit action catalog: read-only inspection is E1/no-receipt, createObligation is E2 governed write, and promoteMemory is E3 governed write',
+      'Tool Broker now pins policy/document metadata on every brokered action and tool execution, including explicit local policy pins for low-risk tools without HELM decisions',
     ],
     evalRequirement: 'HELM Governance Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,

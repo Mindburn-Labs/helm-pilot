@@ -30,6 +30,10 @@ export const actions = pgTable(
     outputHash: text('output_hash'),
     policyDecisionId: text('policy_decision_id'),
     policyVersion: text('policy_version'),
+    helmDocumentVersionPins: jsonb('helm_document_version_pins')
+      .$type<Record<string, string>>()
+      .notNull()
+      .default({}),
     metadata: jsonb('metadata').notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
@@ -64,6 +68,10 @@ export const toolExecutions = pgTable(
     evidenceIds: jsonb('evidence_ids').notNull().default([]),
     policyDecisionId: text('policy_decision_id'),
     policyVersion: text('policy_version'),
+    helmDocumentVersionPins: jsonb('helm_document_version_pins')
+      .$type<Record<string, string>>()
+      .notNull()
+      .default({}),
     error: text('error'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp('completed_at', { withTimezone: true }),

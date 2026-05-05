@@ -50,8 +50,14 @@ function createBrokerDb(opts: { failEvidenceInsert?: boolean } = {}) {
 
 describe('ToolBroker', () => {
   it('persists action, tool execution, hashes, idempotency, policy, and audit rows', async () => {
-    const { db, insertedActions, insertedExecutions, insertedEvidenceItems, insertedAudit, updates } =
-      createBrokerDb();
+    const {
+      db,
+      insertedActions,
+      insertedExecutions,
+      insertedEvidenceItems,
+      insertedAudit,
+      updates,
+    } = createBrokerDb();
     const registry = new ToolRegistry(db as never, undefined, { skipBuiltins: true });
     registry.register({
       name: 'echo_tool',
@@ -82,6 +88,10 @@ describe('ToolBroker', () => {
         operatorId: '00000000-0000-4000-8000-000000000003',
         policyDecisionId: 'dec-1',
         policyVersion: 'founder-ops-v1',
+        helmDocumentVersionPins: {
+          founderOpsPolicy: 'founder-ops-v1',
+          riskTaxonomy: 'risk-taxonomy-v1',
+        },
         actionHash: 'sha256:action',
       },
     );
@@ -108,7 +118,19 @@ describe('ToolBroker', () => {
       actionKey: 'echo_tool',
       policyDecisionId: 'dec-1',
       policyVersion: 'founder-ops-v1',
+      helmDocumentVersionPins: {
+        founderOpsPolicy: 'founder-ops-v1',
+        riskTaxonomy: 'risk-taxonomy-v1',
+      },
       inputHash: result.inputHash,
+      metadata: expect.objectContaining({
+        policyPin: expect.objectContaining({
+          documentVersionPins: {
+            founderOpsPolicy: 'founder-ops-v1',
+            riskTaxonomy: 'risk-taxonomy-v1',
+          },
+        }),
+      }),
     });
     expect(insertedExecutions[0]).toMatchObject({
       workspaceId: '00000000-0000-4000-8000-000000000001',
@@ -119,6 +141,10 @@ describe('ToolBroker', () => {
       sanitizedInput: { value: 42 },
       policyDecisionId: 'dec-1',
       policyVersion: 'founder-ops-v1',
+      helmDocumentVersionPins: {
+        founderOpsPolicy: 'founder-ops-v1',
+        riskTaxonomy: 'risk-taxonomy-v1',
+      },
     });
     expect((insertedExecutions[0] as { idempotencyKey: string }).idempotencyKey).toContain(
       'tool-broker-v1:00000000-0000-4000-8000-000000000001',
@@ -179,6 +205,10 @@ describe('ToolBroker', () => {
         evidenceIds: ['00000000-0000-4000-8000-000000000004'],
         policyDecisionId: 'dec-1',
         policyVersion: 'founder-ops-v1',
+        helmDocumentVersionPins: {
+          founderOpsPolicy: 'founder-ops-v1',
+          riskTaxonomy: 'risk-taxonomy-v1',
+        },
         credentialBoundary: 'sanitized_input_output_only',
       }),
     });
@@ -203,12 +233,17 @@ describe('ToolBroker', () => {
     });
     const broker = new ToolBroker(db as never);
 
-    const result = await broker.execute(registry, 'failing_tool', {}, {
-      workspaceId: '00000000-0000-4000-8000-000000000001',
-      taskId: '00000000-0000-4000-8000-000000000002',
-      policyDecisionId: 'dec-1',
-      policyVersion: 'founder-ops-v1',
-    });
+    const result = await broker.execute(
+      registry,
+      'failing_tool',
+      {},
+      {
+        workspaceId: '00000000-0000-4000-8000-000000000001',
+        taskId: '00000000-0000-4000-8000-000000000002',
+        policyDecisionId: 'dec-1',
+        policyVersion: 'founder-ops-v1',
+      },
+    );
 
     expect(result).toMatchObject({
       status: 'failed',
@@ -229,6 +264,75 @@ describe('ToolBroker', () => {
     expect(insertedAudit[0]).toMatchObject({
       verdict: 'error',
       reason: JSON.stringify({ error: 'blocked by external service' }),
+    });
+  });
+
+  it('pins a local policy version for low-risk brokered actions without HELM decisions', async () => {
+    const { db, insertedActions, insertedExecutions, insertedEvidenceItems, insertedAudit } =
+      createBrokerDb();
+    const registry = new ToolRegistry(db as never, undefined, { skipBuiltins: true });
+    registry.register({
+      name: 'read_status',
+      description: 'Read local status',
+      manifest: {
+        key: 'read_status',
+        version: 'test:v2',
+        riskClass: 'low',
+        effectLevel: 'E1',
+        requiredEvidence: ['tool_result'],
+        permissionRequirements: ['tool:read_status:execute'],
+        outputSensitivity: 'internal',
+      },
+      execute: async () => ({ ok: true }),
+    });
+    const broker = new ToolBroker(db as never);
+
+    await broker.execute(
+      registry,
+      'read_status',
+      {},
+      {
+        workspaceId: '00000000-0000-4000-8000-000000000001',
+        taskId: '00000000-0000-4000-8000-000000000002',
+      },
+    );
+
+    const expectedPolicyVersion = 'local:tool-broker:test:v2:E1';
+    expect(insertedActions[0]).toMatchObject({
+      policyDecisionId: null,
+      policyVersion: expectedPolicyVersion,
+      helmDocumentVersionPins: { toolAccessPolicy: expectedPolicyVersion },
+      metadata: expect.objectContaining({
+        policyPin: {
+          policyDecisionId: null,
+          policyVersion: expectedPolicyVersion,
+          decisionRequired: false,
+          documentVersionPins: { toolAccessPolicy: expectedPolicyVersion },
+        },
+      }),
+    });
+    expect(insertedExecutions[0]).toMatchObject({
+      policyDecisionId: null,
+      policyVersion: expectedPolicyVersion,
+      helmDocumentVersionPins: { toolAccessPolicy: expectedPolicyVersion },
+    });
+    expect(insertedEvidenceItems[0]).toMatchObject({
+      metadata: expect.objectContaining({
+        policyVersion: expectedPolicyVersion,
+        policyPin: expect.objectContaining({
+          policyVersion: expectedPolicyVersion,
+          decisionRequired: false,
+        }),
+      }),
+    });
+    expect(insertedAudit[0]).toMatchObject({
+      metadata: expect.objectContaining({
+        policyVersion: expectedPolicyVersion,
+        policyPin: expect.objectContaining({
+          policyVersion: expectedPolicyVersion,
+          documentVersionPins: { toolAccessPolicy: expectedPolicyVersion },
+        }),
+      }),
     });
   });
 
@@ -374,10 +478,15 @@ describe('ToolBroker', () => {
     const broker = new ToolBroker(db as never);
 
     await expect(
-      broker.execute(registry, 'medium_tool', {}, {
-        workspaceId: '00000000-0000-4000-8000-000000000001',
-        taskId: '00000000-0000-4000-8000-000000000002',
-      }),
+      broker.execute(
+        registry,
+        'medium_tool',
+        {},
+        {
+          workspaceId: '00000000-0000-4000-8000-000000000001',
+          taskId: '00000000-0000-4000-8000-000000000002',
+        },
+      ),
     ).rejects.toThrow('HELM policy decision metadata is required');
 
     expect(execute).not.toHaveBeenCalled();
@@ -405,11 +514,16 @@ describe('ToolBroker', () => {
     const broker = new ToolBroker(db as never);
 
     await expect(
-      broker.execute(registry, 'high_tool', {}, {
-        workspaceId: '00000000-0000-4000-8000-000000000001',
-        taskId: '00000000-0000-4000-8000-000000000002',
-        policyDecisionId: 'dec-1',
-      }),
+      broker.execute(
+        registry,
+        'high_tool',
+        {},
+        {
+          workspaceId: '00000000-0000-4000-8000-000000000001',
+          taskId: '00000000-0000-4000-8000-000000000002',
+          policyDecisionId: 'dec-1',
+        },
+      ),
     ).rejects.toThrow('HELM policy decision metadata is required');
 
     expect(execute).not.toHaveBeenCalled();
