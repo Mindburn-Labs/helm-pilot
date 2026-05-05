@@ -17,7 +17,7 @@ This document is a human-readable Gate 0 mirror. The API and UI must read the sh
 
 | Capability                   | State         | Required eval                                                  | Current blocker                                                                                                        |
 | ---------------------------- | ------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `mission_runtime`            | `blocked`     | Full Startup Launch Eval and Multi-Agent Parallel Build Eval   | Mission node execution is narrow one-node dispatch, not an autonomous DAG executor                                     |
+| `mission_runtime`            | `blocked`     | Full Startup Launch Eval and Multi-Agent Parallel Build Eval   | Mission execution is explicit bounded ready-node dispatch, not production-ready founder-off-grid DAG automation        |
 | `helm_receipts`              | `implemented` | HELM Governance Eval                                           | HELM Governance Eval has not promoted the capability to production_ready                                               |
 | `workspace_rbac`             | `implemented` | HELM Governance Eval and RBAC regressions                      | HELM Governance Eval has not promoted the capability to production_ready                                               |
 | `operator_scoping`           | `implemented` | Cross-workspace operator rejection regression                  | Cross-workspace operator rejection regression has not promoted the capability                                          |
@@ -32,7 +32,7 @@ This document is a human-readable Gate 0 mirror. The API and UI must read the sh
 | `approval_resume`            | `blocked`     | Approval Resume Isolation Regression                           | Resume is not proven to exclude child rows unless requested                                                            |
 | `evidence_ledger`            | `prototype`   | HELM Governance Eval and Recovery Eval                         | Evidence is not first-class across tools, browser, computer, artifacts, and decisions                                  |
 | `command_center`             | `prototype`   | Command Center Real-State UX Eval                              | Real task/action/evidence/receipt/browser/computer rows are visible, but mission DAG autonomy is still blocked         |
-| `startup_lifecycle`          | `prototype`   | Full Startup Launch Eval                                       | Founder goals compile and persist into lifecycle DAGs, but mission runtime execution and eval promotion are incomplete |
+| `startup_lifecycle`          | `prototype`   | Full Startup Launch Eval                                       | Lifecycle execution is explicit bounded dispatch, not a production-ready autonomous startup launch workflow            |
 | `founder_off_grid`           | `blocked`     | Founder-Off-Grid Eval                                          | Long-running delegated work lacks complete runtime, governance, recovery, and eval backing                             |
 | `polsia_outperformance`      | `blocked`     | Polsia Outperformance Proof and production autonomy eval suite | External-world outperformance proof is incomplete                                                                      |
 
