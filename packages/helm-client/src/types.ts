@@ -139,6 +139,32 @@ export interface OperatorComputerUseResult {
   };
 }
 
+export interface OperatorBrowserReadRequest {
+  principal: string;
+  workspaceId: string;
+  sessionId: string;
+  grantId: string;
+  objective?: string;
+  url: string;
+  taskId?: string;
+  operatorId?: string;
+}
+
+export interface OperatorBrowserReadResult {
+  status: 'approved_for_read';
+  receipt: HelmReceipt;
+  evidencePackId?: string;
+  request: {
+    workspaceId: string;
+    sessionId: string;
+    grantId: string;
+    objective?: string;
+    url: string;
+    taskId?: string;
+    operatorId?: string;
+  };
+}
+
 export interface HelmClientConfig {
   /** Base URL of HELM's governed API, e.g. http://helm:8080 */
   baseUrl: string;

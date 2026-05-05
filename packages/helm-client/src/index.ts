@@ -17,6 +17,8 @@ export type {
   HelmClientConfig,
   HelmReceipt,
   HelmVerdict,
+  OperatorBrowserReadRequest,
+  OperatorBrowserReadResult,
   OperatorComputerUseRequest,
   OperatorComputerUseResult,
 } from './types.js';

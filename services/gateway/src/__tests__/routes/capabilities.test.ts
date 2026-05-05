@@ -42,7 +42,7 @@ describe('capabilityRoutes', () => {
     ).toBe('implemented');
     expect(
       json.capabilities.find((capability) => capability.key === 'browser_execution')?.state,
-    ).toBe('blocked');
+    ).toBe('prototype');
   });
 
   it('returns one capability by key', async () => {

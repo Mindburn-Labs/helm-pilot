@@ -23,14 +23,13 @@ describe('capability registry', () => {
 
     expect(capabilities.some((record) => record.state === 'stub')).toBe(true);
     expect(capabilities.some((record) => record.state === 'prototype')).toBe(true);
-    expect(capabilities.some((record) => record.state === 'scaffolded')).toBe(true);
     expect(capabilities.some((record) => record.state === 'blocked')).toBe(true);
     expect(capabilities.every((record) => record.state !== 'production_ready')).toBe(true);
 
     expect(getCapabilityRecord('decision_court')?.state).toBe('implemented');
     expect(getCapabilityRecord('skill_registry_runtime')?.state).toBe('implemented');
     expect(getCapabilityRecord('opportunity_scoring')?.state).toBe('implemented');
-    expect(getCapabilityRecord('browser_execution')?.state).toBe('blocked');
+    expect(getCapabilityRecord('browser_execution')?.state).toBe('prototype');
   });
 
   it('requires eval metadata before a capability can become production_ready', () => {
@@ -58,7 +57,7 @@ describe('capability registry', () => {
     expect(markdown).toContain('helm_receipts | implemented');
     expect(markdown).toContain('skill_registry_runtime | implemented');
     expect(markdown).toContain('opportunity_scoring | implemented');
-    expect(markdown).toContain('browser_execution | blocked');
+    expect(markdown).toContain('browser_execution | prototype');
   });
 
   it('summarizes blockers without inflating production readiness', () => {

@@ -1,6 +1,11 @@
+import { createHash } from 'node:crypto';
 import type { Db } from '@pilot/db/client';
 import type { MemoryService } from '@pilot/memory';
-import { OperatorComputerUseInput, ScraplingFetchInput } from '@pilot/shared/schemas';
+import {
+  BrowserReadObservationInput,
+  OperatorComputerUseInput,
+  ScraplingFetchInput,
+} from '@pilot/shared/schemas';
 import { getCapabilityRecord, type CapabilityKey } from '@pilot/shared/capabilities';
 import { SubagentSpawnRequestSchema, SubagentParallelRequestSchema } from '@pilot/shared/subagents';
 import type { HelmClient } from '@pilot/helm-client';
@@ -342,6 +347,146 @@ export class ToolRegistry {
           evidencePackId: req.evidencePackId,
         });
         return { ...evaluation, capability };
+      },
+    });
+
+    this.register({
+      name: 'operator.browser_read',
+      description:
+        'Persist a governed read-only browser observation from an already granted logged-in browser session. Input: {"workspaceId":"uuid","sessionId":"uuid","grantId":"uuid","url":"https://...","domSnapshot":"redactable DOM text","extractedData":{...}}',
+      modes: ['discover', 'build', 'launch', 'apply'],
+      capabilityKey: 'browser_execution',
+      manifest: {
+        key: 'operator.browser_read',
+        version: 'readonly_observation_v1',
+        riskClass: 'medium',
+        effectLevel: 'E2',
+        requiredEvidence: ['browser_observation', 'dom_hash', 'redactions'],
+        permissionRequirements: ['browser:read_extract'],
+        outputSensitivity: 'sensitive',
+      },
+      execute: async (input) => {
+        const capability = getCapabilityRecord('browser_execution');
+        const parsed = BrowserReadObservationInput.safeParse(input);
+        if (!parsed.success) {
+          return {
+            error: `invalid operator.browser_read input: ${parsed.error.message}`,
+            capability,
+          };
+        }
+        const helmClient = this.options?.helmClient;
+        if (!helmClient) {
+          return {
+            error:
+              'operator.browser_read requires packages/helm-client wiring; refusing to create an out-of-band browser read path',
+            capability,
+          };
+        }
+
+        const req = parsed.data;
+        const ownership = await this.loadActiveBrowserGrant(req);
+        if ('error' in ownership) return { ...ownership, capability };
+
+        const url = new URL(req.url);
+        if (!ownership.allowedOrigins.includes(url.origin)) {
+          return {
+            error: 'browser observation origin is outside the active grant',
+            capability,
+          };
+        }
+
+        const evaluation = await helmClient.evaluateOperatorBrowserRead({
+          principal: `workspace:${req.workspaceId}/browser:${req.sessionId}`,
+          workspaceId: req.workspaceId,
+          sessionId: req.sessionId,
+          grantId: req.grantId,
+          objective: req.objective,
+          url: req.url,
+          taskId: req.taskId,
+          operatorId:
+            ownership.grantedToType === 'operator' && ownership.grantedToId
+              ? ownership.grantedToId
+              : undefined,
+        });
+
+        const redacted = redactBrowserText(req.domSnapshot ?? '');
+        const redactions = Array.from(new Set([...req.redactions, ...redacted.redactions]));
+        const { browserActions, browserObservations } = await import('@pilot/db/schema');
+        const [browserAction] = await this.db
+          .insert(browserActions)
+          .values({
+            workspaceId: req.workspaceId,
+            sessionId: req.sessionId,
+            grantId: req.grantId,
+            taskId: req.taskId,
+            toolActionId: req.actionId,
+            actionType: 'read_extract',
+            objective: req.objective,
+            url: req.url,
+            origin: url.origin,
+            status: 'completed',
+            policyDecisionId: evaluation.receipt.decisionId,
+            policyVersion: evaluation.receipt.policyVersion,
+            evidencePackId: evaluation.evidencePackId ?? null,
+            completedAt: new Date(),
+            metadata: {
+              helmDecisionId: evaluation.receipt.decisionId,
+              helmPolicyVersion: evaluation.receipt.policyVersion,
+              credentialBoundary: 'read_only_no_cookie_or_password_export',
+            },
+          })
+          .returning({
+            id: browserActions.id,
+            replayIndex: browserActions.replayIndex,
+            evidencePackId: browserActions.evidencePackId,
+          });
+
+        const [observation] = await this.db
+          .insert(browserObservations)
+          .values({
+            workspaceId: req.workspaceId,
+            sessionId: req.sessionId,
+            grantId: req.grantId,
+            browserActionId: browserAction?.id ?? null,
+            taskId: req.taskId,
+            actionId: req.actionId,
+            evidencePackId: evaluation.evidencePackId ?? null,
+            url: req.url,
+            origin: url.origin,
+            title: req.title,
+            objective: req.objective,
+            domHash: req.domSnapshot ? hashText(redacted.text) : null,
+            screenshotHash: req.screenshotHash ?? null,
+            screenshotRef: req.screenshotRef ?? null,
+            redactedDomSnapshot: redacted.text || null,
+            extractedData: redactJson(req.extractedData),
+            redactions,
+            replayIndex: browserAction?.replayIndex ?? 0,
+            metadata: {
+              ...redactRecord(req.metadata),
+              helmDecisionId: evaluation.receipt.decisionId,
+              helmPolicyVersion: evaluation.receipt.policyVersion,
+              credentialBoundary: 'read_only_no_cookie_or_password_export',
+            },
+          })
+          .returning({
+            id: browserObservations.id,
+            domHash: browserObservations.domHash,
+            evidencePackId: browserObservations.evidencePackId,
+          });
+
+        return {
+          browserAction,
+          observation,
+          governance: {
+            status: evaluation.status,
+            decisionId: evaluation.receipt.decisionId,
+            policyVersion: evaluation.receipt.policyVersion,
+            evidencePackId: evaluation.evidencePackId,
+          },
+          redactions,
+          capability,
+        };
       },
     });
 
@@ -1539,6 +1684,58 @@ export class ToolRegistry {
    * Resolve an OAuth token for a connector from the workspace's active grant.
    * Returns null if no grant or token exists.
    */
+  private async loadActiveBrowserGrant(input: {
+    workspaceId: string;
+    sessionId: string;
+    grantId: string;
+  }): Promise<
+    | {
+        allowedOrigins: string[];
+        grantedToType: string;
+        grantedToId?: string;
+      }
+    | { error: string }
+  > {
+    const { browserSessionGrants, browserSessions } = await import('@pilot/db/schema');
+    const { and, eq } = await import('drizzle-orm');
+    const [session] = await this.db
+      .select()
+      .from(browserSessions)
+      .where(
+        and(
+          eq(browserSessions.id, input.sessionId),
+          eq(browserSessions.workspaceId, input.workspaceId),
+          eq(browserSessions.status, 'active'),
+        ),
+      )
+      .limit(1);
+    if (!session) return { error: 'active browser session not found' };
+
+    const [grant] = await this.db
+      .select()
+      .from(browserSessionGrants)
+      .where(
+        and(
+          eq(browserSessionGrants.id, input.grantId),
+          eq(browserSessionGrants.sessionId, input.sessionId),
+          eq(browserSessionGrants.workspaceId, input.workspaceId),
+          eq(browserSessionGrants.status, 'active'),
+        ),
+      )
+      .limit(1);
+    if (!grant) return { error: 'active browser grant not found' };
+
+    const grantOrigins = normalizeOrigins(asStringArray(grant.allowedOrigins));
+    const sessionOrigins = normalizeOrigins(asStringArray(session.allowedOrigins));
+    const allowedOrigins = grantOrigins.length > 0 ? grantOrigins : sessionOrigins;
+    if (allowedOrigins.length === 0) return { error: 'browser grant has no allowed origins' };
+    return {
+      allowedOrigins,
+      grantedToType: String(grant.grantedToType ?? 'agent'),
+      grantedToId: typeof grant.grantedToId === 'string' ? grant.grantedToId : undefined,
+    };
+  }
+
   private async resolveConnectorToken(
     workspaceId: string,
     connectorName: string,
@@ -1626,6 +1823,7 @@ export interface ToolExecutionContext {
   rootTaskRunId?: string;
   ventureId?: string;
   missionId?: string;
+  actionId?: string;
   evidenceIds?: string[];
 }
 
@@ -1708,5 +1906,71 @@ function bindToolContext(input: unknown, context: ToolExecutionContext): unknown
     ...(context.rootTaskRunId ? { rootTaskRunId: context.rootTaskRunId } : {}),
     ...(context.ventureId ? { ventureId: context.ventureId } : {}),
     ...(context.missionId ? { missionId: context.missionId } : {}),
+    ...(context.actionId ? { actionId: context.actionId } : {}),
   };
+}
+
+function normalizeOrigins(origins: string[]) {
+  return Array.from(
+    new Set(
+      origins.map((origin) => {
+        const url = new URL(origin);
+        return url.origin;
+      }),
+    ),
+  );
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function hashText(text: string) {
+  return `sha256:${createHash('sha256').update(text).digest('hex')}`;
+}
+
+const SENSITIVE_BROWSER_TEXT_PATTERNS: Array<[RegExp, string]> = [
+  [
+    /((?:name|id)=["']?(?:password|passwd|pwd|token|secret|cookie|session)[^>]*\bvalue=["']?)[^"'>\s]+/giu,
+    '$1[REDACTED]',
+  ],
+  [/(password|passwd|pwd)(\s*[:=]\s*)(["']?)[^"'\s<>&]+/giu, '$1$2$3[REDACTED]'],
+  [/(token|secret|api[_-]?key|authorization)(\s*[:=]\s*)(["']?)[^"'\s<>&]+/giu, '$1$2$3[REDACTED]'],
+  [/(session|cookie)(\s*[:=]\s*)(["']?)[^"'\s<>&]+/giu, '$1$2$3[REDACTED]'],
+  [/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gu, '$1[REDACTED]'],
+];
+
+function redactBrowserText(text: string) {
+  let redacted = text;
+  const redactions: string[] = [];
+  for (const [pattern, replacement] of SENSITIVE_BROWSER_TEXT_PATTERNS) {
+    pattern.lastIndex = 0;
+    if (pattern.test(redacted)) {
+      redactions.push(pattern.source);
+      pattern.lastIndex = 0;
+      redacted = redacted.replace(pattern, replacement);
+    }
+  }
+  return { text: redacted, redactions };
+}
+
+function redactJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactJson);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, child]) => {
+      if (/password|passwd|pwd|token|secret|api[_-]?key|authorization|cookie|session/iu.test(key)) {
+        return [key, '[REDACTED]'];
+      }
+      if (typeof child === 'string') return [key, redactBrowserText(child).text];
+      return [key, redactJson(child)];
+    }),
+  );
+}
+
+function redactRecord(value: Record<string, unknown> | undefined): Record<string, unknown> {
+  const redacted = redactJson(value ?? {});
+  return redacted && typeof redacted === 'object' && !Array.isArray(redacted)
+    ? (redacted as Record<string, unknown>)
+    : {};
 }

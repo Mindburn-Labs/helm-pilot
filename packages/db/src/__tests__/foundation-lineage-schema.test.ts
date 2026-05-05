@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { a2aMessages, a2aThreads, agentHandoffs, taskRuns } from '../schema/index.js';
+import {
+  a2aMessages,
+  a2aThreads,
+  agentHandoffs,
+  browserObservations,
+  browserSessionGrants,
+  browserSessions,
+  taskRuns,
+} from '../schema/index.js';
 
 describe('Gate 1 foundation schema', () => {
   it('exports deterministic task run lineage columns', () => {
@@ -26,5 +34,18 @@ describe('Gate 3 runtime skill schema', () => {
     expect(agentHandoffs.parentTaskRunId.name).toBe('parent_task_run_id');
     expect(agentHandoffs.childTaskRunId.name).toBe('child_task_run_id');
     expect(agentHandoffs.skillInvocations.name).toBe('skill_invocations');
+  });
+});
+
+describe('Gate 6 browser operation schema', () => {
+  it('exports browser sessions, grants, and observations', () => {
+    expect(browserSessions.workspaceId.name).toBe('workspace_id');
+    expect(browserSessions.allowedOrigins.name).toBe('allowed_origins');
+    expect(browserSessionGrants.sessionId.name).toBe('session_id');
+    expect(browserSessionGrants.scope.name).toBe('scope');
+    expect(browserObservations.actionId.name).toBe('action_id');
+    expect(browserObservations.evidencePackId.name).toBe('evidence_pack_id');
+    expect(browserObservations.redactedDomSnapshot.name).toBe('redacted_dom_snapshot');
+    expect(browserObservations.redactions.name).toBe('redactions');
   });
 });

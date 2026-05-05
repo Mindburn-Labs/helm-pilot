@@ -24,8 +24,8 @@ This document is a human-readable Gate 0 mirror. The API and UI must read the sh
 | `decision_court`             | `implemented` | Decision Court Governed Model Eval                             | Decision Court Governed Model Eval has not promoted the capability to production_ready     |
 | `skill_registry_runtime`     | `implemented` | Skill Invocation Governance Eval                               | Skill Invocation Governance Eval has not promoted the capability to production_ready       |
 | `opportunity_scoring`        | `implemented` | PMF Discovery Eval                                             | PMF Discovery Eval has not promoted the capability to production_ready                     |
-| `browser_metadata_connector` | `scaffolded`  | YC Logged-In Browser Extraction Eval                           | Browser metadata is not a governed read/extract path                                       |
-| `browser_execution`          | `blocked`     | YC Logged-In Browser Extraction Eval                           | No governed logged-in browser read/extract session manager                                 |
+| `browser_metadata_connector` | `implemented` | YC Logged-In Browser Extraction Eval                           | YC Logged-In Browser Extraction Eval has not promoted the capability to production_ready   |
+| `browser_execution`          | `prototype`   | YC Logged-In Browser Extraction Eval                           | Browser extension/bridge and YC logged-in extraction eval are not complete                 |
 | `computer_use`               | `stub`        | Safe Computer/Sandbox Action Eval                              | `operator.computer_use` does not perform real safe end-to-end action execution             |
 | `a2a_durable_state`          | `blocked`     | Multi-Agent Parallel Build Eval                                | A2A task/message state is not uniformly durable                                            |
 | `subagent_lineage`           | `blocked`     | Proof DAG Lineage Regression                                   | Child work is not guaranteed to anchor to parent runs and spawn actions                    |

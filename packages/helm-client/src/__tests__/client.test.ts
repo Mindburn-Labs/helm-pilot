@@ -443,6 +443,51 @@ describe('HelmClient.evaluateOperatorComputerUse', () => {
   });
 });
 
+describe('HelmClient.evaluateOperatorBrowserRead', () => {
+  it('routes read-only browser observations through HELM evaluate', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      makeResponse({
+        status: 200,
+        body: {
+          allow: true,
+          verdict: 'ALLOW',
+          receipt_id: 'rcpt-browser',
+          decision_id: 'dec-browser',
+          decision_hash: 'sha256:browser',
+          policy_ref: 'founder-ops-v1',
+          evidence_pack_id: 'pack-browser',
+        },
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = new HelmClient({ baseUrl: 'http://helm:8080', fetchImpl: fetchMock });
+
+    const result = await client.evaluateOperatorBrowserRead({
+      principal: 'workspace:ws-1/browser:session-1',
+      workspaceId: 'ws-1',
+      sessionId: 'session-1',
+      grantId: 'grant-1',
+      objective: 'Read YC profile',
+      url: 'https://www.ycombinator.com/account',
+      taskId: 'task-1',
+    });
+
+    expect(result.status).toBe('approved_for_read');
+    expect(result.receipt.decisionId).toBe('dec-browser');
+    expect(result.evidencePackId).toBe('pack-browser');
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.tool).toBe('OPERATOR_BROWSER_READ');
+    expect(body.effect_level).toBe('E2');
+    expect(body.args).toMatchObject({
+      sessionId: 'session-1',
+      grantId: 'grant-1',
+      url: 'https://www.ycombinator.com/account',
+    });
+    expect(body.context.source).toBe('@pilot/helm-client.evaluateOperatorBrowserRead');
+  });
+});
+
 describe('parseReceiptHeaders', () => {
   it('parses a full set of headers', () => {
     const headers = new Headers({

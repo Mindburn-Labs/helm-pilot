@@ -55,9 +55,15 @@ export {
 } from './validators.js';
 
 export {
+  type BrowserReadObservation,
+  type CreateBrowserSession,
+  type CreateBrowserSessionGrant,
   type DecisionCourtRequest,
   type OperatorComputerUse,
   type ScraplingFetch,
+  BrowserReadObservationInput,
+  CreateBrowserSessionGrantInput,
+  CreateBrowserSessionInput,
   DecisionCourtRequestInput,
   OperatorComputerUseInput,
   ScraplingFetchInput,
