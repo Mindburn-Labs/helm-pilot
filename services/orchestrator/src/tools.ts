@@ -197,6 +197,9 @@ export class ToolRegistry {
         capability: tool.capabilityKey ? getCapabilityRecord(tool.capabilityKey) : undefined,
       };
     }
+    const manifest = normalizeToolManifest(name, tool.manifest);
+    const elevatedContextError = validateElevatedToolExecutionContext(name, manifest, context);
+    if (elevatedContextError) return elevatedContextError;
     const boundInput =
       context && !name.startsWith('mcp.') ? bindToolContext(input, context) : input;
     const previousParentContext = this.parentContext;
@@ -1912,6 +1915,8 @@ export interface Tool {
   execute: (input: unknown) => Promise<unknown>;
 }
 
+export const BROKERED_TOOL_CONTEXT: unique symbol = Symbol('pilot.tool_broker_context');
+
 export interface ToolExecutionContext {
   workspaceId: string;
   taskId: string;
@@ -1927,6 +1932,11 @@ export interface ToolExecutionContext {
   missionId?: string;
   actionId?: string;
   evidenceIds?: string[];
+  [BROKERED_TOOL_CONTEXT]?: true;
+}
+
+export function markBrokeredToolContext(context: ToolExecutionContext): ToolExecutionContext {
+  return { ...context, [BROKERED_TOOL_CONTEXT]: true };
 }
 
 function normalizeToolManifest(name: string, manifest?: Partial<ToolManifest>): ToolManifest {
@@ -1970,6 +1980,46 @@ function effectLevelToRiskClass(effectLevel: ToolEffectLevel): ToolRiskClass {
   if (effectLevel === 'E3') return 'high';
   if (effectLevel === 'E2') return 'medium';
   return 'low';
+}
+
+function validateElevatedToolExecutionContext(
+  name: string,
+  manifest: ToolManifest,
+  context?: ToolExecutionContext,
+): { error: string; missingContext: string[]; manifest: Partial<ToolManifest> } | null {
+  if (!isElevatedToolManifest(manifest)) return null;
+
+  const missingContext = [
+    ...(context?.[BROKERED_TOOL_CONTEXT] === true ? [] : ['tool_broker_context']),
+    ...(context?.workspaceId ? [] : ['workspaceId']),
+    ...(context?.taskId ? [] : ['taskId']),
+    ...(context?.actionId ? [] : ['actionId']),
+    ...(context?.policyDecisionId ? [] : ['policyDecisionId']),
+    ...(context?.policyVersion ? [] : ['policyVersion']),
+  ];
+  if (missingContext.length === 0) return null;
+
+  return {
+    error: `Tool ${name} requires Tool Broker + HELM context for elevated execution`,
+    missingContext,
+    manifest: {
+      key: manifest.key,
+      version: manifest.version,
+      riskClass: manifest.riskClass,
+      effectLevel: manifest.effectLevel,
+    },
+  };
+}
+
+function isElevatedToolManifest(manifest: ToolManifest): boolean {
+  return (
+    manifest.riskClass === 'medium' ||
+    manifest.riskClass === 'high' ||
+    manifest.riskClass === 'restricted' ||
+    manifest.effectLevel === 'E2' ||
+    manifest.effectLevel === 'E3' ||
+    manifest.effectLevel === 'E4'
+  );
 }
 
 function inferRequiredEvidence(name: string): string[] {

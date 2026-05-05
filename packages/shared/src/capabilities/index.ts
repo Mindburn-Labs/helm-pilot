@@ -114,7 +114,7 @@ const capabilityRecords = validateCapabilityRecords([
       'Gate 2A adds required_for_elevated receipt persistence to @pilot/helm-client evaluate()',
       'Gateway server wiring installs a global evidence_packs receipt sink for HELM receipts',
       'Tests cover missing sink and sink persistence failure for elevated evaluate actions',
-      'AgentLoop denies elevated tool execution when no HELM governance client is configured, and Tool Broker rejects elevated direct calls without policy metadata',
+      'AgentLoop denies elevated tool execution when no HELM governance client is configured; Tool Broker rejects elevated calls without policy metadata; ToolRegistry refuses elevated implementations without brokered HELM context',
       'Launch deploy, health-check, and rollback routes require HELM governance for elevated launch actions and pass explicit effect levels into evaluation',
       'Managed Telegram claim, webhook, send, token rotation, and disable actions require HELM governance and pass explicit effect levels into evaluation',
     ],
