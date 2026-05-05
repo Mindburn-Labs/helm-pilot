@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   capabilityPromotions,
+  evidenceItems,
   evalEvidenceLinks,
   evalResults,
   evalRuns,
@@ -18,6 +19,7 @@ const wsHeader = { 'X-Workspace-Id': workspaceId };
 
 function createEvalDb(selectResults: unknown[][] = []) {
   const inserts: Array<{ table: unknown; value: unknown }> = [];
+  let evidenceItemCount = 0;
 
   const db = {
     select: vi.fn(() => ({
@@ -71,6 +73,10 @@ function createEvalDb(selectResults: unknown[][] = []) {
             }
             if (table === capabilityPromotions) {
               return [{ id: 'promotion-1', ...(value as Record<string, unknown>) }];
+            }
+            if (table === evidenceItems) {
+              evidenceItemCount += 1;
+              return [{ id: `evidence-item-${evidenceItemCount}` }];
             }
             return [];
           }),
@@ -173,10 +179,12 @@ describe('evalRoutes', () => {
     const body = await expectJson<{
       result: { passed: boolean; blockers: string[] };
       blockerTask: { id: string; title: string };
+      evidenceItemIds: string[];
       productionReadyRegistryMutation: boolean;
     }>(res, 201);
 
     expect(body.result.passed).toBe(false);
+    expect(body.evidenceItemIds).toEqual(['evidence-item-1', 'evidence-item-2']);
     expect(body.result.blockers.join(' ')).toContain('receipt sink');
     expect(body.blockerTask.title).toContain('HELM Governance Eval');
     expect(body.productionReadyRegistryMutation).toBe(false);
@@ -191,6 +199,32 @@ describe('evalRoutes', () => {
     expect(inserts.find((insert) => insert.table === evalResults)?.value).toMatchObject({
       passed: false,
     });
+    expect(
+      inserts.filter((insert) => insert.table === evidenceItems).map((insert) => insert.value),
+    ).toEqual([
+      expect.objectContaining({
+        workspaceId,
+        evidenceType: 'eval_run',
+        sourceType: 'eval_harness',
+        replayRef: 'eval:eval-run-1',
+        metadata: expect.objectContaining({
+          evalRunId: 'eval-run-1',
+          evalId: 'helm_governance',
+          status: 'failed',
+        }),
+      }),
+      expect.objectContaining({
+        workspaceId,
+        evidenceType: 'eval_result',
+        sourceType: 'eval_harness',
+        replayRef: 'eval-result:eval-result-1',
+        metadata: expect.objectContaining({
+          evalRunId: 'eval-run-1',
+          evalResultId: 'eval-result-1',
+          passed: false,
+        }),
+      }),
+    ]);
     expect(inserts.find((insert) => insert.table === tasks)?.value).toMatchObject({
       mode: 'eval',
       status: 'pending',
@@ -230,6 +264,7 @@ describe('evalRoutes', () => {
     const body = await expectJson<{
       promotionChecks: Array<{ canPromote: boolean; capability: { key: string } }>;
       promotions: Array<{ capabilityKey: string; promotedState: string; status: string }>;
+      evidenceItemIds: string[];
       productionReadyRegistryMutation: boolean;
     }>(res, 201);
 
@@ -247,6 +282,11 @@ describe('evalRoutes', () => {
       }),
     ]);
     expect(body.productionReadyRegistryMutation).toBe(false);
+    expect(body.evidenceItemIds).toEqual([
+      'evidence-item-1',
+      'evidence-item-2',
+      'evidence-item-3',
+    ]);
     expect(inserts.find((insert) => insert.table === evalSteps)?.value).toEqual([
       expect.objectContaining({ stepKey: 'restricted-action-denial', status: 'passed' }),
     ]);
@@ -256,6 +296,28 @@ describe('evalRoutes', () => {
         evalRunId: 'eval-run-1',
         evidenceRef: 'evidence:helm-governance',
         auditReceiptRef: 'audit:helm-governance',
+      }),
+    ]);
+    expect(
+      inserts.filter((insert) => insert.table === evidenceItems).map((insert) => insert.value),
+    ).toEqual([
+      expect.objectContaining({
+        workspaceId,
+        evidenceType: 'eval_run',
+        replayRef: 'eval:eval-run-1',
+      }),
+      expect.objectContaining({
+        workspaceId,
+        evidenceType: 'eval_evidence_ref',
+        replayRef: 'evidence:helm-governance',
+        metadata: expect.objectContaining({
+          auditReceiptRef: 'audit:helm-governance',
+        }),
+      }),
+      expect.objectContaining({
+        workspaceId,
+        evidenceType: 'eval_result',
+        replayRef: 'eval-result:eval-result-1',
       }),
     ]);
     expect(inserts.find((insert) => insert.table === capabilityPromotions)?.value).toMatchObject({
