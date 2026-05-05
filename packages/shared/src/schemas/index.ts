@@ -109,6 +109,8 @@ export {
 export {
   type CompiledStartupLifecycleMission,
   type CompileStartupLifecycleInput,
+  type ExecutedStartupMissionNode,
+  type ExecuteStartupMissionNodeInput,
   type PersistStartupLifecycleInput,
   type PersistedStartupLifecycleMission,
   type ScheduledStartupMission,
@@ -118,6 +120,8 @@ export {
   type StartupLifecycleStage,
   CompiledStartupLifecycleMissionSchema,
   CompileStartupLifecycleInputSchema,
+  ExecutedStartupMissionNodeSchema,
+  ExecuteStartupMissionNodeInputSchema,
   PersistStartupLifecycleInputSchema,
   PersistedStartupLifecycleMissionSchema,
   ScheduledStartupMissionSchema,

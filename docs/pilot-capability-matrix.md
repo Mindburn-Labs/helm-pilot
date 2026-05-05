@@ -17,7 +17,7 @@ This document is a human-readable Gate 0 mirror. The API and UI must read the sh
 
 | Capability                   | State         | Required eval                                                  | Current blocker                                                                                                        |
 | ---------------------------- | ------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `mission_runtime`            | `blocked`     | Full Startup Launch Eval and Multi-Agent Parallel Build Eval   | No mission node execution dispatcher over scheduled mission nodes                                                      |
+| `mission_runtime`            | `blocked`     | Full Startup Launch Eval and Multi-Agent Parallel Build Eval   | Mission node execution is narrow one-node dispatch, not an autonomous DAG executor                                     |
 | `helm_receipts`              | `implemented` | HELM Governance Eval                                           | HELM Governance Eval has not promoted the capability to production_ready                                               |
 | `workspace_rbac`             | `implemented` | HELM Governance Eval and RBAC regressions                      | HELM Governance Eval has not promoted the capability to production_ready                                               |
 | `operator_scoping`           | `implemented` | Cross-workspace operator rejection regression                  | Cross-workspace operator rejection regression has not promoted the capability                                          |
