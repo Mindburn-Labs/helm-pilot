@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import { Hono, type Context } from 'hono';
+import { appendEvidenceItem } from '@pilot/db';
 import { type Connector, listReauthRequired } from '@pilot/connectors';
 import {
   SaveConnectorSessionInput,
@@ -77,7 +79,24 @@ export function connectorRoutes(deps: GatewayDeps) {
 
     const grantId = await deps.connectors.grantConnector(workspaceId, name, body.scopes);
     const status = await getConnectorStatus(deps, connector, workspaceId);
-    return c.json({ grantId, connector: name, workspaceId, status }, 201);
+    const evidenceItemId = await appendConnectorEvidence(deps, {
+      workspaceId,
+      connector,
+      evidenceType: 'connector_granted',
+      title: `Connector granted: ${connector.name}`,
+      summary: `Workspace connector ${name} was granted`,
+      replayRef: `connector:${name}:grant:${grantId}`,
+      hashContent: {
+        connectorId: name,
+        grantId,
+        scopes: body.scopes ?? [],
+      },
+      metadata: {
+        grantId,
+        scopes: body.scopes ?? [],
+      },
+    });
+    return c.json({ grantId, connector: name, workspaceId, status, evidenceItemId }, 201);
   });
 
   app.delete('/:name/grant', async (c) => {
@@ -89,7 +108,18 @@ export function connectorRoutes(deps: GatewayDeps) {
     if (roleDenied) return roleDenied;
 
     await deps.connectors.revokeConnector(workspaceId, name);
-    return c.json({ revoked: true });
+    const connector = deps.connectors.getConnector(name);
+    const evidenceItemId = await appendConnectorEvidence(deps, {
+      workspaceId,
+      connector,
+      evidenceType: 'connector_revoked',
+      title: `Connector revoked: ${name}`,
+      summary: `Workspace connector ${name} was revoked`,
+      replayRef: `connector:${name}:grant:revoked`,
+      hashContent: { connectorId: name },
+      metadata: {},
+    });
+    return c.json({ revoked: true, evidenceItemId });
   });
 
   app.post('/:name/token', async (c) => {
@@ -118,7 +148,27 @@ export function connectorRoutes(deps: GatewayDeps) {
       refreshToken,
       expiresAt ? new Date(expiresAt) : undefined,
     );
-    return c.json({ stored: true });
+    const evidenceItemId = await appendConnectorEvidence(deps, {
+      workspaceId: ownership.workspaceId,
+      connector,
+      evidenceType: 'connector_token_stored',
+      title: `Connector token stored: ${connector.name}`,
+      summary: `Encrypted token metadata was stored for ${name}`,
+      replayRef: `connector:${name}:token:${grantId}`,
+      hashContent: {
+        connectorId: name,
+        grantId,
+        hasRefreshToken: Boolean(refreshToken),
+        expiresAt: expiresAt ?? null,
+      },
+      metadata: {
+        grantId,
+        hasRefreshToken: Boolean(refreshToken),
+        expiresAt: expiresAt ?? null,
+        credentialBoundary: 'encrypted_at_rest_no_token_material_in_evidence',
+      },
+    });
+    return c.json({ stored: true, evidenceItemId });
   });
 
   app.post('/:name/session', async (c) => {
@@ -147,7 +197,27 @@ export function connectorRoutes(deps: GatewayDeps) {
       parsed.data.sessionType,
       parsed.data.metadata,
     );
-    return c.json({ stored: true });
+    const evidenceItemId = await appendConnectorEvidence(deps, {
+      workspaceId: ownership.workspaceId,
+      connector,
+      evidenceType: 'connector_session_stored',
+      title: `Connector session stored: ${connector.name}`,
+      summary: `Encrypted browser session metadata was stored for ${name}`,
+      replayRef: `connector:${name}:session:${parsed.data.grantId}`,
+      hashContent: {
+        connectorId: name,
+        grantId: parsed.data.grantId,
+        sessionType: parsed.data.sessionType,
+        metadataKeys: sortedKeys(parsed.data.metadata),
+      },
+      metadata: {
+        grantId: parsed.data.grantId,
+        sessionType: parsed.data.sessionType,
+        metadataKeys: sortedKeys(parsed.data.metadata),
+        credentialBoundary: 'session_encrypted_at_rest_no_cookie_export_in_evidence',
+      },
+    });
+    return c.json({ stored: true, evidenceItemId });
   });
 
   app.post('/:name/session/validate', async (c) => {
@@ -191,7 +261,31 @@ export function connectorRoutes(deps: GatewayDeps) {
       });
     }
 
-    return c.json({ queued: true, queue, jobId });
+    const evidenceItemId = await appendConnectorEvidence(deps, {
+      workspaceId,
+      connector,
+      evidenceType: 'connector_session_validation_queued',
+      title: `Connector session validation queued: ${connector.name}`,
+      summary: `Browser session validation was queued for ${name}`,
+      replayRef: `connector:${name}:session-validation:${parsed.data.grantId}`,
+      hashContent: {
+        connectorId: name,
+        grantId: parsed.data.grantId,
+        action: parsed.data.action,
+        limit: parsed.data.limit ?? null,
+        queue,
+        jobId: jobId ?? null,
+      },
+      metadata: {
+        grantId: parsed.data.grantId,
+        action: parsed.data.action,
+        limit: parsed.data.limit ?? null,
+        queue,
+        jobId: jobId ?? null,
+      },
+    });
+
+    return c.json({ queued: true, queue, jobId, evidenceItemId });
   });
 
   app.delete('/:name/session', async (c) => {
@@ -209,7 +303,22 @@ export function connectorRoutes(deps: GatewayDeps) {
     if (ownership instanceof Response) return ownership;
 
     await deps.connectors.deleteSession(grantId);
-    return c.json({ deleted: true });
+    const evidenceItemId = await appendConnectorEvidence(deps, {
+      workspaceId: ownership.workspaceId,
+      connector,
+      evidenceType: 'connector_session_deleted',
+      title: `Connector session deleted: ${connector.name}`,
+      summary: `Stored browser session was deleted for ${name}`,
+      replayRef: `connector:${name}:session-deleted:${grantId}`,
+      hashContent: {
+        connectorId: name,
+        grantId,
+      },
+      metadata: {
+        grantId,
+      },
+    });
+    return c.json({ deleted: true, evidenceItemId });
   });
 
   app.get('/:name/oauth/initiate', async (c) => {
@@ -238,10 +347,35 @@ export function connectorRoutes(deps: GatewayDeps) {
         workspaceId,
         scopes,
       });
+      const evidenceItemId = await appendConnectorEvidence(deps, {
+        workspaceId,
+        connector: {
+          id: name,
+          name,
+          description: name,
+          authType: 'oauth2',
+          requiredScopes: scopes ?? [],
+          requiresApproval: true,
+        },
+        evidenceType: 'connector_oauth_initiated',
+        title: `Connector OAuth initiated: ${name}`,
+        summary: `OAuth flow was initiated for ${name}`,
+        replayRef: `connector:${name}:oauth:initiate`,
+        hashContent: {
+          connectorId: name,
+          scopes: scopes ?? [],
+          redirectRequested: c.req.query('redirect') === 'true',
+        },
+        metadata: {
+          scopes: scopes ?? [],
+          redirectRequested: c.req.query('redirect') === 'true',
+          credentialBoundary: 'oauth_url_not_stored_in_evidence',
+        },
+      });
       if (c.req.query('redirect') === 'true') {
         return c.redirect(authUrl);
       }
-      return c.json({ authUrl, connector: name });
+      return c.json({ authUrl, connector: name, evidenceItemId });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'OAuth initiation failed';
       return c.json({ error: message }, 400);
@@ -266,6 +400,29 @@ export function connectorRoutes(deps: GatewayDeps) {
 
     try {
       const result = await deps.oauth.handleCallback({ code, state });
+      await appendConnectorEvidence(deps, {
+        workspaceId: result.workspaceId,
+        connector: {
+          id: result.connectorId,
+          name: result.connectorId,
+          description: result.connectorId,
+          authType: 'oauth2',
+          requiredScopes: [],
+          requiresApproval: true,
+        },
+        evidenceType: 'connector_oauth_connected',
+        title: `Connector OAuth connected: ${result.connectorId}`,
+        summary: `OAuth callback completed for ${result.connectorId}`,
+        replayRef: `connector:${result.connectorId}:oauth:callback:${result.grantId}`,
+        hashContent: {
+          connectorId: result.connectorId,
+          grantId: result.grantId,
+        },
+        metadata: {
+          grantId: result.grantId,
+          credentialBoundary: 'oauth_callback_no_raw_token_evidence',
+        },
+      });
       return c.html(oauthResultPage(true, `Connected ${result.connectorId} successfully!`, result));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'OAuth callback failed';
@@ -287,9 +444,60 @@ export function connectorRoutes(deps: GatewayDeps) {
 
     const newToken = await deps.oauth.refreshToken(grantId, name);
     if (!newToken) {
-      return c.json({ error: 'Token refresh failed. Re-authorize the connector.' }, 401);
+      const evidenceItemId = await appendConnectorEvidence(deps, {
+        workspaceId: ownership.workspaceId,
+        connector: {
+          id: name,
+          name,
+          description: name,
+          authType: 'oauth2',
+          requiredScopes: [],
+          requiresApproval: true,
+        },
+        evidenceType: 'connector_oauth_refresh_failed',
+        title: `Connector OAuth refresh failed: ${name}`,
+        summary: `OAuth refresh failed for ${name}; reauthorization is required`,
+        replayRef: `connector:${name}:oauth-refresh-failed:${grantId}`,
+        hashContent: {
+          connectorId: name,
+          grantId,
+          refreshed: false,
+        },
+        metadata: {
+          grantId,
+          credentialBoundary: 'no_raw_tokens_in_evidence',
+        },
+      });
+      return c.json(
+        { error: 'Token refresh failed. Re-authorize the connector.', evidenceItemId },
+        401,
+      );
     }
-    return c.json({ refreshed: true });
+    const evidenceItemId = await appendConnectorEvidence(deps, {
+      workspaceId: ownership.workspaceId,
+      connector: {
+        id: name,
+        name,
+        description: name,
+        authType: 'oauth2',
+        requiredScopes: [],
+        requiresApproval: true,
+      },
+      evidenceType: 'connector_oauth_refreshed',
+      title: `Connector OAuth refreshed: ${name}`,
+      summary: `OAuth token was refreshed for ${name} without raw token evidence`,
+      replayRef: `connector:${name}:oauth-refresh:${grantId}`,
+      hashContent: {
+        connectorId: name,
+        grantId,
+        refreshed: true,
+      },
+      metadata: {
+        grantId,
+        credentialBoundary: 'no_raw_tokens_in_evidence',
+      },
+    });
+    return c.json({ refreshed: true, evidenceItemId });
   });
 
   app.get('/:name', async (c) => {
@@ -420,6 +628,63 @@ async function requireOwnedGrant(
   }
 
   return { workspaceId };
+}
+
+async function appendConnectorEvidence(
+  deps: GatewayDeps,
+  input: {
+    workspaceId: string;
+    connector?: Connector | null;
+    evidenceType: string;
+    title: string;
+    summary: string;
+    replayRef: string;
+    hashContent: unknown;
+    metadata: Record<string, unknown>;
+  },
+) {
+  return appendEvidenceItem(deps.db, {
+    workspaceId: input.workspaceId,
+    evidenceType: input.evidenceType,
+    sourceType: 'gateway_connector',
+    title: input.title,
+    summary: input.summary,
+    redactionState: 'redacted',
+    sensitivity: 'sensitive',
+    contentHash: hashJson(input.hashContent),
+    replayRef: input.replayRef,
+    metadata: {
+      connectorId: input.connector?.id ?? null,
+      connectorName: input.connector?.name ?? null,
+      authType: input.connector?.authType ?? null,
+      requiresApproval: input.connector?.requiresApproval ?? null,
+      productionReady: false,
+      ...input.metadata,
+    },
+  });
+}
+
+function sortedKeys(value: Record<string, unknown> | undefined) {
+  return Object.keys(value ?? {}).sort((a, b) => a.localeCompare(b));
+}
+
+function hashJson(value: unknown) {
+  return `sha256:${createHash('sha256').update(stableJson(value)).digest('hex')}`;
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(sortJson(value));
+}
+
+function sortJson(value: unknown): unknown {
+  if (value == null || typeof value !== 'object') return value;
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(sortJson);
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, child]) => [key, sortJson(child)]),
+  );
 }
 
 function oauthResultPage(
