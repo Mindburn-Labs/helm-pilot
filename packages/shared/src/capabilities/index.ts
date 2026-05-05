@@ -116,6 +116,7 @@ const capabilityRecords = validateCapabilityRecords([
       'Tests cover missing sink and sink persistence failure for elevated evaluate actions',
       'AgentLoop denies elevated tool execution when no HELM governance client is configured, and Tool Broker rejects elevated direct calls without policy metadata',
       'Launch deploy, health-check, and rollback routes require HELM governance for elevated launch actions and pass explicit effect levels into evaluation',
+      'Managed Telegram claim, webhook, send, token rotation, and disable actions require HELM governance and pass explicit effect levels into evaluation',
     ],
     evalRequirement: 'HELM Governance Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,
