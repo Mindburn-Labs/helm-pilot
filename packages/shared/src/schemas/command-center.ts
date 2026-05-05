@@ -70,6 +70,21 @@ export const CommandCenterProofDagResponseSchema = z.object({
   blockers: z.array(z.string().min(1)),
 });
 
+export const CommandCenterReplayResponseSchema = z.object({
+  workspaceId: z.string().min(1),
+  replayRef: z.string().min(1),
+  generatedAt: z.string().datetime(),
+  productionReady: z.literal(false),
+  capability: CapabilityRecordSchema,
+  replay: z.object({
+    evidenceItems: z.array(DurableRowSchema),
+    browserObservations: z.array(DurableRowSchema),
+    computerActions: z.array(DurableRowSchema),
+  }),
+  blockers: z.array(z.string().min(1)),
+});
+
 export type CommandCenterRuntimeTruth = z.infer<typeof CommandCenterRuntimeTruthSchema>;
 export type CommandCenterResponse = z.infer<typeof CommandCenterResponseSchema>;
 export type CommandCenterProofDagResponse = z.infer<typeof CommandCenterProofDagResponseSchema>;
+export type CommandCenterReplayResponse = z.infer<typeof CommandCenterReplayResponseSchema>;

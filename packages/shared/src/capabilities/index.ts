@@ -350,7 +350,7 @@ const capabilityRecords = validateCapabilityRecords([
     owner: 'Foundation Agent',
     blockers: [
       'Non-workspace scheduled ingestion jobs and non-broker legacy writers do not yet append evidence_items for every meaningful action',
-      'No browser/computer observation replay contract',
+      'Browser/computer replay contract has not passed Browser/Computer Replay Eval and is not production-ready',
       'No mandatory evidence persistence before medium/high/restricted action execution',
     ],
     evidence: [
@@ -368,6 +368,8 @@ const capabilityRecords = validateCapabilityRecords([
       'Startup lifecycle persistence, scheduling, and node execution append evidence_items rows linked to mission/task state and replay refs',
       'Production eval run/result/evidence-reference writes append evidence_items rows and return evidenceItemIds from the eval API',
       '/api/command-center returns recent evidence_items and the web command center renders them in the evidence surface',
+      '/api/command-center/replay resolves workspace-scoped replay refs to linked evidence_items, browser_observations, and computer_actions without production promotion',
+      '/api/browser-sessions/:sessionId/replay and /api/command-center/computer-actions/replay expose ordered browser/computer replay sequences with explicit redaction contracts',
     ],
     evalRequirement: 'HELM Governance Eval and Recovery Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,

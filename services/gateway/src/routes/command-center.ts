@@ -22,6 +22,7 @@ import {
 } from '@pilot/shared/capabilities';
 import {
   CommandCenterProofDagResponseSchema,
+  CommandCenterReplayResponseSchema,
   CommandCenterResponseSchema,
 } from '@pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
@@ -201,6 +202,74 @@ export function commandCenterRoutes(deps: GatewayDeps) {
     return c.json(response);
   });
 
+  app.get('/computer-actions/replay', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'replay computer actions');
+    if (roleDenied) return roleDenied;
+
+    const capability = getCapabilityRecord('computer_use');
+    if (!capability) return c.json({ error: 'capability registry incomplete' }, 500);
+    const taskId = c.req.query('taskId') || undefined;
+    const rows = await deps.db
+      .select()
+      .from(computerActions)
+      .where(
+        taskId
+          ? and(eq(computerActions.workspaceId, workspaceId), eq(computerActions.taskId, taskId))
+          : eq(computerActions.workspaceId, workspaceId),
+      )
+      .orderBy(
+        asc(computerActions.replayIndex),
+        asc(computerActions.createdAt),
+        asc(computerActions.id),
+      )
+      .limit(500);
+
+    return c.json({
+      replay: {
+        kind: 'computer_action_sequence',
+        workspaceId,
+        taskId: taskId ?? null,
+        orderedBy: ['replayIndex', 'createdAt', 'id'],
+        capability: {
+          key: capability.key,
+          state: capability.state,
+          productionReady: capability.state === 'production_ready',
+        },
+        redactionContract: 'bounded_stdout_stderr_and_file_diff_previews_no_secret_metadata',
+        actions: rows.map((action) => ({
+          id: action.id,
+          taskId: action.taskId,
+          toolActionId: action.toolActionId,
+          operatorId: action.operatorId,
+          actionType: action.actionType,
+          environment: action.environment,
+          objective: action.objective,
+          status: action.status,
+          cwd: action.cwd,
+          command: action.command,
+          args: action.args,
+          filePath: action.filePath,
+          devServerUrl: action.devServerUrl,
+          stdoutPreview: previewText(action.stdout),
+          stderrPreview: previewText(action.stderr),
+          exitCode: action.exitCode,
+          durationMs: action.durationMs,
+          fileDiffPreview: previewText(action.fileDiff),
+          outputHash: action.outputHash,
+          policyDecisionId: action.policyDecisionId,
+          policyVersion: action.policyVersion,
+          evidencePackId: action.evidencePackId,
+          replayIndex: action.replayIndex,
+          createdAt: action.createdAt,
+          completedAt: action.completedAt,
+          metadata: redactReplayMetadata(action.metadata),
+        })),
+      },
+    });
+  });
+
   app.get('/proof-dag/:taskRunId', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
@@ -295,5 +364,164 @@ export function commandCenterRoutes(deps: GatewayDeps) {
     return c.json(response);
   });
 
+  app.get('/replay', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view command-center replay');
+    if (roleDenied) return roleDenied;
+
+    const replayRef = c.req.query('ref')?.trim();
+    if (!replayRef) return c.json({ error: 'replay ref required' }, 400);
+
+    const capability = getCapabilityRecord('evidence_ledger');
+    if (!capability) return c.json({ error: 'capability registry incomplete' }, 500);
+
+    const evidenceItemRows = await deps.db
+      .select()
+      .from(evidenceItems)
+      .where(and(eq(evidenceItems.workspaceId, workspaceId), eq(evidenceItems.replayRef, replayRef)))
+      .orderBy(desc(evidenceItems.observedAt), desc(evidenceItems.id))
+      .limit(50);
+
+    const linkedBrowserObservationIds = uniqueStrings(
+      evidenceItemRows.map((row) => stringField(row, 'browserObservationId')),
+    );
+    const linkedComputerActionIds = uniqueStrings(
+      evidenceItemRows.map((row) => stringField(row, 'computerActionId')),
+    );
+    const parsedBrowserRef = parseBrowserReplayRef(replayRef);
+    const parsedComputerRef = parseComputerReplayRef(replayRef);
+
+    const browserObservationRows =
+      linkedBrowserObservationIds.length > 0
+        ? await deps.db
+            .select()
+            .from(browserObservations)
+            .where(
+              and(
+                eq(browserObservations.workspaceId, workspaceId),
+                inArray(browserObservations.id, linkedBrowserObservationIds),
+              ),
+            )
+            .orderBy(asc(browserObservations.replayIndex), asc(browserObservations.observedAt))
+            .limit(50)
+        : parsedBrowserRef
+          ? await deps.db
+              .select()
+              .from(browserObservations)
+              .where(
+                and(
+                  eq(browserObservations.workspaceId, workspaceId),
+                  eq(browserObservations.sessionId, parsedBrowserRef.sessionId),
+                  eq(browserObservations.replayIndex, parsedBrowserRef.replayIndex),
+                ),
+              )
+              .orderBy(asc(browserObservations.replayIndex), asc(browserObservations.observedAt))
+              .limit(50)
+          : [];
+
+    const computerActionRows =
+      linkedComputerActionIds.length > 0
+        ? await deps.db
+            .select()
+            .from(computerActions)
+            .where(
+              and(
+                eq(computerActions.workspaceId, workspaceId),
+                inArray(computerActions.id, linkedComputerActionIds),
+              ),
+            )
+            .orderBy(asc(computerActions.replayIndex), asc(computerActions.createdAt))
+            .limit(50)
+        : parsedComputerRef
+          ? await deps.db
+              .select()
+              .from(computerActions)
+              .where(
+                and(
+                  eq(computerActions.workspaceId, workspaceId),
+                  eq(computerActions.id, parsedComputerRef.actionId),
+                  eq(computerActions.replayIndex, parsedComputerRef.replayIndex),
+                ),
+              )
+              .orderBy(asc(computerActions.replayIndex), asc(computerActions.createdAt))
+              .limit(50)
+          : [];
+
+    if (
+      evidenceItemRows.length === 0 &&
+      browserObservationRows.length === 0 &&
+      computerActionRows.length === 0
+    ) {
+      return c.json({ error: 'Replay ref not found in workspace' }, 404);
+    }
+
+    const response = CommandCenterReplayResponseSchema.parse({
+      workspaceId,
+      replayRef,
+      generatedAt: new Date().toISOString(),
+      productionReady: false,
+      capability,
+      replay: {
+        evidenceItems: evidenceItemRows,
+        browserObservations: browserObservationRows,
+        computerActions: computerActionRows,
+      },
+      blockers: [
+        'Replay contract is implemented for workspace-scoped inspection but has not passed Browser/Computer Replay Eval',
+        'This route does not promote evidence_ledger, browser_execution, computer_use, or command_center to production_ready',
+      ],
+    });
+
+    return c.json(response);
+  });
+
   return app;
+}
+
+function parseBrowserReplayRef(replayRef: string): { sessionId: string; replayIndex: number } | null {
+  const match = /^browser:([^:]+):(\d+)$/.exec(replayRef);
+  if (!match) return null;
+  return { sessionId: match[1]!, replayIndex: Number(match[2]) };
+}
+
+function parseComputerReplayRef(replayRef: string): { actionId: string; replayIndex: number } | null {
+  const match = /^computer:([^:]+):(\d+)$/.exec(replayRef);
+  if (!match) return null;
+  return { actionId: match[1]!, replayIndex: Number(match[2]) };
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
+function stringField(row: unknown, field: string): string | undefined {
+  if (!row || typeof row !== 'object') return undefined;
+  const value = (row as Record<string, unknown>)[field];
+  return typeof value === 'string' && value ? value : undefined;
+}
+
+function previewText(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const preview = value.length > 4_000 ? `${value.slice(0, 4_000)}...[truncated]` : value;
+  return redactReplayText(preview);
+}
+
+function redactReplayMetadata(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactReplayMetadata);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, child]) => {
+      if (/password|passwd|pwd|token|secret|api[_-]?key|authorization|cookie|session/iu.test(key)) {
+        return [key, '[REDACTED]'];
+      }
+      return [key, typeof child === 'string' ? redactReplayText(child) : redactReplayMetadata(child)];
+    }),
+  );
+}
+
+function redactReplayText(value: string): string {
+  return value
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gu, '$1[REDACTED]')
+    .replace(/\b(token|secret|password|cookie|session)=([^&\s]+)/giu, '$1=[REDACTED]');
 }
