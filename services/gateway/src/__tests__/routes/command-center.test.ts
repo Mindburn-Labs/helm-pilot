@@ -130,9 +130,10 @@ describe('commandCenterRoutes', () => {
           status: 'completed',
           command: 'curl',
           args: ['-I', 'http://localhost:3000'],
-          stdout: 'HTTP/1.1 200 OK',
+          stdout: 'token=abc HTTP/1.1 200 OK',
           replayIndex: 0,
           createdAt: new Date('2026-05-05T09:01:00Z'),
+          metadata: { token: 'do-not-return' },
         },
       ],
     ]);
@@ -146,7 +147,12 @@ describe('commandCenterRoutes', () => {
       replay: {
         evidenceItems: Array<{ id: string; replayRef: string }>;
         browserObservations: Array<{ id: string; domHash: string; redactedDomSnapshot: string }>;
-        computerActions: Array<{ id: string; actionType: string; stdout: string }>;
+        computerActions: Array<{
+          id: string;
+          actionType: string;
+          stdout: string;
+          metadata: Record<string, unknown>;
+        }>;
       };
       blockers: string[];
     }>(res, 200);
@@ -160,6 +166,10 @@ describe('commandCenterRoutes', () => {
     expect(body.replay.browserObservations[0]?.domHash).toBe('sha256:dom');
     expect(body.replay.browserObservations[0]?.redactedDomSnapshot).toContain('[redacted]');
     expect(body.replay.computerActions[0]?.stdout).toContain('200 OK');
+    expect(body.replay.computerActions[0]?.stdout).toContain('token=[REDACTED]');
+    expect(body.replay.computerActions[0]?.metadata).toMatchObject({ token: '[REDACTED]' });
+    expect(JSON.stringify(body)).not.toContain('do-not-return');
+    expect(JSON.stringify(body)).not.toContain('token=abc');
     expect(body.blockers.join(' ')).toContain('does not promote');
   });
 

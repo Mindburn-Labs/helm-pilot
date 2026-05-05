@@ -463,9 +463,9 @@ export function commandCenterRoutes(deps: GatewayDeps) {
       productionReady: false,
       capability,
       replay: {
-        evidenceItems: evidenceItemRows,
-        browserObservations: browserObservationRows,
-        computerActions: computerActionRows,
+        evidenceItems: evidenceItemRows.map(sanitizeGenericReplayRow),
+        browserObservations: browserObservationRows.map(sanitizeGenericReplayRow),
+        computerActions: computerActionRows.map(sanitizeComputerReplayRow),
       },
       blockers: [
         'Replay contract is implemented for workspace-scoped inspection but has not passed Browser/Computer Replay Eval',
@@ -499,6 +499,21 @@ function stringField(row: unknown, field: string): string | undefined {
   if (!row || typeof row !== 'object') return undefined;
   const value = (row as Record<string, unknown>)[field];
   return typeof value === 'string' && value ? value : undefined;
+}
+
+function sanitizeGenericReplayRow(row: unknown): Record<string, unknown> {
+  const record = row && typeof row === 'object' ? { ...(row as Record<string, unknown>) } : {};
+  if ('metadata' in record) record['metadata'] = redactReplayMetadata(record['metadata']);
+  if ('extractedData' in record) record['extractedData'] = redactReplayMetadata(record['extractedData']);
+  return record;
+}
+
+function sanitizeComputerReplayRow(row: unknown): Record<string, unknown> {
+  const record = sanitizeGenericReplayRow(row);
+  record['stdout'] = previewText(typeof record['stdout'] === 'string' ? record['stdout'] : null);
+  record['stderr'] = previewText(typeof record['stderr'] === 'string' ? record['stderr'] : null);
+  record['fileDiff'] = previewText(typeof record['fileDiff'] === 'string' ? record['fileDiff'] : null);
+  return record;
 }
 
 function previewText(value: string | null | undefined): string | null {
