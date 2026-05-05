@@ -4,10 +4,12 @@ import { ToolRegistry } from '../tools.js';
 import type { PolicyConfig } from '@pilot/shared/schemas';
 import type { LlmProvider } from '@pilot/shared/llm';
 import { SubagentRegistry, type SubagentDefinition } from '@pilot/shared/subagents';
+import { SkillRegistry, type SkillDefinition } from '@pilot/shared/skills';
 
 vi.mock('@pilot/db/schema', () => ({
   taskRuns: 'taskRuns',
   evidencePacks: 'evidencePacks',
+  agentHandoffs: 'agentHandoffs',
   approvals: 'approvals',
   operatorMemory: 'operatorMemory',
 }));
@@ -34,6 +36,7 @@ function makeDef(overrides: Partial<SubagentDefinition> = {}): SubagentDefinitio
     budgetWeight: 1,
     execution: 'AUTONOMOUS',
     toolScope: { allowedTools: ['search_knowledge'] },
+    skills: [],
     mcpServers: [],
     iterationBudget: 20,
     systemPrompt: 'You are scout X.',
@@ -42,14 +45,35 @@ function makeDef(overrides: Partial<SubagentDefinition> = {}): SubagentDefinitio
   };
 }
 
-function makeMockDb() {
+function makeSkill(overrides: Partial<SkillDefinition> = {}): SkillDefinition {
+  return {
+    name: 'test-skill',
+    description: 'Test skill',
+    version: '1.0.0',
+    tools: ['search_knowledge'],
+    riskProfile: 'R1',
+    permissionRequirements: ['knowledge.read'],
+    evalStatus: 'not_evaluated',
+    activation: 'auto',
+    body: 'Use the test skill.',
+    sourcePath: '/tmp/test-skill/SKILL.md',
+    ...overrides,
+  };
+}
+
+function makeMockDb(options: { failInsertTable?: unknown } = {}) {
   let autoId = 0;
   return {
-    insert: vi.fn(() => ({
-      values: vi.fn(() => ({
-        returning: vi.fn(async () => [{ id: `row_${++autoId}` }]),
-      })),
-    })),
+    insert: vi.fn((table: unknown) => {
+      if (table === options.failInsertTable) {
+        throw new Error(`insert failed for ${String(table)}`);
+      }
+      return {
+        values: vi.fn(() => ({
+          returning: vi.fn(async () => [{ id: `row_${++autoId}` }]),
+        })),
+      };
+    }),
     select: vi.fn(() => ({
       from: vi.fn(() => ({
         where: vi.fn(() => ({
@@ -163,6 +187,186 @@ describe('Conductor.spawn', () => {
         lineageKind: 'subagent_spawn',
       }),
     );
+  });
+
+  it('loads explicit skill bodies into the child prompt and records metadata', async () => {
+    const skill = makeSkill({
+      name: 'yc-application-writing',
+      tools: ['search_knowledge'],
+      body: 'Use YC voice and never invent traction.',
+    });
+    const registry = new SubagentRegistry([
+      makeDef({
+        name: 'application_writer',
+        skills: ['yc-application-writing'],
+        toolScope: { allowedTools: ['search_knowledge'] },
+      }),
+    ]);
+    const skillRegistry = new SkillRegistry([skill]);
+    const db = makeMockDb();
+    const insertSpy = db.insert;
+    const llm = makeLlm();
+    const tools = new ToolRegistry(db);
+    const conductor = new Conductor(
+      db,
+      registry,
+      tools,
+      makePolicy(),
+      llm,
+      undefined,
+      skillRegistry,
+    );
+
+    await conductor.spawn(baseCtx, {
+      name: 'application_writer',
+      task: 'Draft YC application sections',
+    });
+
+    expect(llm.complete).toHaveBeenCalledWith(expect.stringContaining('Use YC voice'));
+
+    const valuesPayloads: Record<string, unknown>[] = [];
+    for (const result of insertSpy.mock.results) {
+      const chain = result.value as { values: ReturnType<typeof vi.fn> };
+      for (const valCall of chain.values.mock.calls) {
+        valuesPayloads.push(valCall[0] as Record<string, unknown>);
+      }
+    }
+    const spawnRun = valuesPayloads.find((p) => p['actionTool'] === 'subagent.spawn');
+    expect(spawnRun?.['skillInvocations']).toEqual([
+      expect.objectContaining({
+        name: 'yc-application-writing',
+        version: '1.0.0',
+        riskProfile: 'R1',
+        evalStatus: 'not_evaluated',
+        declaredTools: ['search_knowledge'],
+      }),
+    ]);
+
+    const handoff = valuesPayloads.find((p) => p['handoffKind'] === 'subagent_spawn');
+    expect(handoff?.['skillInvocations']).toEqual(spawnRun?.['skillInvocations']);
+  });
+
+  it('fails closed when an explicit skill is not loaded', async () => {
+    const registry = new SubagentRegistry([
+      makeDef({ name: 'application_writer', skills: ['missing-skill'] }),
+    ]);
+    const db = makeMockDb();
+    const tools = new ToolRegistry(db);
+    const conductor = new Conductor(
+      db,
+      registry,
+      tools,
+      makePolicy(),
+      makeLlm(),
+      undefined,
+      new SkillRegistry([]),
+    );
+
+    const result = await conductor.spawn(baseCtx, {
+      name: 'application_writer',
+      task: 'Draft YC application sections',
+    });
+
+    expect(result.verdict).toBe('failed');
+    expect(result.error).toBe('skill_not_loaded');
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when a matched skill requires tools outside subagent scope', async () => {
+    const skill = makeSkill({
+      name: 'yc-application-writing',
+      tools: ['create_application_draft'],
+    });
+    const registry = new SubagentRegistry([
+      makeDef({
+        name: 'application_writer',
+        skills: ['yc-application-writing'],
+        toolScope: { allowedTools: ['search_knowledge'] },
+      }),
+    ]);
+    const db = makeMockDb();
+    const tools = new ToolRegistry(db);
+    const conductor = new Conductor(
+      db,
+      registry,
+      tools,
+      makePolicy(),
+      makeLlm(),
+      undefined,
+      new SkillRegistry([skill]),
+    );
+
+    const result = await conductor.spawn(baseCtx, {
+      name: 'application_writer',
+      task: 'Draft YC application sections',
+    });
+
+    expect(result.verdict).toBe('failed');
+    expect(result.error).toBe('skill_tool_scope_denied');
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('skips auto-matched skills that require tools outside subagent scope', async () => {
+    const skill = makeSkill({
+      name: 'yc-application-writing',
+      description: 'Draft YC application sections',
+      tools: ['create_application_draft'],
+    });
+    const registry = new SubagentRegistry([
+      makeDef({
+        name: 'scout_x',
+        toolScope: { allowedTools: ['search_knowledge'] },
+      }),
+    ]);
+    const db = makeMockDb();
+    const insertSpy = db.insert;
+    const llm = makeLlm();
+    const tools = new ToolRegistry(db);
+    const conductor = new Conductor(
+      db,
+      registry,
+      tools,
+      makePolicy(),
+      llm,
+      undefined,
+      new SkillRegistry([skill]),
+    );
+
+    const result = await conductor.spawn(baseCtx, {
+      name: 'scout_x',
+      task: 'Draft YC application sections from market research',
+    });
+
+    expect(result.verdict).toBe('completed');
+    expect(llm.complete).not.toHaveBeenCalledWith(expect.stringContaining('Use the test skill'));
+
+    const valuesPayloads: Record<string, unknown>[] = [];
+    for (const insertResult of insertSpy.mock.results) {
+      const chain = insertResult.value as { values: ReturnType<typeof vi.fn> };
+      for (const valCall of chain.values.mock.calls) {
+        valuesPayloads.push(valCall[0] as Record<string, unknown>);
+      }
+    }
+    const spawnRun = valuesPayloads.find((p) => p['actionTool'] === 'subagent.spawn');
+    expect(spawnRun?.['skillInvocations']).toEqual([]);
+  });
+
+  it('fails closed when the durable handoff row cannot be persisted', async () => {
+    const registry = new SubagentRegistry([makeDef({ name: 'scout_x' })]);
+    const db = makeMockDb({ failInsertTable: 'agentHandoffs' });
+    const llm = makeLlm();
+    const tools = new ToolRegistry(db);
+    const conductor = new Conductor(db, registry, tools, makePolicy(), llm);
+
+    const result = await conductor.spawn(baseCtx, {
+      name: 'scout_x',
+      task: 'scan market',
+    });
+
+    expect(result.verdict).toBe('failed');
+    expect(result.error).toBe('subagent_persistence_failed');
+    expect(result.summary).toContain('Failed to persist agent handoff');
+    expect(llm.complete).not.toHaveBeenCalled();
   });
 });
 

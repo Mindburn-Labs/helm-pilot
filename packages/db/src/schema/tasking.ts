@@ -81,6 +81,7 @@ export const taskRuns = pgTable(
     operatorRole: text('operator_role'),
     budgetSliceUsed: numeric('budget_slice_used', { precision: 10, scale: 4 }).default('0'),
     budgetSliceAllocated: numeric('budget_slice_allocated', { precision: 10, scale: 4 }),
+    skillInvocations: jsonb('skill_invocations').notNull().default([]),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
     // Phase 16 Track N — long-running / 8-hour autonomous execution.

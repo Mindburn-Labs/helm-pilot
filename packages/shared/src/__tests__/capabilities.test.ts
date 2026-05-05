@@ -28,6 +28,7 @@ describe('capability registry', () => {
     expect(capabilities.every((record) => record.state !== 'production_ready')).toBe(true);
 
     expect(getCapabilityRecord('decision_court')?.state).toBe('stub');
+    expect(getCapabilityRecord('skill_registry_runtime')?.state).toBe('implemented');
     expect(getCapabilityRecord('browser_execution')?.state).toBe('blocked');
   });
 
@@ -54,6 +55,7 @@ describe('capability registry', () => {
     expect(markdown).toContain('Production-ready capabilities: 0/');
     expect(markdown).toContain('decision_court | stub');
     expect(markdown).toContain('helm_receipts | implemented');
+    expect(markdown).toContain('skill_registry_runtime | implemented');
     expect(markdown).toContain('browser_execution | blocked');
   });
 

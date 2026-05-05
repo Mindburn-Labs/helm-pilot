@@ -13,7 +13,7 @@ This is the control artifact for moving Pilot from a governed agent/task prototy
 - Decision Court API still constructs `new DecisionCourt()` without injecting a governed model provider, so it must remain `stub`.
 - `operator.computer_use` currently stops at HELM preflight and does not execute a real browser/computer action, so it must remain `stub`.
 - `score_opportunity` currently enqueues/marks scoring rather than producing the required evidence-backed scorecard, so it must remain `stub`.
-- Skill registry code exists under `packages/shared/src/skills`, but the conductor currently passes `undefined` for `SkillRegistry`, so runtime skill loading must remain `blocked`.
+- Skill registry code exists under `packages/shared/src/skills`, and Gate 3 wires it into gateway/orchestrator/conductor with audited skill metadata on subagent spawns. It is still not `production_ready` because skills are not fully Tool Broker callable and have not passed the Skill Invocation Governance Eval.
 - Subagent spawn rows are partially represented through `task_runs.parent_task_run_id` and spawn evidence packs, but root lineage, spawn action anchoring, and proof DAG queries are not complete.
 - A2A protocol files exist under `packages/shared/src/a2a` and gateway A2A routes exist, but durable A2A thread/message storage is not proven.
 - Evidence packs and approvals exist, but evidence is not a first-class action/tool/browser/computer/artifact ledger.
@@ -28,7 +28,7 @@ This is the control artifact for moving Pilot from a governed agent/task prototy
 | `workspace_rbac`             | `implemented` | Governance Agent | HELM Governance Eval and RBAC regressions                      |
 | `operator_scoping`           | `implemented` | Governance Agent | Cross-workspace operator rejection regression                  |
 | `decision_court`             | `stub`        | Decision Agent   | Decision Court Governed Model Eval                             |
-| `skill_registry_runtime`     | `blocked`     | Runtime Agent    | Skill Invocation Governance Eval                               |
+| `skill_registry_runtime`     | `implemented` | Runtime Agent    | Skill Invocation Governance Eval                               |
 | `opportunity_scoring`        | `stub`        | Tooling Agent    | PMF Discovery Eval                                             |
 | `browser_metadata_connector` | `scaffolded`  | Browser Agent    | YC Logged-In Browser Extraction Eval                           |
 | `browser_execution`          | `blocked`     | Browser Agent    | YC Logged-In Browser Extraction Eval                           |
@@ -96,7 +96,7 @@ No row may move to `production_ready` without passing eval metadata in the regis
 - Computer use needs a safe execution substrate, Tool Broker routing, command/file evidence, and deny policy.
 - Subagent lineage needs durable root/parent/spawn action anchoring and proof DAG queries.
 - Approval resume needs deterministic ordering and child-row exclusion.
-- Skill registry must be loaded into conductor/orchestrator runtime and audited through Tool Broker and HELM.
+- Skills must move from runtime-loaded prompt packages to fully Tool Broker governed callable capabilities, then pass the Skill Invocation Governance Eval.
 - HELM receipts need a mandatory global sink and fail-closed persistence.
 - Opportunity scoring needs the full evidence-backed scorecard and `opportunity_scout` workflow wiring.
 - A2A state must move from protocol/process-local assumptions to durable Postgres storage.

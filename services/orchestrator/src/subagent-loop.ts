@@ -2,7 +2,7 @@ import { type Db } from '@pilot/db/client';
 import { type LlmProvider } from '@pilot/shared/llm';
 import { type SubagentDefinition, type SubagentRunResult } from '@pilot/shared/subagents';
 import { type PolicyConfig } from '@pilot/shared/schemas';
-import { type SkillRegistry } from '@pilot/shared/skills';
+import { type SkillMatch, type SkillRegistry } from '@pilot/shared/skills';
 import { type McpServerRegistry } from '@pilot/shared/mcp';
 import { type HelmClient } from '@pilot/helm-client';
 import { AgentLoop, type AgentRunResult, type SubagentFrame } from './agent-loop.js';
@@ -70,10 +70,12 @@ export class SubagentLoop {
     def: SubagentDefinition;
     input: string;
     frame: SubagentFrame;
+    skillMatches?: SkillMatch[];
     workspaceId: string;
     taskId: string;
+    mode?: string;
   }): Promise<SubagentRunResult> {
-    const { def, input, frame, workspaceId, taskId } = params;
+    const { def, input, frame, skillMatches, workspaceId, taskId, mode } = params;
 
     // 1. Narrowed policy — keep kill switch + content bans from parent, but
     // clamp budget to this child's slice and extend the blocklist to cover
@@ -112,10 +114,9 @@ export class SubagentLoop {
     const iterationBudget = def.iterationBudget;
 
     // Phase 14 Track E — prepend matched skill bodies to the child's
-    // system prompt. Registry may be undefined (backward-compat); match
-    // against the natural-language input + optional def.skills list
-    // (future extension — Phase 14 subagent frontmatter gains `skills:`).
-    const effectiveSystemPrompt = this.composeSystemPrompt(def, input);
+    // system prompt. The Conductor preselects permitted matches so tool
+    // scope checks happen before child execution.
+    const effectiveSystemPrompt = this.composeSystemPrompt(def, input, skillMatches);
 
     // 5. Execute.
     let result: AgentRunResult;
@@ -125,6 +126,7 @@ export class SubagentLoop {
         workspaceId,
         iterationBudget,
         context,
+        mode,
         systemPrompt: effectiveSystemPrompt,
         operatorGoal: def.description,
       });
@@ -203,13 +205,18 @@ export class SubagentLoop {
    * is absent or no skills match the input, returns `def.systemPrompt`
    * verbatim.
    */
-  private composeSystemPrompt(def: SubagentDefinition, input: string): string {
-    if (!this.skillRegistry) return def.systemPrompt;
-    const matches = this.skillRegistry.match(input, []);
+  private composeSystemPrompt(
+    def: SubagentDefinition,
+    input: string,
+    preselectedMatches?: SkillMatch[],
+  ): string {
+    if (!this.skillRegistry && !preselectedMatches) return def.systemPrompt;
+    const matches =
+      preselectedMatches ?? this.skillRegistry?.match(input, def.skills).slice(0, 3) ?? [];
     if (matches.length === 0) return def.systemPrompt;
-    const blocks = matches
-      .slice(0, 3) // cap at 3 skills so the prompt doesn't explode
-      .map((m) => `## Skill: ${m.skill.name} (${m.reason}, score=${m.score})\n\n${m.skill.body}`);
+    const blocks = matches.map(
+      (m) => `## Skill: ${m.skill.name} (${m.reason}, score=${m.score})\n\n${m.skill.body}`,
+    );
     return `${def.systemPrompt}\n\n---\n\n${blocks.join('\n\n---\n\n')}`;
   }
 

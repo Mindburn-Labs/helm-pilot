@@ -7,6 +7,13 @@ tools:
   - search_knowledge
   - get_founder_profile
   - list_opportunities
+risk_profile: R1
+permission_requirements:
+  - application.write
+  - founder_profile.read
+  - opportunity.read
+  - knowledge.read
+eval_status: not_evaluated
 activation: auto
 model: sonnet
 ---
