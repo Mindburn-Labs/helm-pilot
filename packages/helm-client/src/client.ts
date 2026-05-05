@@ -85,6 +85,8 @@ export class HelmClient {
   ): Promise<ChatCompletionResult> {
     const effectivePrincipal = principal ?? this.cfg.defaultPrincipal ?? 'anonymous';
     const url = `${this.cfg.baseUrl}/v1/chat/completions`;
+    const receiptRequired = this.receiptRequiredFor('LLM_INFERENCE', body.model, undefined);
+    this.assertReceiptSinkConfigured('LLM_INFERENCE', body.model, undefined);
 
     const response = await this.governedFetch(url, {
       method: 'POST',
@@ -98,7 +100,6 @@ export class HelmClient {
 
     const ctx = { action: 'LLM_INFERENCE', resource: body.model, principal: effectivePrincipal };
     const receipt = parseReceiptHeaders(response.headers, ctx);
-    const receiptRequired = this.receiptRequiredFor('LLM_INFERENCE', body.model, undefined);
 
     if (response.status === 403) {
       await this.handleForbidden(response, receipt, { receiptRequired });
@@ -623,6 +624,8 @@ interface HelmEvaluateBody {
 }
 
 function isElevatedGovernedAction(action: string, resource: string, effectLevel?: string): boolean {
+  if (action === 'LLM_INFERENCE') return true;
+
   const normalizedEffect = (effectLevel ?? '').trim().toUpperCase();
   const effectMatch = /^E(\d+)$/u.exec(normalizedEffect);
   if (effectMatch && Number(effectMatch[1]) >= 2) return true;
