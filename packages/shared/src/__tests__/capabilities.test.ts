@@ -29,6 +29,7 @@ describe('capability registry', () => {
     expect(getCapabilityRecord('skill_registry_runtime')?.state).toBe('implemented');
     expect(getCapabilityRecord('opportunity_scoring')?.state).toBe('implemented');
     expect(getCapabilityRecord('a2a_durable_state')?.state).toBe('implemented');
+    expect(getCapabilityRecord('approval_resume')?.state).toBe('implemented');
     expect(getCapabilityRecord('browser_execution')?.state).toBe('prototype');
     expect(getCapabilityRecord('computer_use')?.state).toBe('prototype');
   });
