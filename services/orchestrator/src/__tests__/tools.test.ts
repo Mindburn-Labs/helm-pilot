@@ -90,6 +90,7 @@ describe('ToolRegistry', () => {
       expect(names).toContain('create_note');
       expect(names).toContain('scrapling_fetch');
       expect(names).toContain('operator.computer_use');
+      expect(names).toContain('operator.browser_read');
       expect(names).toContain('draft_text');
       expect(names).toContain('analyze');
       expect(names).toContain('get_workspace_context');
@@ -116,8 +117,8 @@ describe('ToolRegistry', () => {
 
       expect(names).toContain('slack_workspace_agent_reply');
 
-      // Phase 15 Track I + K plus Workspace Agents: 46 connector tools + 2 multimodal + Operator CUA.
-      expect(tools.length).toBe(49);
+      // Phase 15 Track I + K plus Workspace Agents: 46 connector tools + 2 multimodal + Operator CUA/browser.
+      expect(tools.length).toBe(50);
     });
   });
 
@@ -134,6 +135,7 @@ describe('ToolRegistry', () => {
       expect(names).toContain('create_note');
       expect(names).toContain('scrapling_fetch');
       expect(names).toContain('operator.computer_use');
+      expect(names).toContain('operator.browser_read');
       expect(names).toContain('draft_text');
       expect(names).toContain('analyze');
       expect(names).toContain('get_workspace_context');
@@ -163,6 +165,7 @@ describe('ToolRegistry', () => {
       expect(names).toContain('create_artifact');
       expect(names).toContain('scrapling_fetch');
       expect(names).toContain('operator.computer_use');
+      expect(names).toContain('operator.browser_read');
       expect(names).toContain('slack_workspace_agent_reply');
 
       // Should NOT include discover-only tools
@@ -180,6 +183,7 @@ describe('ToolRegistry', () => {
       expect(names).toContain('search_yc');
       expect(names).toContain('scrapling_fetch');
       expect(names).toContain('operator.computer_use');
+      expect(names).toContain('operator.browser_read');
       expect(names).toContain('draft_text');
 
       // Should NOT include build-only tools
@@ -208,6 +212,7 @@ describe('ToolRegistry', () => {
       expect(names).toContain('list_tasks');
       expect(names).toContain('scrapling_fetch');
       expect(names).toContain('operator.computer_use');
+      expect(names).toContain('operator.browser_read');
       expect(names).toContain('send_notification');
 
       // Should NOT include discover-only or apply-only tools
@@ -462,6 +467,153 @@ describe('ToolRegistry', () => {
         receipt: { decisionId: 'dec-1' },
         capability: getCapabilityRecord('computer_use'),
       });
+    });
+  });
+
+  describe('built-in: operator.browser_read', () => {
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const taskId = '00000000-0000-4000-8000-000000000002';
+    const sessionId = '00000000-0000-4000-8000-000000000003';
+    const grantId = '00000000-0000-4000-8000-000000000004';
+
+    it('fails closed when helm-client is not wired', async () => {
+      const registry = createRegistry();
+      const result = await registry.execute('operator.browser_read', {
+        workspaceId,
+        sessionId,
+        grantId,
+        url: 'https://www.ycombinator.com/account',
+      });
+
+      expect(result).toEqual({
+        error:
+          'operator.browser_read requires packages/helm-client wiring; refusing to create an out-of-band browser read path',
+        capability: getCapabilityRecord('browser_execution'),
+      });
+    });
+
+    it('uses HELM, redacts sensitive values, and persists the browser observation', async () => {
+      const selectResults = [
+        [{ id: sessionId, allowedOrigins: ['https://www.ycombinator.com'] }],
+        [
+          {
+            id: grantId,
+            allowedOrigins: ['https://www.ycombinator.com'],
+            grantedToType: 'agent',
+            grantedToId: null,
+          },
+        ],
+      ];
+      const inserted: unknown[] = [];
+      const db = {
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(async () => selectResults.shift() ?? []),
+            })),
+          })),
+        })),
+        insert: vi.fn(() => ({
+          values: vi.fn((value: unknown) => {
+            inserted.push(value);
+            const isBrowserAction =
+              typeof value === 'object' &&
+              value !== null &&
+              'actionType' in (value as Record<string, unknown>);
+            return {
+              returning: vi.fn(async () => [
+                isBrowserAction
+                  ? {
+                      id: 'browser-action-1',
+                      replayIndex: 0,
+                      evidencePackId: (value as { evidencePackId?: string }).evidencePackId,
+                    }
+                  : {
+                      id: 'obs-1',
+                      domHash: (value as { domHash?: string }).domHash,
+                      evidencePackId: (value as { evidencePackId?: string }).evidencePackId,
+                    },
+              ]),
+            };
+          }),
+        })),
+      };
+      const helmClient = {
+        evaluateOperatorBrowserRead: vi.fn(async () => ({
+          status: 'approved_for_read',
+          receipt: { decisionId: 'dec-browser', policyVersion: 'founder-ops-v1' },
+          evidencePackId: '00000000-0000-4000-8000-000000000005',
+        })),
+      };
+      const registry = createRegistryWithDb(db, { helmClient });
+
+      const result = await registry.execute('operator.browser_read', {
+        workspaceId,
+        taskId,
+        sessionId,
+        grantId,
+        url: 'https://www.ycombinator.com/account',
+        title: 'YC Account',
+        domSnapshot: '<input name="password" value="super-secret">',
+        extractedData: {
+          company: 'Pilot',
+          sessionToken: 'should-not-persist',
+        },
+        metadata: {
+          authorization: 'Bearer abc123',
+        },
+      });
+
+      expect(helmClient.evaluateOperatorBrowserRead).toHaveBeenCalledWith(
+        expect.objectContaining({
+          principal: `workspace:${workspaceId}/browser:${sessionId}`,
+          sessionId,
+          grantId,
+          url: 'https://www.ycombinator.com/account',
+        }),
+      );
+      expect(result).toMatchObject({
+        browserAction: {
+          id: 'browser-action-1',
+          evidencePackId: '00000000-0000-4000-8000-000000000005',
+        },
+        observation: {
+          id: 'obs-1',
+          evidencePackId: '00000000-0000-4000-8000-000000000005',
+        },
+        governance: {
+          decisionId: 'dec-browser',
+          policyVersion: 'founder-ops-v1',
+        },
+        capability: getCapabilityRecord('browser_execution'),
+      });
+      expect(inserted[0]).toMatchObject({
+        workspaceId,
+        sessionId,
+        grantId,
+        actionType: 'read_extract',
+        origin: 'https://www.ycombinator.com',
+        policyDecisionId: 'dec-browser',
+      });
+      expect(inserted[1]).toMatchObject({
+        workspaceId,
+        sessionId,
+        grantId,
+        browserActionId: 'browser-action-1',
+        origin: 'https://www.ycombinator.com',
+        redactedDomSnapshot: '<input name="password" value="[REDACTED]">',
+        extractedData: {
+          company: 'Pilot',
+          sessionToken: '[REDACTED]',
+        },
+        metadata: {
+          authorization: '[REDACTED]',
+          helmDecisionId: 'dec-browser',
+          helmPolicyVersion: 'founder-ops-v1',
+          credentialBoundary: 'read_only_no_cookie_or_password_export',
+        },
+      });
+      expect((inserted[1] as { domHash?: string }).domHash).toMatch(/^sha256:/u);
     });
   });
 

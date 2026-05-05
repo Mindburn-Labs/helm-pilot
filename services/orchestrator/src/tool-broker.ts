@@ -87,11 +87,18 @@ export class ToolBroker {
       throw new Error(`Tool Broker could not persist tool execution for ${toolName}`);
     }
 
-    const output = await registry.execute(toolName, input, context);
+    const output = await registry.execute(toolName, input, {
+      ...context,
+      actionId: action.id,
+    });
     const sanitizedOutput = toJsonValue(output);
     const outputHash = hashJson({ tool: toolName, output: sanitizedOutput });
     const status = isToolError(output) ? 'failed' : 'completed';
     const error = status === 'failed' ? stringifyError(output) : null;
+    const evidenceIds = uniqueStrings([
+      ...(context.evidenceIds ?? []),
+      ...collectEvidenceIds(sanitizedOutput),
+    ]);
 
     await this.db
       .update(toolExecutions)
@@ -99,6 +106,7 @@ export class ToolBroker {
         status,
         outputHash,
         sanitizedOutput,
+        evidenceIds,
         error,
         completedAt: new Date(),
       })
@@ -129,6 +137,7 @@ export class ToolBroker {
         inputHash,
         outputHash,
         riskClass: manifest.riskClass,
+        evidenceIds,
         policyDecisionId: context.policyDecisionId ?? null,
         policyVersion: context.policyVersion ?? null,
       },
@@ -263,4 +272,30 @@ function stringifyError(value: unknown) {
   } catch {
     return String(value);
   }
+}
+
+function collectEvidenceIds(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(collectEvidenceIds);
+  if (!value || typeof value !== 'object') return [];
+
+  const record = value as Record<string, unknown>;
+  const direct = [
+    typeof record['evidencePackId'] === 'string' ? record['evidencePackId'] : undefined,
+    typeof record['evidenceId'] === 'string' ? record['evidenceId'] : undefined,
+  ].filter((item): item is string => Boolean(item));
+  const listed = Array.isArray(record['evidenceIds'])
+    ? record['evidenceIds'].filter((item): item is string => typeof item === 'string')
+    : [];
+
+  return [
+    ...direct,
+    ...listed,
+    ...Object.values(record).flatMap((child) =>
+      child && typeof child === 'object' ? collectEvidenceIds(child) : [],
+    ),
+  ];
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
 }

@@ -54,7 +54,10 @@ describe('ToolBroker', () => {
         permissionRequirements: ['tool:echo_tool:execute'],
         outputSensitivity: 'internal',
       },
-      execute: async (input) => ({ received: input }),
+      execute: async (input) => ({
+        received: input,
+        governance: { evidencePackId: '00000000-0000-4000-8000-000000000004' },
+      }),
     });
     const broker = new ToolBroker(db as never);
 
@@ -115,6 +118,7 @@ describe('ToolBroker', () => {
           value: expect.objectContaining({
             status: 'completed',
             outputHash: result.outputHash,
+            evidenceIds: ['00000000-0000-4000-8000-000000000004'],
             completedAt: expect.any(Date),
           }),
         }),

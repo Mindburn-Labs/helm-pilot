@@ -19,6 +19,8 @@ import type {
   ContextBundleListResult,
   EconomicChargesResult,
   EconomicAllocationsResult,
+  OperatorBrowserReadRequest,
+  OperatorBrowserReadResult,
   OperatorComputerUseRequest,
   OperatorComputerUseResult,
 } from './types.js';
@@ -276,6 +278,53 @@ export class HelmClient {
         taskId: req.taskId,
         operatorId: req.operatorId,
         approvalCheckpoint: req.approvalCheckpoint,
+      },
+    };
+  }
+
+  /**
+   * Govern a read-only browser observation/extraction request. This covers
+   * session-backed URL/title/DOM/screenshot/extracted-field reads only;
+   * clicking, posting, payments, credential export, and destructive browser
+   * operations must use a separate higher-risk policy path.
+   */
+  async evaluateOperatorBrowserRead(
+    req: OperatorBrowserReadRequest,
+  ): Promise<OperatorBrowserReadResult> {
+    const result = await this.evaluate({
+      principal: req.principal,
+      action: 'OPERATOR_BROWSER_READ',
+      resource: req.url,
+      effectLevel: 'E2',
+      sessionId: req.grantId,
+      args: {
+        workspaceId: req.workspaceId,
+        sessionId: req.sessionId,
+        grantId: req.grantId,
+        objective: req.objective,
+        url: req.url,
+      },
+      context: {
+        workspaceId: req.workspaceId,
+        taskId: req.taskId,
+        operatorId: req.operatorId,
+        browserSessionId: req.sessionId,
+        browserGrantId: req.grantId,
+        source: '@pilot/helm-client.evaluateOperatorBrowserRead',
+      },
+    });
+    return {
+      status: 'approved_for_read',
+      receipt: result.receipt,
+      evidencePackId: result.evidencePackId,
+      request: {
+        workspaceId: req.workspaceId,
+        sessionId: req.sessionId,
+        grantId: req.grantId,
+        objective: req.objective,
+        url: req.url,
+        taskId: req.taskId,
+        operatorId: req.operatorId,
       },
     };
   }

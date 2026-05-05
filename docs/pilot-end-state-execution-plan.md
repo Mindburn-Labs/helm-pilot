@@ -11,7 +11,7 @@ This is the control artifact for moving Pilot from a governed agent/task prototy
 - Web exposes `/capabilities` in `apps/web/src/app/capabilities/page.tsx` and reads the API instead of route-local mock state.
 - README and roadmap already warn that Pilot is not production-ready as a fully autonomous startup OS.
 - Decision Court now splits `heuristic_preview`, `governed_llm_court`, and `unavailable`; governed mode requires HELM-governed model-call receipts and no longer silently falls back to fake adversarial output.
-- `operator.computer_use` currently stops at HELM preflight and does not execute a real browser/computer action, so it must remain `stub`.
+- `operator.computer_use` currently stops at HELM preflight and does not execute a real computer/sandbox action, so it must remain `stub`.
 - `score_opportunity` now returns a deterministic evidence-backed scorecard and writes Tool Broker records for autonomous calls, but PMF Discovery Eval has not promoted it to `production_ready`.
 - Skill registry code exists under `packages/shared/src/skills`, and Gate 3 wires it into gateway/orchestrator/conductor with audited skill metadata on subagent spawns. It is still not `production_ready` because skills are not fully Tool Broker callable and have not passed the Skill Invocation Governance Eval.
 - Subagent spawn rows are partially represented through `task_runs.parent_task_run_id` and spawn evidence packs, but root lineage, spawn action anchoring, and proof DAG queries are not complete.
@@ -30,8 +30,8 @@ This is the control artifact for moving Pilot from a governed agent/task prototy
 | `decision_court`             | `implemented` | Decision Agent   | Decision Court Governed Model Eval                             |
 | `skill_registry_runtime`     | `implemented` | Runtime Agent    | Skill Invocation Governance Eval                               |
 | `opportunity_scoring`        | `implemented` | Tooling Agent    | PMF Discovery Eval                                             |
-| `browser_metadata_connector` | `scaffolded`  | Browser Agent    | YC Logged-In Browser Extraction Eval                           |
-| `browser_execution`          | `blocked`     | Browser Agent    | YC Logged-In Browser Extraction Eval                           |
+| `browser_metadata_connector` | `implemented` | Browser Agent    | YC Logged-In Browser Extraction Eval                           |
+| `browser_execution`          | `prototype`   | Browser Agent    | YC Logged-In Browser Extraction Eval                           |
 | `computer_use`               | `stub`        | Computer Agent   | Safe Computer/Sandbox Action Eval                              |
 | `a2a_durable_state`          | `blocked`     | Foundation Agent | Multi-Agent Parallel Build Eval                                |
 | `subagent_lineage`           | `blocked`     | Runtime Agent    | Proof DAG Lineage Regression                                   |
@@ -46,13 +46,13 @@ No row may move to `production_ready` without passing eval metadata in the regis
 
 ## Gate Checklist
 
-- Gate 0, Capability Truth and Claim Control: shared registry, API, UI surface, docs, and tests. Status: in progress in this PR.
-- Gate 1, Foundation Correctness: durable mission/task/action/agent/evidence/artifact/A2A lineage; deterministic replay; approval resume isolation.
-- Gate 2, Governance Correctness: mandatory HELM receipt sink, fail-closed medium/high/restricted actions, RBAC, operator scoping, policy/document version pinning.
-- Gate 3, Runtime Agent and Skill Correctness: agent registry, runtime skill loading, manifest validation, scoped subagents, durable handoffs.
-- Gate 4, Decision Court Production Split: `heuristic_preview`, `governed_llm_court`, `unavailable`; governed model calls only in governed mode.
-- Gate 5, Tool Broker and Startup Tool Reality: typed manifests, tool execution ledger, stub rejection, real `score_opportunity`, `opportunity_scout` wiring.
-- Gate 6, Browser Operation: read-only logged-in browser observation, active tab grants, screenshots, DOM hashes, redaction, replay, receipts.
+- Gate 0, Capability Truth and Claim Control: shared registry, API, UI surface, docs, and tests. Status: merged in PR #11.
+- Gate 1, Foundation Correctness: durable mission/task/action/agent/evidence/artifact/A2A lineage; deterministic replay; approval resume isolation. Status: merged in PR #12, still not production-ready.
+- Gate 2, Governance Correctness: mandatory HELM receipt sink, fail-closed medium/high/restricted actions, RBAC, operator scoping, policy/document version pinning. Status: merged across PR #13 and PR #14, still not production-ready.
+- Gate 3, Runtime Agent and Skill Correctness: agent registry, runtime skill loading, manifest validation, scoped subagents, durable handoffs. Status: merged in PR #15, still not production-ready.
+- Gate 4, Decision Court Production Split: `heuristic_preview`, `governed_llm_court`, `unavailable`; governed model calls only in governed mode. Status: merged in PR #16, still not production-ready.
+- Gate 5, Tool Broker and Startup Tool Reality: typed manifests, tool execution ledger, stub rejection, real `score_opportunity`, `opportunity_scout` wiring. Status: merged in PR #17, still not production-ready.
+- Gate 6, Browser Operation: read-only logged-in browser sessions, active-tab grants, browser actions, screenshots, DOM hashes, redaction, replay, receipts. Status: current PR, prototype until eval-backed.
 - Gate 7, Computer/Sandbox Operation: governed safe terminal/file/dev-server actions with evidence and deny rules.
 - Gate 8, Command Center UI: real mission/action/evidence/receipt state, agent lanes, evidence drawer, permission graph, capability matrix.
 - Gate 9, Startup Lifecycle Engine: mission templates/compiler for founder lifecycle workflows with evidence and escalation conditions.
@@ -68,7 +68,7 @@ No row may move to `production_ready` without passing eval metadata in the regis
 6. Runtime PR: runtime-loaded skill registry, agent registry, scoped subagent tools, and handoff persistence.
 7. Decision PR: court mode split and governed model provider integration.
 8. Tooling PR: Tool Broker manifests, tool execution ledger, stub rejection, and real opportunity scoring.
-9. Browser PR: read-only browser session observation with evidence/replay.
+9. Browser PR: read-only browser session actions and observations with evidence/replay.
 10. Computer PR: safe sandbox/local command and file actions with HELM and evidence.
 11. UI PR: command-center shell backed by durable state from Gates 1 and 2.
 12. Lifecycle PR: startup mission compiler and lifecycle templates.
@@ -92,7 +92,7 @@ No row may move to `production_ready` without passing eval metadata in the regis
 ## Known Blockers
 
 - Decision Court needs the governed model eval and first-class evidence/artifact ledger links before it can become `production_ready`.
-- Browser execution needs a real read-only session execution bridge, active tab grants, evidence, redaction, and replay.
+- Browser execution needs a productized browser extension/bridge and the YC logged-in extraction eval before it can become `production_ready`.
 - Computer use needs a safe execution substrate, Tool Broker routing, command/file evidence, and deny policy.
 - Subagent lineage needs durable root/parent/spawn action anchoring and proof DAG queries.
 - Approval resume needs deterministic ordering and child-row exclusion.
@@ -109,7 +109,7 @@ No row may move to `production_ready` without passing eval metadata in the regis
 - Runtime Agent: orchestrator, conductor, agent registry, skill registry loading, subagent scopes, handoffs.
 - Decision Agent: Decision Court mode split, governed model calls, court records.
 - Tooling Agent: Tool Broker, manifests, `tool_executions`, idempotency, score opportunity, opportunity scout.
-- Browser Agent: browser profile/session models, active tab grants, observations, redaction, replay.
+- Browser Agent: browser profile/session models, active tab grants, browser actions, observations, redaction, replay.
 - Computer Agent: safe sandbox/local execution, file scope, command evidence, policy enforcement.
 - UI Agent: command center shell, mission graph, agent lanes, evidence drawer, receipts, capability matrix.
 - Eval Agent: eval schema/harness, evidence packs, promotion rules, blocker creation.
