@@ -12,8 +12,8 @@ This Gate 0 status document is intentionally conservative. Pilot must not claim 
 | ---------------------------- | ------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `mission_runtime`            | `blocked`     | Full Startup Launch Eval and Multi-Agent Parallel Build Eval   | No durable venture/goal/mission/action runtime model                                       |
 | `helm_receipts`              | `implemented` | HELM Governance Eval                                           | HELM Governance Eval has not promoted the capability to production_ready                   |
-| `workspace_rbac`             | `blocked`     | HELM Governance Eval and Security RBAC Regression Suite        | Sensitive workspace mutations are not uniformly role-gated                                 |
-| `operator_scoping`           | `blocked`     | Cross-Workspace Operator Rejection Regression                  | `operatorId` ownership validation is not centralized                                       |
+| `workspace_rbac`             | `implemented` | HELM Governance Eval and Security RBAC Regression Suite        | HELM Governance Eval has not promoted the capability to production_ready                   |
+| `operator_scoping`           | `implemented` | Cross-Workspace Operator Rejection Regression                  | Cross-workspace operator rejection regression has not promoted the capability              |
 | `decision_court`             | `stub`        | Decision Court Governed Model Eval                             | Gateway can construct Decision Court without a governed LLM provider                       |
 | `skill_registry_runtime`     | `blocked`     | Skill Invocation Governance Eval                               | Skill registry is not loaded into the main autonomous runtime                              |
 | `opportunity_scoring`        | `stub`        | PMF Discovery Eval                                             | `score_opportunity` is not a complete evidence-backed implementation                       |

@@ -121,6 +121,7 @@ export function testApp(routeFactory: (deps: GatewayDeps) => Hono, deps?: Gatewa
     const workspaceId = c.req.header('X-Workspace-Id') ?? c.req.query('workspaceId');
     if (workspaceId) c.set('workspaceId', workspaceId);
     c.set('userId', c.req.header('X-User-Id') ?? 'user-1');
+    c.set('workspaceRole', c.req.header('X-Workspace-Role') ?? 'owner');
     await next();
   });
   app.route('/', routeFactory(d));

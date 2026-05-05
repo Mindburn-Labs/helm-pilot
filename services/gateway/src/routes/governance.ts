@@ -3,7 +3,7 @@ import { and, desc, eq, lt } from 'drizzle-orm';
 import { evidencePacks, helmHealthSnapshots } from '@pilot/db/schema';
 import { HelmClient } from '@pilot/helm-client';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId } from '../lib/workspace.js';
+import { getWorkspaceId, requireWorkspaceRole } from '../lib/workspace.js';
 
 /**
  * Governance admin surface.
@@ -56,6 +56,8 @@ export function governanceRoutes(deps: GatewayDeps) {
   app.get('/receipts', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view governance receipts');
+    if (roleDenied) return roleDenied;
 
     const before = c.req.query('before');
     const limit = Math.min(Number(c.req.query('limit') ?? '25'), 100);
@@ -86,6 +88,8 @@ export function governanceRoutes(deps: GatewayDeps) {
   app.get('/receipts/:decisionId', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view governance receipts');
+    if (roleDenied) return roleDenied;
 
     const decisionId = c.req.param('decisionId');
     const [row] = await deps.db
@@ -108,6 +112,8 @@ export function governanceRoutes(deps: GatewayDeps) {
   app.get('/proofgraph/:taskId', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view governance proof graph');
+    if (roleDenied) return roleDenied;
 
     const taskId = c.req.param('taskId');
     const { sql } = await import('drizzle-orm');
@@ -184,6 +190,8 @@ export function governanceRoutes(deps: GatewayDeps) {
   // without speaking the HELM admin protocol directly.
 
   app.get('/budget', async (c) => {
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view governance budget state');
+    if (roleDenied) return roleDenied;
     if (!helm) return c.json({ error: 'helm client not configured' }, 503);
     try {
       return c.json(await helm.getBudgetStatus());
@@ -193,6 +201,8 @@ export function governanceRoutes(deps: GatewayDeps) {
   });
 
   app.get('/merkle', async (c) => {
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view governance merkle state');
+    if (roleDenied) return roleDenied;
     if (!helm) return c.json({ error: 'helm client not configured' }, 503);
     try {
       return c.json(await helm.getMerkleRoot());
@@ -204,6 +214,8 @@ export function governanceRoutes(deps: GatewayDeps) {
   app.get('/charges', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view governance charges');
+    if (roleDenied) return roleDenied;
     if (!helm) return c.json({ error: 'helm client not configured' }, 503);
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -219,6 +231,8 @@ export function governanceRoutes(deps: GatewayDeps) {
   app.get('/allocations', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view governance allocations');
+    if (roleDenied) return roleDenied;
     if (!helm) return c.json({ error: 'helm client not configured' }, 503);
     try {
       return c.json(await helm.getEconomicAllocations(workspaceId));

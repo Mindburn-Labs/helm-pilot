@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { workspaces, workspaceSettings, workspaceMembers, sessions } from '@pilot/db/schema';
 import { generateToken } from '../middleware/auth.js';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId } from '../lib/workspace.js';
+import { getWorkspaceId, requireWorkspaceRole } from '../lib/workspace.js';
 
 export function workspaceRoutes(deps: GatewayDeps) {
   const app = new Hono();
@@ -58,6 +58,8 @@ export function workspaceRoutes(deps: GatewayDeps) {
     const { id } = c.req.param();
     const mismatch = assertWorkspacePath(c, id);
     if (mismatch) return mismatch;
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'update workspace policy settings');
+    if (roleDenied) return roleDenied;
 
     const body = await c.req.json();
     const { policyConfig, budgetConfig, modelConfig } = body as {
@@ -108,6 +110,8 @@ export function workspaceRoutes(deps: GatewayDeps) {
     const { id } = c.req.param();
     const mismatch = assertWorkspacePath(c, id);
     if (mismatch) return mismatch;
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'change workspace mode');
+    if (roleDenied) return roleDenied;
 
     const body = await c.req.json();
     const { mode } = body as { mode: string };
@@ -132,6 +136,8 @@ export function workspaceRoutes(deps: GatewayDeps) {
     const { id } = c.req.param();
     const mismatch = assertWorkspacePath(c, id);
     if (mismatch) return mismatch;
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'create workspace invites');
+    if (roleDenied) return roleDenied;
 
     const body = await c.req.json();
     const { role, email } = body as { role?: string; email?: string };

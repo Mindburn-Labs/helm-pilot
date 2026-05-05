@@ -266,7 +266,7 @@ export class Orchestrator {
   ) {
     const { workspaces, workspaceSettings, operators, operatorRoles, operatorConfigs } =
       await import('@pilot/db/schema');
-    const { eq } = await import('drizzle-orm');
+    const { and, eq } = await import('drizzle-orm');
 
     // Look up workspace mode
     let mode: string | undefined;
@@ -340,28 +340,29 @@ export class Orchestrator {
       const [op] = await this.db
         .select()
         .from(operators)
-        .where(eq(operators.id, operatorId))
+        .where(and(eq(operators.id, operatorId), eq(operators.workspaceId, workspaceId)))
         .limit(1);
-      if (op) {
-        operatorGoal = op.goal;
-        // Look up the role definition for the system prompt
-        const [role] = await this.db
-          .select()
-          .from(operatorRoles)
-          .where(eq(operatorRoles.name, op.role))
-          .limit(1);
-        if (role?.systemPrompt) systemPrompt = role.systemPrompt;
-
-        const [config] = await this.db
-          .select()
-          .from(operatorConfigs)
-          .where(eq(operatorConfigs.operatorId, op.id))
-          .limit(1);
-        const rawMaxIterations = (
-          config?.iterationBudget as Record<string, unknown> | null | undefined
-        )?.['maxIterations'];
-        operatorIterationBudget = toFiniteNumber(rawMaxIterations) ?? undefined;
+      if (!op) {
+        throw new Error('operatorId does not belong to workspace');
       }
+      operatorGoal = op.goal;
+      // Look up the role definition for the system prompt
+      const [role] = await this.db
+        .select()
+        .from(operatorRoles)
+        .where(eq(operatorRoles.name, op.role))
+        .limit(1);
+      if (role?.systemPrompt) systemPrompt = role.systemPrompt;
+
+      const [config] = await this.db
+        .select()
+        .from(operatorConfigs)
+        .where(eq(operatorConfigs.operatorId, op.id))
+        .limit(1);
+      const rawMaxIterations = (
+        config?.iterationBudget as Record<string, unknown> | null | undefined
+      )?.['maxIterations'];
+      operatorIterationBudget = toFiniteNumber(rawMaxIterations) ?? undefined;
     }
 
     const iterationBudget = clampIterationBudget(

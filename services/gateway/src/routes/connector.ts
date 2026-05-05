@@ -5,7 +5,7 @@ import {
   ValidateConnectorSessionInput,
 } from '@pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId, workspaceIdMismatch } from '../lib/workspace.js';
+import { getWorkspaceId, requireWorkspaceRole, workspaceIdMismatch } from '../lib/workspace.js';
 
 export function connectorRoutes(deps: GatewayDeps) {
   const app = new Hono();
@@ -21,6 +21,8 @@ export function connectorRoutes(deps: GatewayDeps) {
         available.map((connector) => serializeConnector(connector, deps, null, null, null)),
       );
     }
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view workspace connector status');
+    if (roleDenied) return roleDenied;
 
     const statuses = await Promise.all(
       available.map((connector) => getConnectorStatus(deps, connector, workspaceId)),
@@ -32,6 +34,8 @@ export function connectorRoutes(deps: GatewayDeps) {
     if (!deps.connectors) return c.json({ error: 'Connectors not configured' }, 503);
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view workspace connector grants');
+    if (roleDenied) return roleDenied;
 
     const grants = await deps.connectors.listWorkspaceGrants(workspaceId);
     return c.json(grants);
@@ -47,6 +51,8 @@ export function connectorRoutes(deps: GatewayDeps) {
   app.get('/reauth-status', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view connector reauthorization state');
+    if (roleDenied) return roleDenied;
     const grants = await listReauthRequired(deps.db, workspaceId);
     return c.json({ grants });
   });
@@ -60,6 +66,8 @@ export function connectorRoutes(deps: GatewayDeps) {
     };
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'grant workspace connectors');
+    if (roleDenied) return roleDenied;
     if (workspaceIdMismatch(c, body.workspaceId)) {
       return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
     }
@@ -77,6 +85,8 @@ export function connectorRoutes(deps: GatewayDeps) {
     const { name } = c.req.param();
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'revoke workspace connectors');
+    if (roleDenied) return roleDenied;
 
     await deps.connectors.revokeConnector(workspaceId, name);
     return c.json({ revoked: true });
@@ -96,6 +106,8 @@ export function connectorRoutes(deps: GatewayDeps) {
       expiresAt?: string;
     };
     if (!grantId || !accessToken) return c.json({ error: 'grantId and accessToken required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'store connector tokens');
+    if (roleDenied) return roleDenied;
 
     const ownership = await requireOwnedGrant(deps, c, name, grantId);
     if (ownership instanceof Response) return ownership;
@@ -123,6 +135,8 @@ export function connectorRoutes(deps: GatewayDeps) {
     if (!parsed.success) {
       return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
     }
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'store connector browser sessions');
+    if (roleDenied) return roleDenied;
 
     const ownership = await requireOwnedGrant(deps, c, name, parsed.data.grantId);
     if (ownership instanceof Response) return ownership;
@@ -153,6 +167,8 @@ export function connectorRoutes(deps: GatewayDeps) {
     if (!parsed.success) {
       return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
     }
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'validate connector browser sessions');
+    if (roleDenied) return roleDenied;
 
     const ownership = await requireOwnedGrant(deps, c, name, parsed.data.grantId);
     if (ownership instanceof Response) return ownership;
@@ -186,6 +202,8 @@ export function connectorRoutes(deps: GatewayDeps) {
 
     const grantId = c.req.query('grantId');
     if (!grantId) return c.json({ error: 'grantId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'delete connector browser sessions');
+    if (roleDenied) return roleDenied;
 
     const ownership = await requireOwnedGrant(deps, c, name, grantId);
     if (ownership instanceof Response) return ownership;
@@ -199,6 +217,8 @@ export function connectorRoutes(deps: GatewayDeps) {
     const { name } = c.req.param();
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'start connector OAuth');
+    if (roleDenied) return roleDenied;
 
     const provider = deps.oauth.getProvider(name);
     if (!provider) return c.json({ error: `No OAuth provider for connector: ${name}` }, 404);
@@ -259,6 +279,8 @@ export function connectorRoutes(deps: GatewayDeps) {
     const body = await c.req.json();
     const { grantId } = body as { grantId: string };
     if (!grantId) return c.json({ error: 'grantId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'refresh connector OAuth tokens');
+    if (roleDenied) return roleDenied;
 
     const ownership = await requireOwnedGrant(deps, c, name, grantId);
     if (ownership instanceof Response) return ownership;
@@ -280,6 +302,8 @@ export function connectorRoutes(deps: GatewayDeps) {
     if (!workspaceId) {
       return c.json(serializeConnector(connector, deps, null, null, null));
     }
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view workspace connector status');
+    if (roleDenied) return roleDenied;
 
     return c.json(await getConnectorStatus(deps, connector, workspaceId));
   });
