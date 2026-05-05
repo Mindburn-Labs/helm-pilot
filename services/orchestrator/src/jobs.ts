@@ -1,5 +1,7 @@
 import PgBoss from 'pg-boss';
+import { createHash } from 'node:crypto';
 import { and, eq, isNull, lt } from 'drizzle-orm';
+import { appendEvidenceItem } from '@pilot/db';
 import { type Db } from '@pilot/db/client';
 import {
   opportunityScores,
@@ -42,6 +44,19 @@ export interface JobDeps {
    * workspaceId, connectorName)` so the re-auth banner surfaces.
    */
   refreshNotifier?: RefreshNotifier;
+  /**
+   * Test seam for pipeline execution. Production uses the allowlisted Python
+   * runner below; tests can inject a deterministic runner without spawning
+   * Scrapling or intelligence scripts.
+   */
+  pipelineRunner?: (name: string, extraArgs: string[]) => Promise<PipelineRunResult>;
+}
+
+interface PipelineRunResult {
+  scriptPath: string;
+  args: string[];
+  stdoutPreview: string;
+  stderrPreview: string | null;
 }
 
 /**
@@ -232,7 +247,11 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
   const PIPELINE_TIMEOUT = 900_000; // 15 min (Startup school scrape can take time)
   const pythonBin = process.env.PYTHON_BIN || 'python3';
 
-  async function runPipeline(name: string, extraArgs: string[] = []): Promise<void> {
+  async function runPipeline(name: string, extraArgs: string[] = []): Promise<PipelineRunResult> {
+    if (deps.pipelineRunner) {
+      return deps.pipelineRunner(name, extraArgs);
+    }
+
     const scriptPath = PIPELINE_ALLOWLIST[name];
     if (!scriptPath) {
       throw new Error(`Pipeline ${name} is not in the allowlist`);
@@ -267,6 +286,92 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
     });
     if (stderr) log.warn({ stderr: stderr.slice(0, 500), pipeline: name }, 'Pipeline stderr');
     log.info({ stdout: stdout.slice(0, 200), pipeline: name }, 'Pipeline completed');
+    return {
+      scriptPath,
+      args,
+      stdoutPreview: stdout.slice(0, 500),
+      stderrPreview: stderr ? stderr.slice(0, 500) : null,
+    };
+  }
+
+  async function runPipelineWithEvidence(
+    name: keyof typeof PIPELINE_ALLOWLIST,
+    job: PgBoss.Job<{ workspaceId?: string }>,
+    extraArgs: string[] = [],
+  ): Promise<PipelineRunResult> {
+    const workspaceId = job.data?.workspaceId;
+    try {
+      const result = await runPipeline(name, extraArgs);
+      await appendPipelineEvidence({
+        name,
+        job,
+        workspaceId,
+        status: 'pipeline_job_succeeded',
+        result,
+      });
+      return result;
+    } catch (err) {
+      await appendPipelineEvidence({
+        name,
+        job,
+        workspaceId,
+        status: 'pipeline_job_failed',
+        error: err,
+        fallbackArgs: extraArgs,
+      });
+      throw err;
+    }
+  }
+
+  async function appendPipelineEvidence(input: {
+    name: keyof typeof PIPELINE_ALLOWLIST;
+    job: PgBoss.Job<{ workspaceId?: string }>;
+    workspaceId?: string;
+    status: 'pipeline_job_succeeded' | 'pipeline_job_failed';
+    result?: PipelineRunResult;
+    error?: unknown;
+    fallbackArgs?: string[];
+  }): Promise<void> {
+    if (!input.workspaceId) {
+      log.warn(
+        { pipeline: input.name, jobId: input.job.id, status: input.status },
+        'Skipping pipeline evidence item without workspace scope',
+      );
+      return;
+    }
+
+    const args = input.result?.args ?? input.fallbackArgs ?? [];
+    const sanitizedArgs = sanitizePipelineArgs(args);
+    const metadata = {
+      pipeline: input.name,
+      jobId: input.job.id ?? null,
+      status: input.status,
+      scriptPath: input.result?.scriptPath ?? PIPELINE_ALLOWLIST[input.name],
+      args: sanitizedArgs,
+      stdoutPreview: input.result?.stdoutPreview ?? null,
+      stderrPreview: input.result?.stderrPreview ?? null,
+      error: input.error ? sanitizeError(input.error) : null,
+      credentialBoundary: 'no_raw_credentials_or_session_payloads_in_evidence',
+    };
+
+    await appendEvidenceItem(deps.db, {
+      workspaceId: input.workspaceId,
+      evidenceType: input.status,
+      sourceType: 'pipeline_worker',
+      title:
+        input.status === 'pipeline_job_succeeded'
+          ? `${input.name} completed`
+          : `${input.name} failed`,
+      summary:
+        input.status === 'pipeline_job_succeeded'
+          ? 'Workspace-scoped background ingestion pipeline completed.'
+          : 'Workspace-scoped background ingestion pipeline failed before completion.',
+      redactionState: 'redacted',
+      sensitivity: input.name === 'pipeline.yc-private' ? 'sensitive' : 'internal',
+      contentHash: hashJson(metadata),
+      replayRef: `pipeline:${input.name}:${input.job.id ?? hashJson(args).slice(0, 16)}:${input.status}`,
+      metadata,
+    });
   }
 
   boss.work(
@@ -287,7 +392,7 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
             ...(job.data?.limit ? ['--limit', String(job.data.limit)] : []),
             ...(job.data?.workspaceId ? ['--workspace-id', job.data.workspaceId] : []),
           ];
-          await runPipeline('pipeline.yc-scrape', args);
+          await runPipelineWithEvidence('pipeline.yc-scrape', job, args);
         } catch (err) {
           log.error({ err }, 'YC scraper pipeline failed');
           throw err;
@@ -306,7 +411,7 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
             ...(job.data?.limit ? ['--limit', String(job.data.limit)] : []),
             ...(job.data?.workspaceId ? ['--workspace-id', job.data.workspaceId] : []),
           ];
-          await runPipeline('pipeline.startup-school', args);
+          await runPipelineWithEvidence('pipeline.startup-school', job, args);
         } catch (err) {
           log.error({ err }, 'Startup School pipeline failed');
           throw err;
@@ -316,9 +421,9 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
   );
 
   boss.work('pipeline.ingest-knowledge', async (jobs: PgBoss.Job[]) => {
-    for (const _job of jobs) {
+    for (const job of jobs as Array<PgBoss.Job<{ workspaceId?: string }>>) {
       try {
-        await runPipeline('pipeline.ingest-knowledge');
+        await runPipelineWithEvidence('pipeline.ingest-knowledge', job);
       } catch (err) {
         log.error({ err }, 'Knowledge ingestion pipeline failed');
         throw err;
@@ -346,7 +451,7 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
             ...(job.data.limit ? ['--limit', String(job.data.limit)] : []),
             ...(job.data.workspaceId ? ['--workspace-id', job.data.workspaceId] : []),
           ];
-          await runPipeline('pipeline.yc-private', args);
+          await runPipelineWithEvidence('pipeline.yc-private', job, args);
         } catch (err) {
           log.error({ err }, 'YC private pipeline failed');
           throw err;
@@ -435,7 +540,11 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
         const allWorkspaces = await deps.db.select({ id: workspaces.id }).from(workspaces);
         for (const ws of allWorkspaces) {
           try {
-            await runPipeline('pipeline.cluster', ['--workspace-id', ws.id]);
+            await runPipelineWithEvidence(
+              'pipeline.cluster',
+              { ...job, data: { ...(job.data ?? {}), workspaceId: ws.id } },
+              ['--workspace-id', ws.id],
+            );
           } catch (err) {
             log.error({ err, workspaceId: ws.id }, 'Cluster generation failed for workspace');
           }
@@ -443,7 +552,7 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
         return;
       }
       try {
-        await runPipeline('pipeline.cluster', ['--workspace-id', workspaceId]);
+        await runPipelineWithEvidence('pipeline.cluster', job, ['--workspace-id', workspaceId]);
         log.info({ workspaceId }, 'Cluster generation complete');
       } catch (err) {
         log.error({ err, workspaceId }, 'Cluster generation failed');
@@ -491,4 +600,55 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
   }
 
   log.info('Background job handlers registered');
+}
+
+function sanitizePipelineArgs(args: string[]): string[] {
+  const sensitiveValueFlags = new Set(['--grant-id', '--replay']);
+  return args.map((arg, index) => {
+    const previous = args[index - 1];
+    if (previous && sensitiveValueFlags.has(previous)) {
+      return `sha256:${hashJson(arg).slice(0, 16)}`;
+    }
+    return arg;
+  });
+}
+
+function sanitizeError(error: unknown): {
+  name: string;
+  messageHash: string;
+  redactedPreview: string;
+} {
+  const name = error instanceof Error ? error.name : 'Error';
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  return {
+    name,
+    messageHash: `sha256:${hashJson(rawMessage)}`,
+    redactedPreview: redactSensitiveText(rawMessage).slice(0, 1_000),
+  };
+}
+
+function redactSensitiveText(input: string): string {
+  return input
+    .replace(/(--(?:grant-id|replay)\s+)(\S+)/gi, '$1[redacted]')
+    .replace(/\b(grant)-[A-Za-z0-9_-]+/g, '$1-[redacted]')
+    .replace(/\b(token|secret|password|cookie|session)=([^&\s]+)/gi, '$1=[redacted]')
+    .replace(/\/[^\s]*raw-captures\/[^\s]+/g, '[redacted-path]');
+}
+
+function hashJson(value: unknown): string {
+  return createHash('sha256').update(stableJson(value)).digest('hex');
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(sortJson(value));
+}
+
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJson);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => [key, sortJson(child)]),
+  );
 }

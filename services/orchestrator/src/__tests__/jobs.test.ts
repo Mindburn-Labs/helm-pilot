@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { appendEvidenceItem } from '@pilot/db';
 import { registerJobHandlers } from '../jobs.js';
+
+vi.mock('@pilot/db', () => ({
+  appendEvidenceItem: vi.fn(async () => 'evidence-item-1'),
+}));
 
 vi.mock('@pilot/db/schema', () => ({
   opportunities: 'opportunities',
@@ -268,6 +273,126 @@ describe('registerJobHandlers', () => {
       await expect(
         handler([{ data: { taskId: 'task-1', workspaceId: 'ws-1', context: 'test' } }]),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('pipeline evidence', () => {
+    it('indexes successful workspace pipeline jobs as redacted evidence', async () => {
+      const pipelineRunner = vi.fn(async (name: string, extraArgs: string[]) => ({
+        scriptPath: `pipelines/${name}.py`,
+        args: [`/repo/pipelines/${name}.py`, ...extraArgs],
+        stdoutPreview: 'completed',
+        stderrPreview: null,
+      }));
+
+      registerJobHandlers(mockBoss, { db: mockDb, pipelineRunner });
+      const handler = handlers.get('pipeline.yc-scrape')!;
+
+      await handler([
+        {
+          id: 'job-1',
+          data: {
+            workspaceId: 'ws-1',
+            replayPath: '/tmp/raw-captures/private.html',
+            batch: 'W24',
+            limit: 3,
+          },
+        },
+      ]);
+
+      expect(pipelineRunner).toHaveBeenCalledWith('pipeline.yc-scrape', [
+        '--replay',
+        '/tmp/raw-captures/private.html',
+        '--batch',
+        'W24',
+        '--limit',
+        '3',
+        '--workspace-id',
+        'ws-1',
+      ]);
+      expect(appendEvidenceItem).toHaveBeenCalledWith(
+        mockDb,
+        expect.objectContaining({
+          workspaceId: 'ws-1',
+          evidenceType: 'pipeline_job_succeeded',
+          sourceType: 'pipeline_worker',
+          redactionState: 'redacted',
+          sensitivity: 'internal',
+          replayRef: 'pipeline:pipeline.yc-scrape:job-1:pipeline_job_succeeded',
+        }),
+      );
+      const metadata = vi.mocked(appendEvidenceItem).mock.calls[0]?.[1].metadata;
+      expect(metadata).toMatchObject({
+        pipeline: 'pipeline.yc-scrape',
+        jobId: 'job-1',
+        status: 'pipeline_job_succeeded',
+        credentialBoundary: 'no_raw_credentials_or_session_payloads_in_evidence',
+      });
+      expect(JSON.stringify(metadata)).not.toContain('/tmp/raw-captures/private.html');
+    });
+
+    it('indexes failed workspace pipeline jobs before rethrowing', async () => {
+      const pipelineRunner = vi.fn(async () => {
+        throw new Error('network denied for grant-secret-id token=abc');
+      });
+
+      registerJobHandlers(mockBoss, { db: mockDb, pipelineRunner });
+      const handler = handlers.get('pipeline.yc-private')!;
+
+      await expect(
+        handler([
+          {
+            id: 'job-2',
+            data: {
+              workspaceId: 'ws-2',
+              grantId: 'grant-secret-id',
+              action: 'sync',
+              limit: 2,
+            },
+          },
+        ]),
+      ).rejects.toThrow('network denied');
+
+      expect(appendEvidenceItem).toHaveBeenCalledWith(
+        mockDb,
+        expect.objectContaining({
+          workspaceId: 'ws-2',
+          evidenceType: 'pipeline_job_failed',
+          sourceType: 'pipeline_worker',
+          redactionState: 'redacted',
+          sensitivity: 'sensitive',
+          replayRef: 'pipeline:pipeline.yc-private:job-2:pipeline_job_failed',
+        }),
+      );
+      const metadata = vi.mocked(appendEvidenceItem).mock.calls[0]?.[1].metadata;
+      expect(metadata).toMatchObject({
+        pipeline: 'pipeline.yc-private',
+        jobId: 'job-2',
+        status: 'pipeline_job_failed',
+        error: {
+          name: 'Error',
+          redactedPreview: 'network denied for grant-[redacted] token=[redacted]',
+        },
+      });
+      expect(JSON.stringify(metadata)).not.toContain('grant-secret-id');
+      expect(JSON.stringify(metadata)).not.toContain('token=abc');
+    });
+
+    it('does not create pipeline evidence without a workspace scope', async () => {
+      const pipelineRunner = vi.fn(async (name: string, extraArgs: string[]) => ({
+        scriptPath: `pipelines/${name}.py`,
+        args: [`/repo/pipelines/${name}.py`, ...extraArgs],
+        stdoutPreview: 'completed',
+        stderrPreview: null,
+      }));
+
+      registerJobHandlers(mockBoss, { db: mockDb, pipelineRunner });
+      const handler = handlers.get('pipeline.ingest-knowledge')!;
+
+      await handler([{ id: 'job-3', data: {} }]);
+
+      expect(pipelineRunner).toHaveBeenCalledWith('pipeline.ingest-knowledge', []);
+      expect(appendEvidenceItem).not.toHaveBeenCalled();
     });
   });
 });

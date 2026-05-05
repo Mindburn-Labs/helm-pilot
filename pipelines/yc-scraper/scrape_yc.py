@@ -209,6 +209,7 @@ def main() -> None:
             source_type="scrape",
             is_public=True,
             parser_version=PARSER_VERSION,
+            workspace_id=args.workspace_id,
             metadata={"batch": args.batch, "limit": args.limit, "replay": bool(args.replay)},
             raw_storage_path=raw_path,
         )

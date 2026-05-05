@@ -225,6 +225,7 @@ def main() -> None:
         source_type="authorized_session",
         is_public=False,
         parser_version=PARSER_VERSION,
+        workspace_id=args.workspace_id,
         metadata={"grantId": args.grant_id, "sessionType": session_type, "action": args.action},
         raw_storage_path=html_path,
     )
