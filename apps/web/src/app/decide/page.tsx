@@ -17,6 +17,7 @@ interface CourtResult {
   bear?: Array<{ opportunityId: string; thesis: string; confidence: string }>;
   referee?: { verdict: string; rationale: string };
   scenarios?: Array<{ opportunityId: string; upside: string; base: string; downside: string }>;
+  capability?: { key: string; state: string; evalRequirement: string };
   error?: string;
 }
 
@@ -79,8 +80,9 @@ export default function DecidePage() {
       <header style={{ marginBottom: 24 }}>
         <h1 style={{ margin: 0, fontSize: 28 }}>Decide</h1>
         <p style={{ opacity: 0.7, fontSize: 14 }}>
-          Run an adversarial decision court on a shortlist. Bull and bear theses, scenario
-          distributions, and a reasoned rank — every stage a signed evidence pack.
+          Run the current decision-court capability on a shortlist. Gate 0 capability state is
+          returned with the result and controls whether this surface can be treated as production
+          autonomous.
         </p>
       </header>
 
@@ -182,6 +184,23 @@ export default function DecidePage() {
         <section style={{ marginTop: 32 }}>
           <h2 style={{ fontSize: 20, marginBottom: 16 }}>Court result</h2>
 
+          {result.capability && (
+            <div
+              style={{
+                padding: 12,
+                border: '1px solid var(--ds-line)',
+                borderRadius: 8,
+                marginBottom: 16,
+                fontSize: 13,
+                background: 'var(--ds-surface)',
+              }}
+            >
+              Capability: <code>{result.capability.key}</code> is{' '}
+              <strong>{result.capability.state}</strong>. Production gate:{' '}
+              {result.capability.evalRequirement}.
+            </div>
+          )}
+
           {result.referee && (
             <div
               style={{
@@ -211,9 +230,7 @@ export default function DecidePage() {
                   return (
                     <li key={r.opportunityId} style={{ marginBottom: 10 }}>
                       <strong>{opp?.title ?? r.opportunityId}</strong>
-                      <div style={{ fontSize: 13, opacity: 0.8, marginTop: 4 }}>
-                        {r.rationale}
-                      </div>
+                      <div style={{ fontSize: 13, opacity: 0.8, marginTop: 4 }}>{r.rationale}</div>
                     </li>
                   );
                 })}

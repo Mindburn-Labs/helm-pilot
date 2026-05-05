@@ -1,7 +1,28 @@
 # Pilot — Public roadmap
 
+## Diagram
+
+This scheme maps the main sections of Roadmap in reading order.
+
+```mermaid
+flowchart LR
+  Page["Roadmap"]
+  A["v1.0.0 — shipped surfaces"]
+  B["Phase 14 — v1.1 (next)"]
+  C["v1.2+ research"]
+  D["Upstream dependencies"]
+  E["How to propose changes"]
+  Page --> A
+  A --> B
+  B --> C
+  C --> D
+  D --> E
+```
+
 Snapshot as of the v1.0.0-rc cut. Items marked (🟢) ship in v1.0.0;
 (🟡) defer to v1.1 / Phase 14; (🔵) longer-range research.
+
+Production-readiness source of truth: this roadmap is not a production autonomy claim. Use [`docs/capabilities.md`](capabilities.md), `GET /api/capabilities`, and `packages/shared/src/capabilities/index.ts` for current capability state. A shipped surface may still be `prototype`, `scaffolded`, `stub`, or `blocked` until it passes the required eval and the registry marks it `production_ready`.
 
 ## v1.0.0 — shipped surfaces
 

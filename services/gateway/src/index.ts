@@ -34,6 +34,7 @@ import { statusRoutes } from './routes/status.js';
 import { userRoutes } from './routes/users.js';
 import { governanceRoutes } from './routes/governance.js';
 import { complianceRoutes } from './routes/compliance.js';
+import { capabilityRoutes } from './routes/capabilities.js';
 import { a2aRoutes } from './routes/a2a.js';
 import { decideRoutes } from './routes/decide.js';
 import { secretsRoutes } from './routes/secrets.js';
@@ -236,6 +237,7 @@ export function createGateway(deps: GatewayDeps) {
   app.route('/api/users', userRoutes(deps));
   app.route('/api/governance', governanceRoutes(deps));
   app.route('/api/compliance', complianceRoutes(deps));
+  app.route('/api/capabilities', capabilityRoutes());
   // A2A protocol — root-mounted so /.well-known/agent-card.json resolves.
   app.route('/', a2aRoutes(deps));
   app.route('/api/decide', decideRoutes(deps));

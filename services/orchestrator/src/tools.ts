@@ -1,15 +1,13 @@
-import { type Db } from '@pilot/db/client';
-import { type MemoryService } from '@pilot/memory';
+import type { Db } from '@pilot/db/client';
+import type { MemoryService } from '@pilot/memory';
 import { OperatorComputerUseInput, ScraplingFetchInput } from '@pilot/shared/schemas';
-import {
-  SubagentSpawnRequestSchema,
-  SubagentParallelRequestSchema,
-} from '@pilot/shared/subagents';
-import { type HelmClient } from '@pilot/helm-client';
+import { getCapabilityRecord } from '@pilot/shared/capabilities';
+import { SubagentSpawnRequestSchema, SubagentParallelRequestSchema } from '@pilot/shared/subagents';
+import type { HelmClient } from '@pilot/helm-client';
 import { withToolSpan } from '@pilot/shared/otel';
-import { type McpClient } from '@pilot/shared/mcp';
-import { type ToolDef } from './agent-loop.js';
-import { type Conductor, type ParentContext } from './conductor.js';
+import type { McpClient } from '@pilot/shared/mcp';
+import type { ToolDef } from './agent-loop.js';
+import type { Conductor, ParentContext } from './conductor.js';
 import { sanitizeToolOutput } from './sanitize-output.js';
 
 /**
@@ -290,19 +288,24 @@ export class ToolRegistry {
         'Request a governed computer-use run behind HELM. Input: {"workspaceId":"uuid","taskId":"uuid","operatorId":"uuid","objective":"...","targetUrl":"https://...","environment":"browser","maxSteps":12,"approvalCheckpoint":"before submit/payment/write"}',
       modes: ['discover', 'build', 'launch', 'apply'],
       execute: async (input) => {
+        const capability = getCapabilityRecord('computer_use');
         const parsed = OperatorComputerUseInput.safeParse(input);
         if (!parsed.success) {
-          return { error: `invalid operator.computer_use input: ${parsed.error.message}` };
+          return {
+            error: `invalid operator.computer_use input: ${parsed.error.message}`,
+            capability,
+          };
         }
         const helmClient = this.options?.helmClient;
         if (!helmClient) {
           return {
             error:
               'operator.computer_use requires packages/helm-client wiring; refusing to create an out-of-band computer-use path',
+            capability,
           };
         }
         const req = parsed.data;
-        return helmClient.evaluateOperatorComputerUse({
+        const evaluation = await helmClient.evaluateOperatorComputerUse({
           principal: `workspace:${req.workspaceId}/operator:${req.operatorId ?? 'agent'}`,
           workspaceId: req.workspaceId,
           taskId: req.taskId,
@@ -314,6 +317,7 @@ export class ToolRegistry {
           approvalCheckpoint: req.approvalCheckpoint,
           evidencePackId: req.evidencePackId,
         });
+        return { ...evaluation, capability };
       },
     });
 
@@ -499,6 +503,7 @@ export class ToolRegistry {
         'Score an opportunity (enqueues background job). Input: {"opportunityId": "..."}',
       modes: ['discover'],
       execute: async (input) => {
+        const capability = getCapabilityRecord('opportunity_scoring');
         const { opportunityId } = input as { opportunityId: string };
         // Verify opportunity exists
         const { opportunities } = await import('@pilot/db/schema');
@@ -508,8 +513,8 @@ export class ToolRegistry {
           .from(opportunities)
           .where(eq(opportunities.id, opportunityId))
           .limit(1);
-        if (!opp) return { error: 'Opportunity not found' };
-        return { queued: true, opportunityId, message: 'Scoring job enqueued' };
+        if (!opp) return { error: 'Opportunity not found', capability };
+        return { queued: true, opportunityId, message: 'Scoring job enqueued', capability };
       },
     });
 

@@ -18,6 +18,8 @@ This tree is the canonical documentation source for Pilot self-hosting, API beha
 
 - [Security hardening](security.md)
 - [Degradation matrix](degradation-matrix.md)
+- [Pilot capability matrix](pilot-capability-matrix.md)
+- [Pilot end-state execution plan](pilot-end-state-execution-plan.md)
 - [Documentation coverage ledger](documentation-coverage.csv)
 
 ## Explanation

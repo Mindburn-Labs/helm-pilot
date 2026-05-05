@@ -8,6 +8,7 @@ import {
   opportunityTags,
 } from '@pilot/db/schema';
 import { CreateOpportunityInput } from '@pilot/shared/schemas';
+import { getCapabilityRecord } from '@pilot/shared/capabilities';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId, workspaceIdMismatch } from '../lib/workspace.js';
 
@@ -91,9 +92,12 @@ export function opportunityRoutes(deps: GatewayDeps) {
 
   // ─── Batch score — enqueue scoring for all unscored opportunities ───
   app.post('/batch-score', async (c) => {
+    const capability = getCapabilityRecord('opportunity_scoring');
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
-    if (!deps.orchestrator.boss) return c.json({ error: 'Background job system unavailable' }, 503);
+    if (!deps.orchestrator.boss) {
+      return c.json({ error: 'Background job system unavailable', capability }, 503);
+    }
 
     const unscored = await deps.db
       .select({ id: opportunities.id })
@@ -108,7 +112,7 @@ export function opportunityRoutes(deps: GatewayDeps) {
       enqueued++;
     }
 
-    return c.json({ enqueued, total: unscored.length }, 202);
+    return c.json({ enqueued, total: unscored.length, capability }, 202);
   });
 
   // ─── Trigger cluster rebuild for the workspace ───
@@ -180,6 +184,7 @@ export function opportunityRoutes(deps: GatewayDeps) {
   });
 
   app.post('/:id/score', async (c) => {
+    const capability = getCapabilityRecord('opportunity_scoring');
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
 
@@ -200,11 +205,11 @@ export function opportunityRoutes(deps: GatewayDeps) {
       .where(and(eq(opportunities.id, id), eq(opportunities.workspaceId, workspaceId)));
 
     if (!deps.orchestrator.boss) {
-      return c.json({ error: 'Background job system unavailable' }, 503);
+      return c.json({ error: 'Background job system unavailable', capability }, 503);
     }
 
     await deps.orchestrator.boss.send('opportunity.score', { opportunityId: id });
-    return c.json({ queued: true, opportunityId: id, status: 'scoring' }, 202);
+    return c.json({ queued: true, opportunityId: id, status: 'scoring', capability }, 202);
   });
 
   return app;

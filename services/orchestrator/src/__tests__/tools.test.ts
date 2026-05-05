@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { getCapabilityRecord } from '@pilot/shared/capabilities';
 import { ToolRegistry, type Tool } from '../tools.js';
 
 // Minimal mocks — db is an empty object since built-in tools
@@ -9,6 +10,14 @@ const mockDb = {} as any;
 function createRegistry(opts: { memory?: unknown; helmClient?: unknown } = {}) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return new ToolRegistry(mockDb as any, opts.memory as any, {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    helmClient: opts.helmClient as any,
+  });
+}
+
+function createRegistryWithDb(db: unknown, opts: { memory?: unknown; helmClient?: unknown } = {}) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return new ToolRegistry(db as any, opts.memory as any, {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     helmClient: opts.helmClient as any,
   });
@@ -377,6 +386,7 @@ describe('ToolRegistry', () => {
       expect(result).toEqual({
         error:
           'operator.computer_use requires packages/helm-client wiring; refusing to create an out-of-band computer-use path',
+        capability: getCapabilityRecord('computer_use'),
       });
     });
 
@@ -407,6 +417,31 @@ describe('ToolRegistry', () => {
       expect(result).toEqual({
         status: 'approved_for_execution',
         receipt: { decisionId: 'dec-1' },
+        capability: getCapabilityRecord('computer_use'),
+      });
+    });
+  });
+
+  describe('built-in: score_opportunity', () => {
+    it('returns capability metadata with the stub scoring enqueue result', async () => {
+      const db = {
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(async () => [{ id: 'opp-1' }]),
+            })),
+          })),
+        })),
+      };
+      const registry = createRegistryWithDb(db);
+
+      const result = await registry.execute('score_opportunity', { opportunityId: 'opp-1' });
+
+      expect(result).toEqual({
+        queued: true,
+        opportunityId: 'opp-1',
+        message: 'Scoring job enqueued',
+        capability: getCapabilityRecord('opportunity_scoring'),
       });
     });
   });
