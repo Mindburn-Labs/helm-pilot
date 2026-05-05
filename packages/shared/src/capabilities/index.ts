@@ -346,10 +346,10 @@ const capabilityRecords = validateCapabilityRecords([
     name: 'Evidence ledger',
     state: 'prototype',
     summary:
-      'A canonical evidence_items schema exists and core HELM receipt, agent-loop receipt, subagent spawn, Tool Broker, browser observation, computer action, connector lifecycle, artifact creation, startup lifecycle, and eval writers append to it, but coverage is not yet complete for every meaningful action.',
+      'A canonical evidence_items schema exists and core HELM receipt, agent-loop receipt, subagent spawn, Tool Broker, browser observation, computer action, connector lifecycle, workspace-scoped pipeline/ingestion jobs, artifact creation, startup lifecycle, and eval writers append to it, but coverage is not yet complete for every meaningful action.',
     owner: 'Foundation Agent',
     blockers: [
-      'Background ingestion jobs and non-broker legacy writers do not yet append evidence_items for every meaningful action',
+      'Non-workspace scheduled ingestion jobs and non-broker legacy writers do not yet append evidence_items for every meaningful action',
       'No browser/computer observation replay contract',
       'No mandatory evidence persistence before medium/high/restricted action execution',
     ],
@@ -361,6 +361,8 @@ const capabilityRecords = validateCapabilityRecords([
       'Gateway HELM receipt persistence, agent-loop governance mirroring, conductor SUBAGENT_SPAWN packs, browser read/extract, and safe computer actions append evidence_items rows',
       'Tool Broker completed and failed executions append tool_broker evidence_items rows linked to action_id and tool_execution_id',
       'Connector refresh background worker success and failure paths append sanitized evidence_items rows without token material',
+      'Workspace-scoped YC, Startup School, private YC, knowledge ingestion, and opportunity-cluster pipeline workers append redacted pipeline_worker evidence_items rows for success and failure',
+      'YC scraper ingestion finalizers append redacted yc_scraper_ingestion evidence_items rows for parsed and failed workspace-scoped ingestion records without session, token, or raw error material',
       'Orchestrator and MCP artifact creation append artifact_created evidence_items rows linked to artifact_id and replay refs',
       'Connector grant, revoke, token metadata, browser-session metadata, validation queue, OAuth initiation, callback, refresh, and session-delete routes append redacted evidence_items rows without token or session payloads',
       'Startup lifecycle persistence, scheduling, and node execution append evidence_items rows linked to mission/task state and replay refs',

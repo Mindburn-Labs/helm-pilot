@@ -144,10 +144,14 @@ def create_ingestion_record(
     source_type: str,
     is_public: bool,
     parser_version: str,
+    workspace_id: str | None = None,
     metadata: dict[str, Any] | None = None,
     raw_storage_path: str | None = None,
 ) -> str:
     record_id = str(uuid.uuid4())
+    record_metadata = dict(metadata or {})
+    if workspace_id:
+        record_metadata.setdefault("workspaceId", workspace_id)
     cur.execute(
         """
         INSERT INTO ingestion_records
@@ -164,7 +168,7 @@ def create_ingestion_record(
             utcnow(),
             "pending",
             raw_storage_path,
-            json.dumps(metadata or {}),
+            json.dumps(record_metadata),
         ),
     )
     return record_id
@@ -191,6 +195,141 @@ def finalize_ingestion_record(
         """,
         (utcnow(), item_count, status, raw_storage_path, error, record_id),
     )
+    context = load_ingestion_record_evidence_context(cur, record_id)
+    if context:
+        context["raw_storage_path"] = raw_storage_path or context.get("raw_storage_path")
+        append_ingestion_evidence_item(
+            cur,
+            record_id=record_id,
+            status=status,
+            item_count=item_count,
+            error=error,
+            **context,
+        )
+
+
+def load_ingestion_record_evidence_context(cur, record_id: str) -> dict[str, Any] | None:
+    cur.execute(
+        """
+        SELECT source_origin, source_type, is_public, parser_version, raw_storage_path, metadata
+        FROM ingestion_records
+        WHERE id = %s
+        """,
+        (record_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    source_origin, source_type, is_public, parser_version, raw_storage_path, metadata = row
+    parsed_metadata = coerce_json_object(metadata)
+    return {
+        "source_origin": source_origin,
+        "source_type": source_type,
+        "is_public": bool(is_public),
+        "parser_version": parser_version,
+        "workspace_id": metadata_workspace_id(parsed_metadata),
+        "raw_storage_path": raw_storage_path,
+        "metadata": parsed_metadata,
+    }
+
+
+def append_ingestion_evidence_item(
+    cur,
+    *,
+    record_id: str,
+    source_origin: str,
+    source_type: str,
+    is_public: bool,
+    parser_version: str,
+    workspace_id: str | None,
+    status: str,
+    item_count: int,
+    raw_storage_path: str | None,
+    error: str | None,
+    metadata: dict[str, Any],
+) -> None:
+    if not workspace_id:
+        return
+
+    evidence_status = normalized_status(status)
+    evidence_type = {
+        "parsed": "ingestion_record_parsed",
+        "failed": "ingestion_record_failed",
+    }.get(evidence_status, "ingestion_record_finalized")
+    sensitivity = "public" if is_public else "sensitive"
+    evidence_metadata = {
+        "ingestionRecordId": record_id,
+        "sourceOrigin": source_origin,
+        "sourceType": source_type,
+        "isPublic": is_public,
+        "parserVersion": parser_version,
+        "status": status,
+        "itemCount": item_count,
+        "hasError": bool(error),
+        "productionReady": False,
+        "credentialBoundary": "no_session_or_token_material_in_evidence",
+    }
+    if "grantId" in metadata:
+        evidence_metadata["grantId"] = metadata["grantId"]
+    if "sessionType" in metadata:
+        evidence_metadata["sessionType"] = metadata["sessionType"]
+    if "action" in metadata:
+        evidence_metadata["action"] = metadata["action"]
+
+    content_hash = (
+        f"sha256:{hashlib.sha256(stable_json(evidence_metadata).encode('utf-8')).hexdigest()}"
+    )
+    summary = f"YC ingestion record {record_id} finalized with status {status} and {item_count} items."
+    if error:
+        summary = f"{summary} Error details are retained on ingestion_records and excluded from evidence metadata."
+
+    cur.execute(
+        """
+        INSERT INTO evidence_items
+          (workspace_id, evidence_type, source_type, title, summary, redaction_state,
+           sensitivity, content_hash, storage_ref, replay_ref, metadata, observed_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            workspace_id,
+            evidence_type,
+            "yc_scraper_ingestion",
+            f"YC ingestion {status}: {source_type}",
+            summary,
+            "redacted",
+            sensitivity,
+            content_hash,
+            raw_storage_path,
+            f"yc-ingestion:{record_id}:{evidence_status}",
+            json.dumps(evidence_metadata),
+            utcnow(),
+        ),
+    )
+
+
+def coerce_json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def metadata_workspace_id(metadata: dict[str, Any]) -> str | None:
+    workspace_id = metadata.get("workspaceId") or metadata.get("workspace_id")
+    return workspace_id if isinstance(workspace_id, str) and workspace_id else None
+
+
+def normalized_status(status: str) -> str:
+    return "".join(ch if ch.isalnum() else "_" for ch in status.lower()).strip("_")
+
+
+def stable_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def create_crawl_run(
