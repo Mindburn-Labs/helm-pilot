@@ -3,7 +3,12 @@ import { appendEvidenceItem } from '@pilot/db';
 import { actions, auditLog, toolExecutions } from '@pilot/db/schema';
 import { eq } from 'drizzle-orm';
 import { type Db } from '@pilot/db/client';
-import { type ToolExecutionContext, type ToolManifest, type ToolRegistry } from './tools.js';
+import {
+  markBrokeredToolContext,
+  type ToolExecutionContext,
+  type ToolManifest,
+  type ToolRegistry,
+} from './tools.js';
 
 export interface BrokeredToolResult {
   output: unknown;
@@ -90,10 +95,14 @@ export class ToolBroker {
       throw new Error(`Tool Broker could not persist tool execution for ${toolName}`);
     }
 
-    const output = await registry.execute(toolName, input, {
-      ...context,
-      actionId: action.id,
-    });
+    const output = await registry.execute(
+      toolName,
+      input,
+      markBrokeredToolContext({
+        ...context,
+        actionId: action.id,
+      }),
+    );
     const sanitizedOutput = toJsonValue(output);
     const outputHash = hashJson({ tool: toolName, output: sanitizedOutput });
     const status = isToolError(output) ? 'failed' : 'completed';

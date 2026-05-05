@@ -1,7 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { artifactVersions, artifacts, computerActions, evidenceItems } from '@pilot/db/schema';
 import { getCapabilityRecord } from '@pilot/shared/capabilities';
-import { ToolRegistry, type Tool } from '../tools.js';
+import {
+  markBrokeredToolContext,
+  ToolRegistry,
+  type Tool,
+  type ToolExecutionContext,
+} from '../tools.js';
 
 // Minimal mocks — db is an empty object since built-in tools
 // that use db require dynamic imports we don't exercise here.
@@ -21,6 +26,17 @@ function createRegistryWithDb(db: unknown, opts: { memory?: unknown; helmClient?
   return new ToolRegistry(db as any, opts.memory as any, {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     helmClient: opts.helmClient as any,
+  });
+}
+
+function brokeredToolContext(overrides: Partial<ToolExecutionContext> = {}): ToolExecutionContext {
+  return markBrokeredToolContext({
+    workspaceId: '00000000-0000-4000-8000-000000000001',
+    taskId: '00000000-0000-4000-8000-000000000002',
+    actionId: '00000000-0000-4000-8000-000000000004',
+    policyDecisionId: 'dec-tool-use',
+    policyVersion: 'founder-ops-v1',
+    ...overrides,
   });
 }
 
@@ -451,6 +467,88 @@ describe('ToolRegistry', () => {
       if (previous === undefined) delete process.env['PILOT_TOOL_DEMO_MODE'];
       else process.env['PILOT_TOOL_DEMO_MODE'] = previous;
     });
+
+    it('blocks elevated tools without brokered HELM context', async () => {
+      const registry = createRegistry();
+      const executeFn = vi.fn(async () => ({ ok: true }));
+      registry.register({
+        name: 'danger_write',
+        description: 'Writes to an external system',
+        manifest: {
+          key: 'danger_write',
+          version: 'test:v1',
+          riskClass: 'high',
+          effectLevel: 'E3',
+          requiredEvidence: ['tool_result', 'helm_receipt'],
+          permissionRequirements: ['tool:danger_write:execute'],
+          outputSensitivity: 'sensitive',
+        },
+        execute: executeFn,
+      });
+
+      const result = await registry.execute(
+        'danger_write',
+        { value: 1 },
+        {
+          workspaceId: '00000000-0000-4000-8000-000000000001',
+          taskId: '00000000-0000-4000-8000-000000000002',
+          actionId: '00000000-0000-4000-8000-000000000004',
+          policyDecisionId: 'dec-tool-use',
+          policyVersion: 'founder-ops-v1',
+        },
+      );
+
+      expect(executeFn).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        error: 'Tool danger_write requires Tool Broker + HELM context for elevated execution',
+        missingContext: ['tool_broker_context'],
+        manifest: {
+          riskClass: 'high',
+          effectLevel: 'E3',
+        },
+      });
+    });
+
+    it('allows elevated tools only when Tool Broker marks the execution context', async () => {
+      const registry = createRegistry();
+      const executeFn = vi.fn(async (input: unknown) => ({ received: input }));
+      registry.register({
+        name: 'scrapling_probe',
+        description: 'Fetches external page data',
+        manifest: {
+          key: 'scrapling_probe',
+          version: 'test:v1',
+          riskClass: 'medium',
+          effectLevel: 'E2',
+          requiredEvidence: ['source_snapshot', 'helm_receipt'],
+          permissionRequirements: ['tool:scrapling_probe:execute'],
+          outputSensitivity: 'internal',
+        },
+        execute: executeFn,
+      });
+
+      const result = await registry.execute(
+        'scrapling_probe',
+        { url: 'https://example.com' },
+        brokeredToolContext(),
+      );
+
+      expect(executeFn).toHaveBeenCalledWith({
+        url: 'https://example.com',
+        workspaceId: '00000000-0000-4000-8000-000000000001',
+        taskId: '00000000-0000-4000-8000-000000000002',
+        policyDecisionId: 'dec-tool-use',
+        policyVersion: 'founder-ops-v1',
+        actionId: '00000000-0000-4000-8000-000000000004',
+      });
+      expect(result).toMatchObject({
+        received: {
+          url: 'https://example.com',
+          policyDecisionId: 'dec-tool-use',
+          actionId: '00000000-0000-4000-8000-000000000004',
+        },
+      });
+    });
   });
 
   // ─── Built-in tool behaviors ───
@@ -586,12 +684,16 @@ describe('ToolRegistry', () => {
 
     it('fails closed when helm-client is not wired', async () => {
       const registry = createRegistry();
-      const result = await registry.execute('operator.computer_use', {
-        workspaceId,
-        operation: 'terminal_command',
-        objective: 'Check repository path',
-        command: 'pwd',
-      });
+      const result = await registry.execute(
+        'operator.computer_use',
+        {
+          workspaceId,
+          operation: 'terminal_command',
+          objective: 'Check repository path',
+          command: 'pwd',
+        },
+        brokeredToolContext({ workspaceId, taskId, operatorId, actionId }),
+      );
 
       expect(result).toEqual({
         error:
@@ -625,10 +727,22 @@ describe('ToolRegistry', () => {
       });
 
       expect(helmClient.evaluateOperatorComputerUse).not.toHaveBeenCalled();
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         error:
-          'operator.computer_use requires Tool Broker action context; refusing direct execution without durable action lineage',
-        capability: getCapabilityRecord('computer_use'),
+          'Tool operator.computer_use requires Tool Broker + HELM context for elevated execution',
+        missingContext: expect.arrayContaining([
+          'tool_broker_context',
+          'workspaceId',
+          'taskId',
+          'actionId',
+          'policyDecisionId',
+          'policyVersion',
+        ]),
+        manifest: {
+          key: 'operator.computer_use',
+          riskClass: 'high',
+          effectLevel: 'E3',
+        },
       });
     });
 
@@ -667,7 +781,7 @@ describe('ToolRegistry', () => {
           command: 'pwd',
           cwd: '.',
         },
-        { workspaceId, taskId, operatorId, actionId },
+        brokeredToolContext({ workspaceId, taskId, operatorId, actionId }),
       );
 
       expect(helmClient.evaluateOperatorComputerUse).toHaveBeenCalledWith(
@@ -763,7 +877,7 @@ describe('ToolRegistry', () => {
           command: 'rm',
           args: ['-rf', '.'],
         },
-        { workspaceId, taskId, operatorId, actionId },
+        brokeredToolContext({ workspaceId, taskId, operatorId, actionId }),
       );
 
       expect(helmClient.evaluateOperatorComputerUse).toHaveBeenCalled();
@@ -812,7 +926,7 @@ describe('ToolRegistry', () => {
           objective: 'Read env',
           path: '.env',
         },
-        { workspaceId, taskId, operatorId, actionId },
+        brokeredToolContext({ workspaceId, taskId, operatorId, actionId }),
       );
 
       expect(updatedComputerActions[0]).toMatchObject({
@@ -859,7 +973,7 @@ describe('ToolRegistry', () => {
           command: 'cat',
           args: ['.env'],
         },
-        { workspaceId, taskId, operatorId, actionId },
+        brokeredToolContext({ workspaceId, taskId, operatorId, actionId }),
       );
 
       expect(updatedComputerActions[0]).toMatchObject({
@@ -888,7 +1002,7 @@ describe('ToolRegistry', () => {
           objective: 'Check repository path',
           command: 'pwd',
         },
-        { workspaceId, taskId, operatorId, actionId },
+        brokeredToolContext({ workspaceId, taskId, operatorId, actionId }),
       );
 
       expect(insertedComputerActions).toHaveLength(0);
@@ -901,16 +1015,21 @@ describe('ToolRegistry', () => {
     const taskId = '00000000-0000-4000-8000-000000000002';
     const sessionId = '00000000-0000-4000-8000-000000000003';
     const grantId = '00000000-0000-4000-8000-000000000004';
+    const actionId = '00000000-0000-4000-8000-000000000006';
 
     it('fails closed when helm-client is not wired', async () => {
       const registry = createRegistry();
-      const result = await registry.execute('operator.browser_read', {
-        workspaceId,
-        sessionId,
-        grantId,
-        url: 'https://www.ycombinator.com/account',
-        domSnapshot: '<main>account</main>',
-      });
+      const result = await registry.execute(
+        'operator.browser_read',
+        {
+          workspaceId,
+          sessionId,
+          grantId,
+          url: 'https://www.ycombinator.com/account',
+          domSnapshot: '<main>account</main>',
+        },
+        brokeredToolContext({ workspaceId, taskId, actionId }),
+      );
 
       expect(result).toEqual({
         error:
@@ -982,22 +1101,26 @@ describe('ToolRegistry', () => {
       };
       const registry = createRegistryWithDb(db, { helmClient });
 
-      const result = await registry.execute('operator.browser_read', {
-        workspaceId,
-        taskId,
-        sessionId,
-        grantId,
-        url: 'https://www.ycombinator.com/account',
-        title: 'YC Account',
-        domSnapshot: '<input name="password" value="super-secret">',
-        extractedData: {
-          company: 'Pilot',
-          sessionToken: 'should-not-persist',
+      const result = await registry.execute(
+        'operator.browser_read',
+        {
+          workspaceId,
+          taskId,
+          sessionId,
+          grantId,
+          url: 'https://www.ycombinator.com/account',
+          title: 'YC Account',
+          domSnapshot: '<input name="password" value="super-secret">',
+          extractedData: {
+            company: 'Pilot',
+            sessionToken: 'should-not-persist',
+          },
+          metadata: {
+            authorization: 'Bearer abc123',
+          },
         },
-        metadata: {
-          authorization: 'Bearer abc123',
-        },
-      });
+        brokeredToolContext({ workspaceId, taskId, actionId }),
+      );
 
       expect(helmClient.evaluateOperatorBrowserRead).toHaveBeenCalledWith(
         expect.objectContaining({
