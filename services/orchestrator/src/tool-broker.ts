@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { appendEvidenceItem } from '@pilot/db';
 import { actions, auditLog, toolExecutions } from '@pilot/db/schema';
 import { eq } from 'drizzle-orm';
 import { type Db } from '@pilot/db/client';
@@ -11,6 +12,7 @@ export interface BrokeredToolResult {
   inputHash: string;
   outputHash: string;
   status: 'completed' | 'failed';
+  evidenceItemId: string;
 }
 
 type BrokerDb = Pick<Db, 'insert' | 'update'>;
@@ -121,6 +123,46 @@ export class ToolBroker {
       })
       .where(eq(actions.id, action.id));
 
+    const evidenceItemId = await appendEvidenceItem(this.db, {
+      workspaceId: context.workspaceId,
+      ventureId: context.ventureId ?? null,
+      missionId: context.missionId ?? null,
+      taskId: context.taskId,
+      taskRunId: context.parentTaskRunId ?? null,
+      actionId: action.id,
+      toolExecutionId: execution.id,
+      evidenceType: status === 'completed' ? 'tool_execution_completed' : 'tool_execution_failed',
+      sourceType: 'tool_broker',
+      title: `Tool execution ${status}: ${toolName}`,
+      summary:
+        status === 'completed'
+          ? `Tool Broker completed ${toolName}.`
+          : `Tool Broker recorded a failed ${toolName} result.`,
+      redactionState: 'redacted',
+      sensitivity: manifest.outputSensitivity,
+      contentHash: outputHash,
+      replayRef: `tool:${execution.id}`,
+      metadata: {
+        broker: 'tool_broker_v1',
+        toolKey: toolName,
+        actionId: action.id,
+        toolExecutionId: execution.id,
+        idempotencyKey,
+        status,
+        riskClass: manifest.riskClass,
+        effectLevel: manifest.effectLevel,
+        manifestVersion: manifest.version,
+        requiredEvidence: manifest.requiredEvidence,
+        permissionRequirements: manifest.permissionRequirements,
+        inputHash,
+        outputHash,
+        evidenceIds,
+        policyDecisionId: context.policyDecisionId ?? null,
+        policyVersion: context.policyVersion ?? null,
+        credentialBoundary: 'sanitized_input_output_only',
+      },
+    });
+
     await this.db.insert(auditLog).values({
       workspaceId: context.workspaceId,
       action: 'TOOL_EXECUTION',
@@ -137,6 +179,7 @@ export class ToolBroker {
         inputHash,
         outputHash,
         riskClass: manifest.riskClass,
+        evidenceItemId,
         evidenceIds,
         policyDecisionId: context.policyDecisionId ?? null,
         policyVersion: context.policyVersion ?? null,
@@ -150,6 +193,7 @@ export class ToolBroker {
       inputHash,
       outputHash,
       status,
+      evidenceItemId,
     };
   }
 }

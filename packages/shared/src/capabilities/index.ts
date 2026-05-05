@@ -346,10 +346,10 @@ const capabilityRecords = validateCapabilityRecords([
     name: 'Evidence ledger',
     state: 'prototype',
     summary:
-      'A canonical evidence_items schema exists and core HELM receipt, agent-loop receipt, subagent spawn, browser observation, computer action, connector lifecycle, artifact creation, startup lifecycle, and eval writers append to it, but coverage is not yet complete for every meaningful action.',
+      'A canonical evidence_items schema exists and core HELM receipt, agent-loop receipt, subagent spawn, Tool Broker, browser observation, computer action, connector lifecycle, artifact creation, startup lifecycle, and eval writers append to it, but coverage is not yet complete for every meaningful action.',
     owner: 'Foundation Agent',
     blockers: [
-      'Background integration jobs and remaining tool writers do not yet append evidence_items for every meaningful action',
+      'Background integration jobs and non-broker legacy writers do not yet append evidence_items for every meaningful action',
       'No browser/computer observation replay contract',
       'No mandatory evidence persistence before medium/high/restricted action execution',
     ],
@@ -359,6 +359,7 @@ const capabilityRecords = validateCapabilityRecords([
       'packages/db/src/__tests__/foundation-lineage-schema.test.ts verifies evidence item columns are exported',
       'packages/db/src/evidence-ledger.ts exposes appendEvidenceItem for DB-owned evidence indexing',
       'Gateway HELM receipt persistence, agent-loop governance mirroring, conductor SUBAGENT_SPAWN packs, browser read/extract, and safe computer actions append evidence_items rows',
+      'Tool Broker completed and failed executions append tool_broker evidence_items rows linked to action_id and tool_execution_id',
       'Orchestrator and MCP artifact creation append artifact_created evidence_items rows linked to artifact_id and replay refs',
       'Connector grant, revoke, token metadata, browser-session metadata, validation queue, OAuth initiation, callback, refresh, and session-delete routes append redacted evidence_items rows without token or session payloads',
       'Startup lifecycle persistence, scheduling, and node execution append evidence_items rows linked to mission/task state and replay refs',
