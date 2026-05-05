@@ -38,7 +38,7 @@ This is the control artifact for moving Pilot from a governed agent/task prototy
 | `computer_use`               | `prototype`   | Computer Agent   | Safe Computer/Sandbox Action Eval                              |
 | `a2a_durable_state`          | `implemented` | Foundation Agent | Multi-Agent Parallel Build Eval                                |
 | `subagent_lineage`           | `blocked`     | Runtime Agent    | Proof DAG Lineage Regression                                   |
-| `approval_resume`            | `blocked`     | Foundation Agent | Approval Resume Isolation Regression                           |
+| `approval_resume`            | `implemented` | Foundation Agent | Approval Resume Isolation Regression                           |
 | `evidence_ledger`            | `prototype`   | Foundation Agent | HELM Governance Eval and Recovery Eval                         |
 | `command_center`             | `prototype`   | UI Agent         | Command Center Real-State UX Eval                              |
 | `startup_lifecycle`          | `prototype`   | Runtime Agent    | Full Startup Launch Eval                                       |
@@ -98,7 +98,7 @@ No row may move to `production_ready` without passing eval metadata in the regis
 - Browser execution needs a productized browser extension/bridge and the YC logged-in extraction eval before it can become `production_ready`.
 - Computer use has a narrow safe local execution substrate, Tool Broker routing, command/file evidence, and deny policy; it still needs sandbox provider execution and the Safe Computer/Sandbox Action Eval before production-ready claims.
 - Subagent lineage needs durable root/parent/spawn action anchoring and proof DAG queries.
-- Approval resume needs deterministic ordering and child-row exclusion.
+- Approval resume has deterministic parent-history loading and child-row exclusion, but still needs eval promotion before production-ready claims.
 - Skills must move from runtime-loaded prompt packages to fully Tool Broker governed callable capabilities, then pass the Skill Invocation Governance Eval.
 - HELM receipts have mandatory elevated-action sink enforcement, but still need HELM Governance Eval promotion before production-ready claims.
 - Opportunity scoring needs PMF Discovery Eval promotion and first-class Evidence Center artifact packs before production-ready claims.

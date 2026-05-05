@@ -115,9 +115,19 @@ describe('loadParentRunHistory', () => {
       expect.objectContaining({
         op: 'and',
         conditions: expect.arrayContaining([
+          expect.objectContaining({ op: 'eq', value: 'task-1' }),
           expect.objectContaining({ op: 'eq', value: 'parent_action' }),
           expect.objectContaining({ op: 'isNull' }),
           expect.objectContaining({ op: 'isNotNull' }),
+        ]),
+      }),
+    );
+    expect(calls.taskWhere).toEqual(
+      expect.objectContaining({
+        op: 'and',
+        conditions: expect.arrayContaining([
+          expect.objectContaining({ op: 'eq', value: 'task-1' }),
+          expect.objectContaining({ op: 'eq', value: 'ws-a' }),
         ]),
       }),
     );

@@ -313,16 +313,22 @@ const capabilityRecords = validateCapabilityRecords([
   {
     key: 'approval_resume',
     name: 'Deterministic approval resume',
-    state: 'blocked',
+    state: 'implemented',
     summary:
-      'Approval resume is not yet proven to load only intended parent history in deterministic order while excluding child rows unless requested.',
+      'Approval resume now loads workspace-validated parent task history in deterministic replay order and excludes child/subagent rows through lineage filters before invoking AgentLoop.resume.',
     owner: 'Foundation Agent',
     blockers: [
-      'Task-run history ordering needs deterministic query semantics',
-      'Child/subagent rows can pollute parent replay unless explicitly filtered',
-      'Resume tests with child rows present are not yet part of the baseline suite',
+      'Approval Resume Isolation Regression has not promoted the capability to production_ready',
+      'Subagent proof DAG lineage is still blocked, so child-row replay opt-in is not exposed as a production workflow',
+      'Long-running mission replay and recovery evals have not proven resume behavior across mission-level checkpoints',
     ],
-    evidence: ['Gate 1 must make approval replay safe before long-running autonomy expands'],
+    evidence: [
+      'services/orchestrator/src/run-history.ts validates task workspace ownership before reading task_runs',
+      'loadParentRunHistory filters task_runs to lineage_kind=parent_action, parent_task_run_id IS NULL, and action_tool IS NOT NULL',
+      'Replay history orders by run_sequence, started_at, and id for deterministic approval resume',
+      'task.resume pg-boss handler loads parent run history before calling orchestrator.resumeTask',
+      'services/orchestrator/src/__tests__/run-history.test.ts covers cross-workspace rejection and deterministic parent-only replay query semantics',
+    ],
     evalRequirement: 'Approval Resume Isolation Regression',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,
   },
