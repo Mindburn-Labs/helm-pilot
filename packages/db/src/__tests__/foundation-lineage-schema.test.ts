@@ -16,6 +16,8 @@ import {
   evalSteps,
   evaluations,
   goals,
+  managedTelegramBotMessages,
+  managedTelegramBots,
   missionEdges,
   missionNodes,
   missions,
@@ -76,6 +78,13 @@ describe('Gate 7 computer operation schema', () => {
     expect(computerActions.helmDocumentVersionPins.name).toBe('helm_document_version_pins');
     expect(computerActions.evidencePackId.name).toBe('evidence_pack_id');
     expect(computerActions.replayIndex.name).toBe('replay_index');
+  });
+});
+
+describe('Managed Telegram governance schema', () => {
+  it('exports governance metadata on bot and message rows', () => {
+    expect(managedTelegramBots.governanceMetadata.name).toBe('governance_metadata');
+    expect(managedTelegramBotMessages.governanceMetadata.name).toBe('governance_metadata');
   });
 });
 
