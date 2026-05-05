@@ -234,6 +234,28 @@ describe('AgentLoop', () => {
     expect(db.update).toHaveBeenCalledWith('taskRuns');
   });
 
+  it('blocks elevated tool execution when no HELM client is configured', async () => {
+    const loop = new AgentLoop(mockDb, mockTrust);
+    const llm = {
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce('{"tool":"subagent.spawn","input":{"name":"scout","task":"scan"}}'),
+    } as any;
+    const tools = {
+      execute: vi.fn(async () => ({ name: 'scout', verdict: 'completed' })),
+      listTools: vi.fn(() => [{ name: 'subagent.spawn', description: 'Spawn' }]),
+      listToolsForMode: vi.fn(() => [{ name: 'subagent.spawn', description: 'Spawn' }]),
+    } as any;
+    loop.setLlm(llm);
+    loop.setTools(tools);
+
+    const result = await loop.execute(baseParams());
+
+    expect(result.status).toBe('blocked');
+    expect(result.error).toBe('HELM governance client is required for elevated tool execution');
+    expect(tools.execute).not.toHaveBeenCalled();
+  });
+
   it('execute() saves operator memory after run when operatorId is provided', async () => {
     const loop = new AgentLoop(mockDb, mockTrust);
     loop.setLlm(mockLlm);
