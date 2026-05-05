@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { capabilityKeyValues, getCapabilityRecord } from '../capabilities/index.js';
 import {
   checkCapabilityPromotionReadiness,
+  executePilotProductionEval,
   getPilotProductionEvalSuite,
   getRequiredEvalForCapability,
   RecordPilotEvalRunInputSchema,
@@ -108,5 +109,37 @@ describe('production eval suite', () => {
       status: 'failed',
     });
     expect(failedWithoutReason.success).toBe(false);
+  });
+
+  it('executes a control-plane production eval and fails closed without proof coverage', () => {
+    const executed = executePilotProductionEval({
+      evalId: 'helm_governance',
+      capabilityKey: 'helm_receipts',
+      completedAt: '2026-05-05T00:00:00.000Z',
+    });
+
+    expect(executed.executionMode).toBe('control_plane_proof_check');
+    expect(executed.run.status).toBe('failed');
+    expect(executed.blockers.join(' ')).toContain('No evidence references');
+    expect(executed.blockers.join(' ')).toContain('Missing evidence coverage');
+  });
+
+  it('executes a control-plane production eval and only passes with evidence and audit coverage', () => {
+    const scenario = getRequiredEvalForCapability('helm_receipts');
+    if (!scenario) throw new Error('helm_receipts eval missing');
+
+    const executed = executePilotProductionEval({
+      evalId: scenario.id,
+      capabilityKey: 'helm_receipts',
+      evidenceRefs: ['evidence:helm-governance'],
+      auditReceiptRefs: ['audit:helm-governance'],
+      evidenceCoverage: scenario.evidenceRequirements,
+      auditCoverage: scenario.auditRequirements,
+      completedAt: '2026-05-05T00:00:00.000Z',
+    });
+
+    expect(executed.run.status).toBe('passed');
+    expect(executed.blockers).toEqual([]);
+    expect(executed.run.metadata['executionMode']).toBe('control_plane_proof_check');
   });
 });

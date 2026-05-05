@@ -8,6 +8,7 @@ import {
   evaluations,
   tasks,
 } from '@pilot/db/schema';
+import { getRequiredEvalForCapability } from '@pilot/shared/eval';
 import { evalRoutes } from '../../routes/evals.js';
 import { createMockDeps, expectJson, testApp } from '../helpers.js';
 
@@ -262,6 +263,87 @@ describe('evalRoutes', () => {
       promotedState: 'production_ready',
       status: 'eligible',
     });
+  });
+
+  it('executes a production eval proof check and fails closed when proof is missing', async () => {
+    const { db, inserts } = createEvalDb();
+    const { fetch } = testApp(evalRoutes, createMockDeps({ db: db as never }));
+
+    const res = await fetch(
+      'POST',
+      '/execute',
+      {
+        evalId: 'helm_governance',
+        capabilityKey: 'helm_receipts',
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      executionMode: string;
+      executionBlockers: string[];
+      result: { passed: boolean; blockers: string[] };
+      blockerTask: { id: string; title: string };
+    }>(res, 201);
+
+    expect(body.executionMode).toBe('control_plane_proof_check');
+    expect(body.result.passed).toBe(false);
+    expect(body.executionBlockers.join(' ')).toContain('No evidence references');
+    expect(body.blockerTask.title).toContain('HELM Governance Eval');
+    expect(inserts.find((insert) => insert.table === evalRuns)?.value).toMatchObject({
+      status: 'failed',
+      capabilityKey: 'helm_receipts',
+    });
+    expect(inserts.find((insert) => insert.table === tasks)?.value).toMatchObject({
+      metadata: expect.objectContaining({
+        kind: 'production_eval_blocker',
+        productionReadyBlocked: true,
+      }),
+    });
+  });
+
+  it('executes a production eval proof check and writes eligibility only when coverage is complete', async () => {
+    const scenario = getRequiredEvalForCapability('helm_receipts');
+    if (!scenario) throw new Error('helm_receipts eval missing');
+    const { db, inserts } = createEvalDb();
+    const { fetch } = testApp(evalRoutes, createMockDeps({ db: db as never }));
+
+    const res = await fetch(
+      'POST',
+      '/execute',
+      {
+        evalId: scenario.id,
+        capabilityKey: 'helm_receipts',
+        evidenceRefs: ['evidence:helm-governance'],
+        auditReceiptRefs: ['audit:helm-governance'],
+        evidenceCoverage: scenario.evidenceRequirements,
+        auditCoverage: scenario.auditRequirements,
+        completedAt: '2026-05-05T00:00:00.000Z',
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      executionBlockers: string[];
+      result: { passed: boolean };
+      promotions: Array<{ capabilityKey: string; promotedState: string; status: string }>;
+      productionReadyRegistryMutation: boolean;
+    }>(res, 201);
+
+    expect(body.executionBlockers).toEqual([]);
+    expect(body.result.passed).toBe(true);
+    expect(body.promotions).toEqual([
+      expect.objectContaining({
+        capabilityKey: 'helm_receipts',
+        promotedState: 'production_ready',
+        status: 'eligible',
+      }),
+    ]);
+    expect(body.productionReadyRegistryMutation).toBe(false);
+    expect(inserts.find((insert) => insert.table === evalEvidenceLinks)?.value).toEqual([
+      expect.objectContaining({
+        evidenceRef: 'evidence:helm-governance',
+        auditReceiptRef: 'audit:helm-governance',
+      }),
+    ]);
   });
 
   it('blocks production promotion without a matching passed eval pack', async () => {
