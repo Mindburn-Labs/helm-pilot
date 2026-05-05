@@ -662,22 +662,6 @@ export class AgentLoop {
     );
   }
 
-  private localToolGovernanceReceipt(
-    params: AgentRunParams,
-    action: Pick<ActionRecord, 'tool' | 'input'>,
-  ): HelmReceipt {
-    return {
-      decisionId: `local:${computeActionHash(action)}`,
-      verdict: 'ALLOW',
-      policyVersion: this.localPolicyVersion(),
-      receivedAt: new Date(),
-      action: 'TOOL_USE',
-      resource: action.tool,
-      principal: `workspace:${params.workspaceId}/operator:${params.operatorId ?? 'agent'}`,
-      reason: 'local_dev_no_helm_client',
-    };
-  }
-
   private async verifyResumeApproval(
     params: AgentRunParams,
     action: ActionRecord,
@@ -804,15 +788,17 @@ export class AgentLoop {
     if (action.tool === 'finish') return { verdict: 'allow' };
 
     if (!this.helmClient) {
+      const effectLevel = inferEffectLevel(action.tool);
       const requireHelm =
         process.env['NODE_ENV'] === 'production' && process.env['HELM_FAIL_CLOSED'] !== '0';
-      if (requireHelm) {
+      if (requireHelm || isElevatedEffectLevel(effectLevel)) {
         return {
           verdict: 'deny',
-          reason: 'HELM governance client is required for production tool execution',
+          reason: isElevatedEffectLevel(effectLevel)
+            ? 'HELM governance client is required for elevated tool execution'
+            : 'HELM governance client is required for production tool execution',
         };
       }
-      this.lastToolGovernance = this.localToolGovernanceReceipt(params, action);
       return { verdict: 'allow' };
     }
 
@@ -1426,6 +1412,10 @@ function inferEffectLevel(tool: string): string {
   }
   if (tool.includes('scrapling') || tool.includes('mcp.') || tool.includes('fetch')) return 'E2';
   return 'E1';
+}
+
+function isElevatedEffectLevel(effectLevel: string): boolean {
+  return effectLevel === 'E2' || effectLevel === 'E3' || effectLevel === 'E4';
 }
 
 function stringifyError(value: unknown) {
