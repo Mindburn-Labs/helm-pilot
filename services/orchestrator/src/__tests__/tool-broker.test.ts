@@ -3,7 +3,7 @@ import { actions, auditLog, evidenceItems, toolExecutions } from '@pilot/db/sche
 import { ToolBroker } from '../tool-broker.js';
 import { ToolRegistry } from '../tools.js';
 
-function createBrokerDb() {
+function createBrokerDb(opts: { failEvidenceInsert?: boolean } = {}) {
   const insertedActions: unknown[] = [];
   const insertedExecutions: unknown[] = [];
   const insertedEvidenceItems: unknown[] = [];
@@ -23,7 +23,12 @@ function createBrokerDb() {
         }
         if (table === evidenceItems) {
           insertedEvidenceItems.push(value);
-          return { returning: vi.fn(async () => [{ id: 'evidence-item-1' }]) };
+          return {
+            returning: vi.fn(async () => {
+              if (opts.failEvidenceInsert) throw new Error('evidence sink unavailable');
+              return [{ id: 'evidence-item-1' }];
+            }),
+          };
         }
         if (table === auditLog) {
           insertedAudit.push(value);
@@ -255,5 +260,159 @@ describe('ToolBroker', () => {
       ),
     ).rejects.toThrow('Tool Broker could not persist action');
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('fails elevated tool completion closed when evidence persistence fails', async () => {
+    const { db, insertedAudit, insertedEvidenceItems, updates } = createBrokerDb({
+      failEvidenceInsert: true,
+    });
+    const registry = new ToolRegistry(db as never, undefined, { skipBuiltins: true });
+    const execute = vi.fn(async () => ({ ok: true }));
+    registry.register({
+      name: 'operator.browser_read',
+      description: 'Read from a governed browser session',
+      manifest: {
+        key: 'operator.browser_read',
+        version: 'test:v1',
+        riskClass: 'medium',
+        effectLevel: 'E2',
+        requiredEvidence: ['browser_observation', 'helm_receipt'],
+        permissionRequirements: ['tool:operator.browser_read:execute'],
+        outputSensitivity: 'sensitive',
+      },
+      execute,
+    });
+    const broker = new ToolBroker(db as never);
+
+    await expect(
+      broker.execute(
+        registry,
+        'operator.browser_read',
+        {},
+        {
+          workspaceId: '00000000-0000-4000-8000-000000000001',
+          taskId: '00000000-0000-4000-8000-000000000002',
+          policyDecisionId: 'dec-1',
+          policyVersion: 'founder-ops-v1',
+        },
+      ),
+    ).rejects.toThrow('Tool Broker blocked elevated operator.browser_read completion');
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(insertedEvidenceItems[0]).toMatchObject({
+      evidenceType: 'tool_execution_completed',
+      sourceType: 'tool_broker',
+      sensitivity: 'sensitive',
+      metadata: expect.objectContaining({
+        riskClass: 'medium',
+        effectLevel: 'E2',
+        evidenceIds: [],
+        policyDecisionId: 'dec-1',
+        policyVersion: 'founder-ops-v1',
+      }),
+    });
+    expect(updates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: toolExecutions,
+          value: expect.objectContaining({
+            status: 'failed',
+            error: expect.stringContaining('evidence persistence failed'),
+          }),
+        }),
+        expect.objectContaining({
+          table: actions,
+          value: expect.objectContaining({
+            status: 'failed',
+          }),
+        }),
+      ]),
+    );
+    expect(updates).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: toolExecutions,
+          value: expect.objectContaining({ status: 'completed' }),
+        }),
+      ]),
+    );
+    expect(insertedAudit[0]).toMatchObject({
+      workspaceId: '00000000-0000-4000-8000-000000000001',
+      action: 'TOOL_EXECUTION',
+      target: 'operator.browser_read',
+      verdict: 'error',
+      reason: expect.stringContaining('evidence persistence failed'),
+      metadata: expect.objectContaining({
+        riskClass: 'medium',
+        effectLevel: 'E2',
+        evidenceRequired: true,
+        evidencePersistenceRequired: 'fail_closed_for_elevated_actions',
+        policyDecisionId: 'dec-1',
+        policyVersion: 'founder-ops-v1',
+      }),
+    });
+  });
+
+  it('fails closed before elevated tool execution without HELM policy metadata', async () => {
+    const { db } = createBrokerDb();
+    const registry = new ToolRegistry(db as never, undefined, { skipBuiltins: true });
+    const execute = vi.fn(async () => ({ ok: true }));
+    registry.register({
+      name: 'medium_tool',
+      description: 'Requires a HELM decision before execution',
+      manifest: {
+        key: 'medium_tool',
+        version: 'test:v1',
+        riskClass: 'medium',
+        effectLevel: 'E2',
+        requiredEvidence: ['tool_result', 'helm_receipt'],
+        permissionRequirements: ['tool:medium_tool:execute'],
+        outputSensitivity: 'internal',
+      },
+      execute,
+    });
+    const broker = new ToolBroker(db as never);
+
+    await expect(
+      broker.execute(registry, 'medium_tool', {}, {
+        workspaceId: '00000000-0000-4000-8000-000000000001',
+        taskId: '00000000-0000-4000-8000-000000000002',
+      }),
+    ).rejects.toThrow('HELM policy decision metadata is required');
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when elevated tool policy metadata is incomplete', async () => {
+    const { db } = createBrokerDb();
+    const registry = new ToolRegistry(db as never, undefined, { skipBuiltins: true });
+    const execute = vi.fn(async () => ({ ok: true }));
+    registry.register({
+      name: 'high_tool',
+      description: 'Requires complete HELM decision metadata before execution',
+      manifest: {
+        key: 'high_tool',
+        version: 'test:v1',
+        riskClass: 'high',
+        effectLevel: 'E3',
+        requiredEvidence: ['tool_result', 'helm_receipt'],
+        permissionRequirements: ['tool:high_tool:execute'],
+        outputSensitivity: 'sensitive',
+      },
+      execute,
+    });
+    const broker = new ToolBroker(db as never);
+
+    await expect(
+      broker.execute(registry, 'high_tool', {}, {
+        workspaceId: '00000000-0000-4000-8000-000000000001',
+        taskId: '00000000-0000-4000-8000-000000000002',
+        policyDecisionId: 'dec-1',
+      }),
+    ).rejects.toThrow('HELM policy decision metadata is required');
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(db.insert).not.toHaveBeenCalled();
   });
 });
