@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { deployHealth, deployments, deployTargets } from '@pilot/db/schema';
 import { LaunchEngine } from '../index.js';
+import type { DeployProvider } from '../providers/types.js';
 
 // ─── Mock helpers ───
 
@@ -23,6 +25,100 @@ const mockSelectQuery = (results: unknown[]) => ({
 function makeService(queryResults: unknown[]) {
   const db = mockSelectQuery(queryResults) as any;
   return new LaunchEngine(db);
+}
+
+function makeStatefulLaunchDb(input: {
+  target?: Record<string, unknown>;
+  deployment?: Record<string, unknown>;
+}) {
+  const state = {
+    target: input.target,
+    deployment: input.deployment,
+    health: undefined as Record<string, unknown> | undefined,
+  };
+  const db = {
+    select: () => ({
+      from: (table: unknown) => ({
+        where: () => ({
+          orderBy: () => Promise.resolve([]),
+          limit: () => {
+            if (table === deployTargets) return Promise.resolve(state.target ? [state.target] : []);
+            if (table === deployments) {
+              return Promise.resolve(state.deployment ? [state.deployment] : []);
+            }
+            return Promise.resolve([]);
+          },
+        }),
+      }),
+    }),
+    insert: (table: unknown) => ({
+      values: (values: Record<string, unknown>) => ({
+        returning: () => {
+          if (table === deployments) {
+            state.deployment = {
+              id: 'dep-1',
+              metadata: {},
+              url: null,
+              ...values,
+            };
+            return Promise.resolve([state.deployment]);
+          }
+          if (table === deployHealth) {
+            state.health = { id: 'hc-1', checkedAt: new Date('2026-05-05T00:00:00Z'), ...values };
+            return Promise.resolve([state.health]);
+          }
+          return Promise.resolve([]);
+        },
+      }),
+    }),
+    update: (table: unknown) => ({
+      set: (values: Record<string, unknown>) => ({
+        where: () => ({
+          returning: () => {
+            if (table === deployments && state.deployment) {
+              state.deployment = { ...state.deployment, ...values };
+              return Promise.resolve([state.deployment]);
+            }
+            if (table === deployTargets && state.target) {
+              state.target = { ...state.target, ...values };
+              return Promise.resolve([state.target]);
+            }
+            return Promise.resolve([]);
+          },
+        }),
+      }),
+    }),
+  };
+  return { db: db as any, state };
+}
+
+function mockProvider(overrides: Partial<DeployProvider> = {}): DeployProvider {
+  return {
+    name: 'digitalocean',
+    provision: vi.fn().mockResolvedValue({
+      providerId: 'do-app-1',
+      appName: 'pilot-ws-1',
+      region: 'nyc3',
+      dashboardUrl: 'https://cloud.digitalocean.com/apps/do-app-1',
+    }),
+    deploy: vi.fn().mockResolvedValue({
+      deploymentId: 'provider-dep-1',
+      status: 'live',
+      url: 'https://pilot.example.com',
+    }),
+    healthCheck: vi.fn().mockResolvedValue({
+      healthy: true,
+      status: 'healthy',
+      responseTimeMs: 42,
+      checkedAt: '2026-05-05T00:00:00Z',
+    }),
+    rollback: vi.fn().mockResolvedValue({
+      deploymentId: 'provider-dep-1',
+      targetVersion: 'v1',
+      status: 'rolled_back',
+    }),
+    ...overrides,
+  };
 }
 
 // ─── Tests ───
@@ -247,6 +343,103 @@ describe('LaunchEngine', () => {
       expect(result).toHaveLength(3);
       expect(result[0]!.provider).toBe('aws');
       expect(result[2]!.provider).toBe('vercel');
+    });
+  });
+
+  describe('launch governance metadata', () => {
+    const governance = {
+      surface: 'launch',
+      action: 'DEPLOY',
+      policyDecisionId: 'dec-deploy',
+      policyVersion: 'founder-ops-v1',
+      policyPin: {
+        documentVersionPins: {
+          deploymentPolicy: 'founder-ops-v1',
+        },
+      },
+    };
+
+    it('persists governance metadata on deployment status updates', async () => {
+      const { db } = makeStatefulLaunchDb({
+        target: {
+          id: 'target-1',
+          workspaceId: 'ws-1',
+          provider: 'digitalocean',
+          config: { providerId: 'do-app-1', image: 'registry.example.com/app:v1' },
+        },
+      });
+      const svc = new LaunchEngine(db);
+
+      const result = await svc.deployToTarget(
+        'ws-1',
+        { targetId: 'target-1', image: 'registry.example.com/app:v1' },
+        mockProvider(),
+        governance,
+      );
+
+      expect(result.deployment.metadata).toMatchObject({
+        provider: 'digitalocean',
+        providerDeploymentId: 'provider-dep-1',
+        governance,
+      });
+    });
+
+    it('persists governance metadata on deployment health checks', async () => {
+      const { db } = makeStatefulLaunchDb({
+        deployment: {
+          id: 'dep-1',
+          workspaceId: 'ws-1',
+          targetId: 'target-1',
+          metadata: { providerId: 'do-app-1' },
+        },
+      });
+      const svc = new LaunchEngine(db);
+
+      const result = await svc.runDeploymentHealthCheck('dep-1', mockProvider(), 'ws-1', {
+        ...governance,
+        action: 'DEPLOY_HEALTH_CHECK',
+      });
+
+      expect(result.check.details).toMatchObject({
+        provider: 'digitalocean',
+        governance: {
+          action: 'DEPLOY_HEALTH_CHECK',
+          policyPin: governance.policyPin,
+        },
+      });
+    });
+
+    it('persists governance metadata on deployment rollback', async () => {
+      const { db } = makeStatefulLaunchDb({
+        deployment: {
+          id: 'dep-1',
+          workspaceId: 'ws-1',
+          targetId: 'target-1',
+          url: 'https://pilot.example.com',
+          metadata: {
+            providerId: 'do-app-1',
+            providerDeploymentId: 'provider-dep-1',
+          },
+        },
+      });
+      const svc = new LaunchEngine(db);
+
+      const result = await svc.rollbackDeployment('dep-1', 'v1', mockProvider(), 'ws-1', {
+        ...governance,
+        action: 'DEPLOY_ROLLBACK',
+      });
+
+      expect(result.deployment?.metadata).toMatchObject({
+        rollback: {
+          deploymentId: 'provider-dep-1',
+          targetVersion: 'v1',
+          status: 'rolled_back',
+        },
+        rollbackGovernance: {
+          action: 'DEPLOY_ROLLBACK',
+          policyPin: governance.policyPin,
+        },
+      });
     });
   });
 });

@@ -179,6 +179,7 @@ export class LaunchEngine {
       envVars?: Record<string, string>;
     },
     provider: DeployProvider,
+    governance?: Record<string, unknown>,
   ): Promise<{
     deployment: typeof deployments.$inferSelect;
     provision?: ProvisionResult;
@@ -246,6 +247,7 @@ export class LaunchEngine {
       providerDeploymentId: providerDeployment.deploymentId,
       providerStatus: providerDeployment.status,
       provision,
+      ...(governance ? { governance } : {}),
     };
     const updated = await this.updateDeploymentStatus(
       deployment.id,
@@ -295,6 +297,7 @@ export class LaunchEngine {
     deploymentId: string,
     provider: DeployProvider,
     workspaceId?: string,
+    governance?: Record<string, unknown>,
   ): Promise<{
     check: typeof deployHealth.$inferSelect;
     result: HealthCheckResult;
@@ -313,6 +316,7 @@ export class LaunchEngine {
         provider: provider.name,
         status: result.status,
         checkedAt: result.checkedAt,
+        ...(governance ? { governance } : {}),
       },
     });
     return { check, result };
@@ -323,6 +327,7 @@ export class LaunchEngine {
     targetVersion: string,
     provider: DeployProvider,
     workspaceId?: string,
+    governance?: Record<string, unknown>,
   ): Promise<{
     deployment: typeof deployments.$inferSelect | null;
     result: RollbackResult;
@@ -347,6 +352,7 @@ export class LaunchEngine {
       {
         ...metadata,
         rollback: result,
+        ...(governance ? { rollbackGovernance: governance } : {}),
       },
       workspaceId,
     );

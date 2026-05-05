@@ -307,6 +307,15 @@ describe('launchRoutes', () => {
           envVars: undefined,
         },
         expect.objectContaining({ name: 'digitalocean' }),
+        expect.objectContaining({
+          surface: 'launch',
+          action: 'DEPLOY',
+          policyDecisionId: 'dec-deploy',
+          policyVersion: 'founder-ops-v1',
+          policyPin: expect.objectContaining({
+            documentVersionPins: { deploymentPolicy: 'founder-ops-v1' },
+          }),
+        }),
       );
       expect(json.deployment.status).toBe('live');
     });
@@ -386,6 +395,12 @@ describe('launchRoutes', () => {
         'dep-1',
         expect.objectContaining({ name: 'digitalocean' }),
         'ws-1',
+        expect.objectContaining({
+          surface: 'launch',
+          action: 'DEPLOY_HEALTH_CHECK',
+          policyDecisionId: 'dec-deploy_health_check',
+          policyVersion: 'founder-ops-v1',
+        }),
       );
       expect(json.check).toEqual({ id: 'hc-1', status: 'healthy' });
     });
@@ -432,6 +447,12 @@ describe('launchRoutes', () => {
         'v1',
         expect.objectContaining({ name: 'digitalocean' }),
         'ws-1',
+        expect.objectContaining({
+          surface: 'launch',
+          action: 'DEPLOY_ROLLBACK',
+          policyDecisionId: 'dec-deploy_rollback',
+          policyVersion: 'founder-ops-v1',
+        }),
       );
       expect(json.deployment).toEqual({ id: 'dep-1', status: 'rolled_back' });
     });

@@ -1,7 +1,12 @@
 import { Hono } from 'hono';
 import { type Context } from 'hono';
 import { DigitalOceanProvider, LaunchEngine, type DeployProvider } from '@pilot/launch-engine';
-import { HelmDeniedError, HelmEscalationError, HelmUnreachableError } from '@pilot/helm-client';
+import {
+  HelmDeniedError,
+  HelmEscalationError,
+  HelmUnreachableError,
+  type EvaluateResult,
+} from '@pilot/helm-client';
 import { eq } from 'drizzle-orm';
 import { users } from '@pilot/db/schema';
 import { ManagedTelegramReplyInput } from '@pilot/shared/schemas';
@@ -230,6 +235,7 @@ export function launchRoutes(deps: GatewayDeps) {
         workspaceId,
         { targetId, artifactId, version, image, appName, region, envVars },
         provider,
+        governed ? launchGovernanceMetadata('DEPLOY', governed) : undefined,
       );
       return c.json({ ...result, helmReceipt: governed?.receipt }, 201);
     } catch (err) {
@@ -286,7 +292,12 @@ export function launchRoutes(deps: GatewayDeps) {
     if (governed instanceof Response) return governed;
 
     try {
-      const result = await engine.runDeploymentHealthCheck(id, provider, workspaceId);
+      const result = await engine.runDeploymentHealthCheck(
+        id,
+        provider,
+        workspaceId,
+        governed ? launchGovernanceMetadata('DEPLOY_HEALTH_CHECK', governed) : undefined,
+      );
       return c.json({ ...result, helmReceipt: governed?.receipt }, 201);
     } catch (err) {
       return c.json(
@@ -327,7 +338,13 @@ export function launchRoutes(deps: GatewayDeps) {
     if (governed instanceof Response) return governed;
 
     try {
-      const result = await engine.rollbackDeployment(id, targetVersion, provider, workspaceId);
+      const result = await engine.rollbackDeployment(
+        id,
+        targetVersion,
+        provider,
+        workspaceId,
+        governed ? launchGovernanceMetadata('DEPLOY_ROLLBACK', governed) : undefined,
+      );
       return c.json({ ...result, helmReceipt: governed?.receipt });
     } catch (err) {
       return c.json(
@@ -411,4 +428,22 @@ function launchActionEffectLevel(action: string): 'E1' | 'E2' | 'E3' | 'E4' {
 
 function isElevatedLaunchEffectLevel(effectLevel: string): boolean {
   return effectLevel === 'E2' || effectLevel === 'E3' || effectLevel === 'E4';
+}
+
+function launchGovernanceMetadata(action: string, governed: EvaluateResult) {
+  return {
+    surface: 'launch',
+    action,
+    policyDecisionId: governed.receipt.decisionId,
+    policyVersion: governed.receipt.policyVersion,
+    evidencePackId: governed.evidencePackId ?? null,
+    policyPin: {
+      policyDecisionId: governed.receipt.decisionId,
+      policyVersion: governed.receipt.policyVersion,
+      decisionRequired: true,
+      documentVersionPins: {
+        deploymentPolicy: governed.receipt.policyVersion,
+      },
+    },
+  };
 }
