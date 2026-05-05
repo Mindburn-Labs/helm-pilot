@@ -7,6 +7,7 @@ vi.mock('@pilot/db', () => ({
 }));
 
 vi.mock('@pilot/db/schema', () => ({
+  auditLog: 'auditLog',
   opportunities: 'opportunities',
   opportunityScores: 'opportunityScores',
   taskRuns: {
@@ -203,6 +204,126 @@ describe('registerJobHandlers', () => {
 
       expect(mockLlm.completeWithUsage).toHaveBeenCalledOnce();
       expect(mockDb.insert).toHaveBeenCalledWith('opportunityScores');
+    });
+
+    it('persists HELM governance metadata and evidence for workspace LLM scores', async () => {
+      vi.mocked(appendEvidenceItem).mockClear();
+      const insertValues = vi.fn(() => ({
+        then: (r: any) => r([]),
+        catch: vi.fn(),
+      }));
+      mockDb.insert = vi.fn(() => ({ values: insertValues }));
+
+      let selectCount = 0;
+      mockDb.select = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              then: (r: any) => {
+                selectCount++;
+                if (selectCount === 1)
+                  return r([
+                    {
+                      id: 'opp-1',
+                      title: 'Test Opp',
+                      description: 'A test opportunity',
+                      source: 'hn',
+                      sourceUrl: 'https://example.com/opp',
+                      workspaceId: 'ws-1',
+                    },
+                  ]);
+                return r([]);
+              },
+            })),
+          })),
+        })),
+      }));
+
+      const mockLlm = {
+        complete: vi.fn(),
+        completeWithUsage: vi.fn(async () => ({
+          content:
+            '{"overall":80,"founderFit":70,"marketSignal":75,"timing":60,"feasibility":85,"rationale":"ok"}',
+          usage: { tokensIn: 100, tokensOut: 50, model: 'test' },
+          governance: {
+            decisionId: 'dec-score',
+            verdict: 'ALLOW',
+            policyVersion: 'founder-ops-v1',
+            principal: 'workspace:ws-1/operator:scoring',
+          },
+        })),
+      } as any;
+
+      registerJobHandlers(mockBoss, { db: mockDb, llm: mockLlm });
+      const handler = handlers.get('opportunity.score')!;
+
+      await handler([{ data: { opportunityId: 'opp-1' } }]);
+
+      expect(insertValues).toHaveBeenCalledWith(
+        expect.objectContaining({
+          opportunityId: 'opp-1',
+          scoringMethod: 'llm',
+          policyDecisionId: 'dec-score',
+          policyVersion: 'founder-ops-v1',
+          helmDocumentVersionPins: {
+            opportunityScorePolicy: 'founder-ops-v1',
+            opportunityScorePrompt: 'opportunity-score.v1',
+          },
+          modelUsage: { tokensIn: 100, tokensOut: 50, model: 'test' },
+        }),
+      );
+      expect(mockDb.insert).toHaveBeenCalledWith('auditLog');
+      expect(appendEvidenceItem).toHaveBeenCalledWith(
+        mockDb,
+        expect.objectContaining({
+          workspaceId: 'ws-1',
+          evidenceType: 'opportunity_score',
+          sourceType: 'opportunity_score_worker',
+          replayRef: 'helm:dec-score',
+        }),
+      );
+    });
+
+    it('does not persist heuristic scores when a configured LLM fails', async () => {
+      let selectCount = 0;
+      mockDb.select = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              then: (r: any) => {
+                selectCount++;
+                if (selectCount === 1)
+                  return r([
+                    {
+                      id: 'opp-1',
+                      title: 'Test Opp',
+                      description: 'A test opportunity',
+                      source: 'hn',
+                      workspaceId: 'ws-1',
+                    },
+                  ]);
+                return r([]);
+              },
+            })),
+          })),
+        })),
+      }));
+
+      const mockLlm = {
+        complete: vi.fn(),
+        completeWithUsage: vi.fn(async () => {
+          throw new Error('HELM unreachable');
+        }),
+      } as any;
+
+      registerJobHandlers(mockBoss, { db: mockDb, llm: mockLlm });
+      const handler = handlers.get('opportunity.score')!;
+
+      await expect(handler([{ data: { opportunityId: 'opp-1' } }])).rejects.toThrow(
+        'HELM unreachable',
+      );
+      expect(mockDb.insert).not.toHaveBeenCalledWith('opportunityScores');
+      expect(appendEvidenceItem).not.toHaveBeenCalled();
     });
   });
 

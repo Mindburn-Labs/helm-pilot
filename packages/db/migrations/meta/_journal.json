@@ -218,6 +218,13 @@
       "when": 1778032800000,
       "tag": "0029_browser_session_access_governance",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1778036400000,
+      "tag": "0030_opportunity_score_governance_metadata",
+      "breakpoints": true
     }
   ]
 }

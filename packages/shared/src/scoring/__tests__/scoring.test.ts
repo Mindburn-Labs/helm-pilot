@@ -36,6 +36,13 @@ const sampleLlmResponse = JSON.stringify({
   rationale: 'Strong founder-market fit given legal background',
 });
 
+const sampleGovernance = {
+  decisionId: 'dec-score',
+  verdict: 'ALLOW' as const,
+  policyVersion: 'founder-ops-v1',
+  principal: 'workspace:ws-1/operator:scoring',
+};
+
 describe('heuristicScore', () => {
   it('produces all five dimensions within [0, 100]', () => {
     const result = heuristicScore(validInput);
@@ -109,6 +116,7 @@ describe('scoreWithLlm', () => {
       completeWithUsage: vi.fn(async () => ({
         content: response,
         usage: { tokensIn: 100, tokensOut: 50, model: 'test-model' },
+        governance: sampleGovernance,
       })),
     };
   }
@@ -120,6 +128,11 @@ describe('scoreWithLlm', () => {
     expect(result.rationale).toContain('founder-market fit');
     expect(result.method).toBe('llm');
     expect(result.promptVersion).toBe(OPPORTUNITY_SCORE_PROMPT_VERSION);
+    expect(result.usage).toEqual({ tokensIn: 100, tokensOut: 50, model: 'test-model' });
+    expect(result.governance).toMatchObject({
+      decisionId: 'dec-score',
+      policyVersion: 'founder-ops-v1',
+    });
   });
 
   it('throws on unparseable response', async () => {
@@ -161,13 +174,15 @@ describe('scoreOpportunity (combined)', () => {
       completeWithUsage: vi.fn(async () => ({
         content: sampleLlmResponse,
         usage: { tokensIn: 100, tokensOut: 50, model: 'test-model' },
+        governance: sampleGovernance,
       })),
     };
     const result = await scoreOpportunity(validInput, llm);
     expect(result.method).toBe('llm');
+    expect(result.governance?.decisionId).toBe('dec-score');
   });
 
-  it('falls back to heuristic if llm throws', async () => {
+  it('throws instead of silently falling back if configured llm throws', async () => {
     const llm: LlmProvider = {
       complete: vi.fn(async () => {
         throw new Error('rate limit');
@@ -176,11 +191,26 @@ describe('scoreOpportunity (combined)', () => {
         throw new Error('rate limit');
       }),
     };
-    const result = await scoreOpportunity(validInput, llm);
-    expect(result.method).toBe('heuristic');
+    await expect(scoreOpportunity(validInput, llm)).rejects.toThrow('rate limit');
   });
 
-  it('falls back to heuristic on unparseable llm response', async () => {
+  it('uses explicit heuristic fallback only when the caller opts in', async () => {
+    const llm: LlmProvider = {
+      complete: vi.fn(async () => {
+        throw new Error('rate limit');
+      }),
+      completeWithUsage: vi.fn(async () => {
+        throw new Error('rate limit');
+      }),
+    };
+    const result = await scoreOpportunity(validInput, llm, {
+      allowHeuristicFallbackOnLlmFailure: true,
+    });
+    expect(result.method).toBe('heuristic');
+    expect(result.fallbackReason).toBe('rate limit');
+  });
+
+  it('throws instead of silently falling back on unparseable llm response', async () => {
     const llm: LlmProvider = {
       complete: vi.fn(async () => 'nope'),
       completeWithUsage: vi.fn(async () => ({
@@ -188,8 +218,7 @@ describe('scoreOpportunity (combined)', () => {
         usage: { tokensIn: 10, tokensOut: 5, model: 'test' },
       })),
     };
-    const result = await scoreOpportunity(validInput, llm);
-    expect(result.method).toBe('heuristic');
+    await expect(scoreOpportunity(validInput, llm)).rejects.toThrow(/unparseable/);
   });
 });
 

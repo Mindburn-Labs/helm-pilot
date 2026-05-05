@@ -216,12 +216,13 @@ const capabilityRecords = validateCapabilityRecords([
     owner: 'Tooling Agent',
     blockers: [
       'PMF Discovery Eval has not promoted the capability to production_ready',
-      'Scoring rationale and citations are persisted through tool_executions/audit metadata, but not yet a first-class Evidence Center artifact pack',
+      'Scoring rationale and citations are persisted through tool_executions/audit metadata and background worker evidence items, but not yet a full Evidence Center artifact pack',
       'Scoring remains deterministic evidence scoring until governed LLM scorer promotion has eval coverage',
     ],
     evidence: [
       'Gate 5 score_opportunity persists opportunity_scores, returns dimensions/citations/assumptions, and updates opportunity status',
       'Tool Broker records action/tool_execution/audit metadata for autonomous score_opportunity calls',
+      'Background opportunity.score jobs no longer silently downgrade configured LLM/HELM failures into heuristic scores and persist policy/model metadata on score rows',
       'opportunity_scout tool scope includes create_opportunity and score_opportunity so scraped candidates can be persisted before scoring',
     ],
     evalRequirement: 'PMF Discovery Eval',
