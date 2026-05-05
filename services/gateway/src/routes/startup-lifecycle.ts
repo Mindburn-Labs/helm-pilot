@@ -11,7 +11,9 @@ import {
 } from '@pilot/db/schema';
 import {
   CompileStartupLifecycleInputSchema,
+  ExecutedStartupMissionSchema,
   ExecutedStartupMissionNodeSchema,
+  ExecuteStartupMissionInputSchema,
   ExecuteStartupMissionNodeInputSchema,
   PersistStartupLifecycleInputSchema,
   PersistedStartupLifecycleMissionSchema,
@@ -420,143 +422,260 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
       );
     }
 
-    const [taskLink] = await _deps.db
-      .select()
-      .from(missionTasks)
-      .where(
-        and(
-          eq(missionTasks.missionId, mission.id),
-          eq(missionTasks.nodeId, node.id),
-          eq(missionTasks.workspaceId, workspaceId),
-        ),
-      )
-      .limit(1);
-    if (!taskLink) {
-      return c.json(
-        {
-          error: 'mission node has no execution task',
-          remediation: 'Persist the lifecycle mission with createNodeTasks=true before execution.',
-        },
-        409,
-      );
+    const result = await executeReadyMissionNode(_deps, workspaceId, mission, node, {
+      context: parsed.data.context,
+      iterationBudget: parsed.data.iterationBudget,
+    });
+    if (!result.ok) return c.json(result.body, result.status);
+    return c.json(result.response, 200);
+  });
+
+  app.post('/missions/:missionId/execute-ready', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'execute ready startup lifecycle nodes');
+    if (roleDenied) return roleDenied;
+
+    const raw = await c.req.json().catch(() => ({}));
+    if (workspaceIdMismatch(c, (raw as { workspaceId?: string }).workspaceId)) {
+      return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
     }
 
-    const [task] = await _deps.db
+    const parsed = ExecuteStartupMissionInputSchema.safeParse({
+      ...(raw as Record<string, unknown>),
+      workspaceId,
+      missionId: c.req.param('missionId'),
+    });
+    if (!parsed.success) {
+      return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
+    }
+
+    const [mission] = await _deps.db
       .select()
-      .from(tasks)
-      .where(and(eq(tasks.id, taskLink.taskId), eq(tasks.workspaceId, workspaceId)))
+      .from(missions)
+      .where(and(eq(missions.id, parsed.data.missionId), eq(missions.workspaceId, workspaceId)))
       .limit(1);
-    if (!task) return c.json({ error: 'Mission node task not found' }, 404);
+    if (!mission) return c.json({ error: 'Mission not found' }, 404);
 
-    await _deps.db
-      .update(missionNodes)
-      .set({ status: 'running', startedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(missionNodes.id, node.id), eq(missionNodes.workspaceId, workspaceId)));
-    await _deps.db
-      .update(missions)
-      .set({ status: 'running', startedAt: mission.startedAt ?? new Date(), updatedAt: new Date() })
-      .where(and(eq(missions.id, mission.id), eq(missions.workspaceId, workspaceId)));
-    await _deps.db
-      .update(tasks)
-      .set({ status: 'running', completedAt: null, updatedAt: new Date() })
-      .where(and(eq(tasks.id, task.id), eq(tasks.workspaceId, workspaceId)));
+    const executedNodes: Array<typeof ExecutedStartupMissionNodeSchema._type> = [];
+    let missionStatus: 'completed' | 'scheduled_not_executing' | 'blocked' | 'awaiting_approval' =
+      'scheduled_not_executing';
+    for (let index = 0; index < parsed.data.maxNodes; index += 1) {
+      const [node] = await _deps.db
+        .select()
+        .from(missionNodes)
+        .where(
+          and(
+            eq(missionNodes.missionId, mission.id),
+            eq(missionNodes.workspaceId, workspaceId),
+            eq(missionNodes.status, 'ready'),
+          ),
+        )
+        .orderBy(missionNodes.sortOrder)
+        .limit(1);
+      if (!node) break;
 
-    const runTaskWithMissionContext = _deps.orchestrator.runTask as MissionContextRunTask;
-    let run;
-    try {
-      run = await runTaskWithMissionContext({
-        taskId: task.id,
-        workspaceId,
-        ...(mission.ventureId ? { ventureId: mission.ventureId } : {}),
-        missionId: mission.id,
-        ...(task.operatorId ? { operatorId: task.operatorId } : {}),
-        context:
-          parsed.data.context ?? missionNodeExecutionContext(mission, node, task.description),
+      const result = await executeReadyMissionNode(_deps, workspaceId, mission, node, {
+        context: parsed.data.context,
         iterationBudget: parsed.data.iterationBudget,
       });
-    } catch (err) {
-      const failedAt = new Date();
-      await _deps.db
-        .update(missionNodes)
-        .set({ status: 'failed', updatedAt: failedAt, completedAt: failedAt })
-        .where(and(eq(missionNodes.id, node.id), eq(missionNodes.workspaceId, workspaceId)));
-      await _deps.db
-        .update(missions)
-        .set({ status: 'blocked', updatedAt: failedAt })
-        .where(and(eq(missions.id, mission.id), eq(missions.workspaceId, workspaceId)));
-      await _deps.db
-        .update(tasks)
-        .set({ status: 'failed', updatedAt: failedAt, completedAt: failedAt })
-        .where(and(eq(tasks.id, task.id), eq(tasks.workspaceId, workspaceId)));
-      return c.json(
-        {
-          error: 'mission node execution failed',
-          detail: err instanceof Error ? err.message : String(err),
-          productionReady: false,
-        },
-        502,
-      );
+      if (!result.ok) return c.json(result.body, result.status);
+      executedNodes.push(result.response);
+      missionStatus = result.response.missionStatus;
+      if (result.response.status !== 'completed') break;
     }
 
-    const nodeStatus = mapRunStatusToMissionNodeStatus(run.status);
-    await _deps.db
-      .update(missionNodes)
-      .set({
-        status: nodeStatus,
-        updatedAt: new Date(),
-        completedAt: nodeStatus === 'completed' ? new Date() : null,
-      })
-      .where(and(eq(missionNodes.id, node.id), eq(missionNodes.workspaceId, workspaceId)));
-    await _deps.db
-      .update(tasks)
-      .set({
-        status: mapRunStatusToTaskStatus(run.status),
-        updatedAt: new Date(),
-        completedAt: run.status === 'completed' ? new Date() : null,
-      })
-      .where(and(eq(tasks.id, task.id), eq(tasks.workspaceId, workspaceId)));
+    const remainingReadyNodes = await _deps.db
+      .select({ id: missionNodes.id })
+      .from(missionNodes)
+      .where(
+        and(
+          eq(missionNodes.missionId, mission.id),
+          eq(missionNodes.workspaceId, workspaceId),
+          eq(missionNodes.status, 'ready'),
+        ),
+      )
+      .orderBy(missionNodes.sortOrder);
 
-    const advancement =
-      nodeStatus === 'completed'
-        ? await advanceReadyMissionNodes(_deps, workspaceId, mission.id)
-        : {
-            advancedReadyNodes: [],
-            missionStatus: mapRunStatusToMissionStatus(run.status),
-          };
-    await _deps.db
-      .update(missions)
-      .set({
-        status: advancement.missionStatus,
-        updatedAt: new Date(),
-        completedAt: advancement.missionStatus === 'completed' ? new Date() : null,
-      })
-      .where(and(eq(missions.id, mission.id), eq(missions.workspaceId, workspaceId)));
-
-    const response = ExecutedStartupMissionNodeSchema.parse({
+    const response = ExecutedStartupMissionSchema.parse({
       workspaceId,
       missionId: mission.id,
-      nodeId: node.id,
-      nodeKey: node.nodeKey,
-      taskId: task.id,
-      executorVersion: 'mission-node-executor.v1',
+      executorVersion: 'mission-executor.v1',
       productionReady: false,
-      executionStarted: true,
-      status: nodeStatus,
-      missionStatus: advancement.missionStatus,
-      run: {
-        status: run.status,
-        iterationsUsed: run.iterationsUsed,
-        iterationBudget: run.iterationBudget,
-        actionCount: run.actions.length,
-      },
-      advancedReadyNodes: advancement.advancedReadyNodes,
-      blockers: missionNodeExecutionBlockers(run.status),
+      executionStarted: executedNodes.length > 0,
+      missionStatus:
+        executedNodes.length > 0
+          ? missionStatus
+          : remainingReadyNodes.length > 0
+            ? 'scheduled_not_executing'
+            : mission.status === 'completed'
+              ? 'completed'
+              : 'blocked',
+      executedNodes,
+      remainingReadyNodeIds: remainingReadyNodes.map((node) => node.id),
+      blockers: missionExecutorBlockers(executedNodes.length, remainingReadyNodes.length),
     });
 
     return c.json(response, 200);
   });
 
   return app;
+}
+
+async function executeReadyMissionNode(
+  deps: GatewayDeps,
+  workspaceId: string,
+  mission: typeof missions.$inferSelect,
+  node: typeof missionNodes.$inferSelect,
+  input: {
+    context?: string;
+    iterationBudget?: number;
+  },
+): Promise<
+  | { ok: true; response: typeof ExecutedStartupMissionNodeSchema._type }
+  | {
+      ok: false;
+      status: 404 | 409 | 502;
+      body: Record<string, unknown>;
+    }
+> {
+  const [taskLink] = await deps.db
+    .select()
+    .from(missionTasks)
+    .where(
+      and(
+        eq(missionTasks.missionId, mission.id),
+        eq(missionTasks.nodeId, node.id),
+        eq(missionTasks.workspaceId, workspaceId),
+      ),
+    )
+    .limit(1);
+  if (!taskLink) {
+    return {
+      ok: false,
+      status: 409,
+      body: {
+        error: 'mission node has no execution task',
+        remediation: 'Persist the lifecycle mission with createNodeTasks=true before execution.',
+      },
+    };
+  }
+
+  const [task] = await deps.db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.id, taskLink.taskId), eq(tasks.workspaceId, workspaceId)))
+    .limit(1);
+  if (!task) {
+    return { ok: false, status: 404, body: { error: 'Mission node task not found' } };
+  }
+
+  await deps.db
+    .update(missionNodes)
+    .set({ status: 'running', startedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(missionNodes.id, node.id), eq(missionNodes.workspaceId, workspaceId)));
+  await deps.db
+    .update(missions)
+    .set({ status: 'running', startedAt: mission.startedAt ?? new Date(), updatedAt: new Date() })
+    .where(and(eq(missions.id, mission.id), eq(missions.workspaceId, workspaceId)));
+  await deps.db
+    .update(tasks)
+    .set({ status: 'running', completedAt: null, updatedAt: new Date() })
+    .where(and(eq(tasks.id, task.id), eq(tasks.workspaceId, workspaceId)));
+
+  const runTaskWithMissionContext = deps.orchestrator.runTask as MissionContextRunTask;
+  let run;
+  try {
+    run = await runTaskWithMissionContext({
+      taskId: task.id,
+      workspaceId,
+      ...(mission.ventureId ? { ventureId: mission.ventureId } : {}),
+      missionId: mission.id,
+      ...(task.operatorId ? { operatorId: task.operatorId } : {}),
+      context: input.context ?? missionNodeExecutionContext(mission, node, task.description),
+      iterationBudget: input.iterationBudget,
+    });
+  } catch (err) {
+    const failedAt = new Date();
+    await deps.db
+      .update(missionNodes)
+      .set({ status: 'failed', updatedAt: failedAt, completedAt: failedAt })
+      .where(and(eq(missionNodes.id, node.id), eq(missionNodes.workspaceId, workspaceId)));
+    await deps.db
+      .update(missions)
+      .set({ status: 'blocked', updatedAt: failedAt })
+      .where(and(eq(missions.id, mission.id), eq(missions.workspaceId, workspaceId)));
+    await deps.db
+      .update(tasks)
+      .set({ status: 'failed', updatedAt: failedAt, completedAt: failedAt })
+      .where(and(eq(tasks.id, task.id), eq(tasks.workspaceId, workspaceId)));
+    return {
+      ok: false,
+      status: 502,
+      body: {
+        error: 'mission node execution failed',
+        detail: err instanceof Error ? err.message : String(err),
+        productionReady: false,
+      },
+    };
+  }
+
+  const nodeStatus = mapRunStatusToMissionNodeStatus(run.status);
+  await deps.db
+    .update(missionNodes)
+    .set({
+      status: nodeStatus,
+      updatedAt: new Date(),
+      completedAt: nodeStatus === 'completed' ? new Date() : null,
+    })
+    .where(and(eq(missionNodes.id, node.id), eq(missionNodes.workspaceId, workspaceId)));
+  await deps.db
+    .update(tasks)
+    .set({
+      status: mapRunStatusToTaskStatus(run.status),
+      updatedAt: new Date(),
+      completedAt: run.status === 'completed' ? new Date() : null,
+    })
+    .where(and(eq(tasks.id, task.id), eq(tasks.workspaceId, workspaceId)));
+
+  const advancement =
+    nodeStatus === 'completed'
+      ? await advanceReadyMissionNodes(deps, workspaceId, mission.id)
+      : {
+          advancedReadyNodes: [],
+          missionStatus: mapRunStatusToMissionStatus(run.status),
+        };
+  await deps.db
+    .update(missions)
+    .set({
+      status: advancement.missionStatus,
+      updatedAt: new Date(),
+      completedAt: advancement.missionStatus === 'completed' ? new Date() : null,
+    })
+    .where(and(eq(missions.id, mission.id), eq(missions.workspaceId, workspaceId)));
+
+  const response = ExecutedStartupMissionNodeSchema.parse({
+    workspaceId,
+    missionId: mission.id,
+    nodeId: node.id,
+    nodeKey: node.nodeKey,
+    taskId: task.id,
+    executorVersion: 'mission-node-executor.v1',
+    productionReady: false,
+    executionStarted: true,
+    status: nodeStatus,
+    missionStatus: advancement.missionStatus,
+    run: {
+      status: run.status,
+      iterationsUsed: run.iterationsUsed,
+      iterationBudget: run.iterationBudget,
+      actionCount: run.actions.length,
+    },
+    advancedReadyNodes: advancement.advancedReadyNodes,
+    blockers: missionNodeExecutionBlockers(run.status),
+  });
+
+  return { ok: true, response };
 }
 
 function deriveVentureName(founderGoal: string): string {
@@ -697,6 +816,9 @@ async function advanceReadyMissionNodes(
   if (advancedReadyNodes.length > 0) {
     return { advancedReadyNodes, missionStatus: 'scheduled_not_executing' };
   }
+  if (nodeRows.some((node) => node.status === 'ready')) {
+    return { advancedReadyNodes, missionStatus: 'scheduled_not_executing' };
+  }
   if (nodeRows.some((node) => node.status === 'awaiting_approval')) {
     return { advancedReadyNodes, missionStatus: 'awaiting_approval' };
   }
@@ -714,5 +836,17 @@ function missionNodeExecutionBlockers(
     blockers.push('Agent run blocked before completing node acceptance criteria');
   if (status === 'budget_exhausted') blockers.push('Agent run exhausted iteration budget');
   if (status === 'awaiting_approval') blockers.push('Agent run is awaiting HELM/user approval');
+  return blockers;
+}
+
+function missionExecutorBlockers(executedCount: number, remainingReadyCount: number): string[] {
+  const blockers = [
+    'Mission executor is explicit and bounded; it is not founder-off-grid autonomous execution',
+    'Mission-level checkpoint, recovery, rollback, and Full Startup Launch Eval remain blocked',
+  ];
+  if (executedCount === 0) blockers.push('No ready mission node was executed');
+  if (remainingReadyCount > 0) {
+    blockers.push('Additional ready nodes remain and require another explicit execution call');
+  }
   return blockers;
 }
