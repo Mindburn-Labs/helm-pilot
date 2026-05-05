@@ -83,6 +83,26 @@ describe('taskRoutes', () => {
       expect(json).toHaveProperty('error', 'Validation failed');
     });
 
+    it('rejects operatorId from another workspace before task creation', async () => {
+      const deps = createMockDeps();
+      const { fetch } = testApp(taskRoutes, deps as any);
+      const res = await fetch(
+        'POST',
+        '/',
+        {
+          workspaceId: VALID_UUID,
+          operatorId: '00000000-0000-0000-0000-000000000099',
+          title: 'Foreign operator task',
+          mode: 'build',
+        },
+        wsHeader,
+      );
+      const json = await expectJson<{ error: string }>(res, 403);
+
+      expect(json.error).toBe('operatorId does not belong to authenticated workspace');
+      expect(deps.db.insert).not.toHaveBeenCalled();
+    });
+
     it('returns 201 on successful creation', async () => {
       const deps = createMockDeps();
       const created = mockTask({ workspaceId: VALID_UUID, title: 'Build MVP' });

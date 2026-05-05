@@ -7,6 +7,7 @@ import {
   type ComplianceFrameworkCode,
 } from '@pilot/shared/compliance';
 import { type GatewayDeps } from '../index.js';
+import { requireWorkspaceRole } from '../lib/workspace.js';
 
 // ─── Compliance routes (Phase 14 Track B) ───
 //
@@ -22,6 +23,8 @@ export function complianceRoutes(deps: GatewayDeps) {
   app.get('/frameworks', async (c) => {
     const workspaceId = c.get('workspaceId');
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view compliance frameworks');
+    if (roleDenied) return roleDenied;
     const [ws] = await deps.db
       .select({ enabled: workspaces.complianceFrameworks })
       .from(workspaces)
@@ -36,6 +39,8 @@ export function complianceRoutes(deps: GatewayDeps) {
   app.post('/frameworks', async (c) => {
     const workspaceId = c.get('workspaceId');
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'change compliance frameworks');
+    if (roleDenied) return roleDenied;
     const body = (await c.req.json().catch(() => ({}))) as { code?: string };
     const parsed = ComplianceFrameworkCodeSchema.safeParse(body.code);
     if (!parsed.success) {
@@ -58,6 +63,8 @@ export function complianceRoutes(deps: GatewayDeps) {
   app.delete('/frameworks/:code', async (c) => {
     const workspaceId = c.get('workspaceId');
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'change compliance frameworks');
+    if (roleDenied) return roleDenied;
     const parsed = ComplianceFrameworkCodeSchema.safeParse(c.req.param('code'));
     if (!parsed.success) return c.json({ error: 'invalid framework code' }, 400);
     const [ws] = await deps.db
@@ -77,6 +84,8 @@ export function complianceRoutes(deps: GatewayDeps) {
   app.post('/attest', async (c) => {
     const workspaceId = c.get('workspaceId');
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'create compliance attestations');
+    if (roleDenied) return roleDenied;
     const body = (await c.req.json().catch(() => ({}))) as { framework?: string };
     const parsed = ComplianceFrameworkCodeSchema.safeParse(body.framework);
     if (!parsed.success) return c.json({ error: 'invalid framework code' }, 400);
@@ -119,6 +128,8 @@ export function complianceRoutes(deps: GatewayDeps) {
   app.get('/attestations', async (c) => {
     const workspaceId = c.get('workspaceId');
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view compliance attestations');
+    if (roleDenied) return roleDenied;
     const rows = await deps.db
       .select()
       .from(complianceAttestations)

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { and, eq, desc } from 'drizzle-orm';
 import { auditLog, approvals, policyViolations, tasks } from '@pilot/db/schema';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId } from '../lib/workspace.js';
+import { getWorkspaceId, requireWorkspaceRole } from '../lib/workspace.js';
 
 export function auditRoutes(deps: GatewayDeps) {
   const app = new Hono();
@@ -11,6 +11,8 @@ export function auditRoutes(deps: GatewayDeps) {
   app.get('/', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view audit ledger');
+    if (roleDenied) return roleDenied;
 
     const limit = Math.min(parseInt(c.req.query('limit') ?? '50', 10), 200);
 
@@ -28,6 +30,8 @@ export function auditRoutes(deps: GatewayDeps) {
   app.get('/approvals', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view approvals');
+    if (roleDenied) return roleDenied;
 
     const status = c.req.query('status');
     const conditions = [eq(approvals.workspaceId, workspaceId)];
@@ -47,6 +51,8 @@ export function auditRoutes(deps: GatewayDeps) {
   app.put('/approvals/:id', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'resolve approvals');
+    if (roleDenied) return roleDenied;
 
     const { id } = c.req.param();
     const userId = c.get('userId');
@@ -96,6 +102,8 @@ export function auditRoutes(deps: GatewayDeps) {
   app.get('/violations', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view policy violations');
+    if (roleDenied) return roleDenied;
 
     const violations = await deps.db
       .select()

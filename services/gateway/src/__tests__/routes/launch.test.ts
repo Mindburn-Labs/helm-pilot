@@ -207,6 +207,25 @@ describe('launchRoutes', () => {
       });
       expect(json).toEqual({ id: 'target-1', name: 'prod', provider: 'digitalocean' });
     });
+
+    it('denies non-owner deploy target creation', async () => {
+      const { fetch } = testApp(launchRoutes);
+      const res = await fetch(
+        'POST',
+        '/targets',
+        {
+          workspaceId: 'ws-1',
+          name: 'prod',
+          provider: 'digitalocean',
+        },
+        { ...wsHeader, 'X-Workspace-Role': 'partner' },
+      );
+      const json = await expectJson<{ error: string; requiredRole: string }>(res, 403);
+
+      expect(json.error).toBe('insufficient workspace role');
+      expect(json.requiredRole).toBe('owner');
+      expect(mockEngine.createDeployTarget).not.toHaveBeenCalled();
+    });
   });
 
   // ─── POST /deployments ───

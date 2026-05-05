@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
-import { tasks } from '@pilot/db/schema';
+import { operators, tasks } from '@pilot/db/schema';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId } from '../lib/workspace.js';
+import { getWorkspaceId, requireWorkspaceRole } from '../lib/workspace.js';
 
 /**
  * Conductor route (Phase 12).
@@ -37,6 +37,8 @@ export function conductRoutes(deps: GatewayDeps) {
   app.post('/conduct', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'run conductor missions');
+    if (roleDenied) return roleDenied;
 
     const body = (await c.req.json().catch(() => ({}))) as {
       taskId?: string;
@@ -50,6 +52,16 @@ export function conductRoutes(deps: GatewayDeps) {
     }
     if (!body.context || typeof body.context !== 'string') {
       return c.json({ error: 'context is required' }, 400);
+    }
+    if (body.operatorId) {
+      const [operator] = await deps.db
+        .select({ id: operators.id })
+        .from(operators)
+        .where(and(eq(operators.id, body.operatorId), eq(operators.workspaceId, workspaceId)))
+        .limit(1);
+      if (!operator) {
+        return c.json({ error: 'operatorId does not belong to authenticated workspace' }, 403);
+      }
     }
 
     // Verify the task belongs to this workspace (tenancy gate).

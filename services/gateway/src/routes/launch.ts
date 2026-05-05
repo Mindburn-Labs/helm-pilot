@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm';
 import { users } from '@pilot/db/schema';
 import { ManagedTelegramReplyInput } from '@pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId, workspaceIdMismatch } from '../lib/workspace.js';
+import { getWorkspaceId, requireWorkspaceRole, workspaceIdMismatch } from '../lib/workspace.js';
 import { ManagedTelegramBotError } from '../services/managed-telegram-bots.js';
 
 export function launchRoutes(deps: GatewayDeps) {
@@ -28,6 +28,8 @@ export function launchRoutes(deps: GatewayDeps) {
     const userId = c.get('userId');
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
     if (!userId) return c.json({ error: 'userId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'create managed launch bot');
+    if (roleDenied) return roleDenied;
 
     const [user] = await deps.db.select().from(users).where(eq(users.id, userId)).limit(1);
     if (!user?.telegramId) {
@@ -53,6 +55,8 @@ export function launchRoutes(deps: GatewayDeps) {
     const userId = c.get('userId');
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
     if (!userId) return c.json({ error: 'userId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'update managed launch bot settings');
+    if (roleDenied) return roleDenied;
     const body = await c.req.json().catch(() => null);
     try {
       const bot = await deps.managedTelegram.updateSettings(workspaceId, userId, body);
@@ -78,6 +82,8 @@ export function launchRoutes(deps: GatewayDeps) {
     const userId = c.get('userId');
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
     if (!userId) return c.json({ error: 'userId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'send managed launch bot replies');
+    if (roleDenied) return roleDenied;
     const parsed = ManagedTelegramReplyInput.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     try {
@@ -100,6 +106,8 @@ export function launchRoutes(deps: GatewayDeps) {
     const userId = c.get('userId');
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
     if (!userId) return c.json({ error: 'userId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'rotate managed launch bot token');
+    if (roleDenied) return roleDenied;
     try {
       return c.json(await deps.managedTelegram.rotateToken(workspaceId, userId));
     } catch (err) {
@@ -114,6 +122,8 @@ export function launchRoutes(deps: GatewayDeps) {
     const userId = c.get('userId');
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
     if (!userId) return c.json({ error: 'userId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'disable managed launch bot');
+    if (roleDenied) return roleDenied;
     try {
       return c.json(await deps.managedTelegram.disable(workspaceId, userId));
     } catch (err) {
@@ -170,6 +180,8 @@ export function launchRoutes(deps: GatewayDeps) {
     if (!workspaceId || !name || !provider) {
       return c.json({ error: 'workspaceId, name, and provider required' }, 400);
     }
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'create deploy targets');
+    if (roleDenied) return roleDenied;
     const target = await engine.createDeployTarget(workspaceId, { name, provider, config });
     return c.json(target, 201);
   });
@@ -194,6 +206,8 @@ export function launchRoutes(deps: GatewayDeps) {
     if (!workspaceId || !targetId) {
       return c.json({ error: 'workspaceId and targetId required' }, 400);
     }
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'execute deployments');
+    if (roleDenied) return roleDenied;
     const target = await engine.getDeployTarget(targetId, workspaceId);
     if (!target) {
       return c.json({ error: 'Deploy target not found' }, 404);
@@ -233,6 +247,8 @@ export function launchRoutes(deps: GatewayDeps) {
   app.put('/deployments/:id/status', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'update deployment status');
+    if (roleDenied) return roleDenied;
 
     const { id } = c.req.param();
     const body = await c.req.json();
@@ -250,6 +266,8 @@ export function launchRoutes(deps: GatewayDeps) {
   app.post('/deployments/:id/health', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'run deployment health checks');
+    if (roleDenied) return roleDenied;
 
     const { id } = c.req.param();
     const deployment = await engine.getDeployment(id, workspaceId);
@@ -285,6 +303,8 @@ export function launchRoutes(deps: GatewayDeps) {
   app.post('/deployments/:id/rollback', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'rollback deployments');
+    if (roleDenied) return roleDenied;
 
     const { id } = c.req.param();
     const body = await c.req.json();

@@ -25,8 +25,8 @@ This is the control artifact for moving Pilot from a governed agent/task prototy
 | ---------------------------- | ------------- | ---------------- | -------------------------------------------------------------- |
 | `mission_runtime`            | `blocked`     | Foundation Agent | Full Startup Launch Eval and Multi-Agent Parallel Build Eval   |
 | `helm_receipts`              | `implemented` | Governance Agent | HELM Governance Eval                                           |
-| `workspace_rbac`             | `blocked`     | Governance Agent | HELM Governance Eval and RBAC regressions                      |
-| `operator_scoping`           | `blocked`     | Governance Agent | Cross-workspace operator rejection regression                  |
+| `workspace_rbac`             | `implemented` | Governance Agent | HELM Governance Eval and RBAC regressions                      |
+| `operator_scoping`           | `implemented` | Governance Agent | Cross-workspace operator rejection regression                  |
 | `decision_court`             | `stub`        | Decision Agent   | Decision Court Governed Model Eval                             |
 | `skill_registry_runtime`     | `blocked`     | Runtime Agent    | Skill Invocation Governance Eval                               |
 | `opportunity_scoring`        | `stub`        | Tooling Agent    | PMF Discovery Eval                                             |

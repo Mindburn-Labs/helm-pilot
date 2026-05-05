@@ -166,6 +166,43 @@ describe('authRoutes', () => {
       const json = await expectJson<{ userId: string }>(ok, 200);
       expect(json.userId).toBe('user-1');
     });
+
+    it('sets workspaceRole from the authenticated membership', async () => {
+      const deps = createMockDeps();
+      let selectCall = 0;
+      deps.db.select = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => {
+              selectCall++;
+              const rows =
+                selectCall === 1
+                  ? [mockSession({ token: 'session-token', createdAt: new Date() })]
+                  : [mockMembership({ workspaceId: 'ws-1', role: 'partner' })];
+              return { then: (r: any) => r(rows) };
+            }),
+          })),
+        })),
+      })) as any;
+
+      const app = new Hono();
+      app.use('*', requireAuth(deps.db as any));
+      app.get('/protected', (c) =>
+        c.json({ userId: c.get('userId'), workspaceRole: c.get('workspaceRole') }),
+      );
+
+      const res = await app.fetch(
+        new Request('http://localhost/protected', {
+          headers: {
+            Authorization: 'Bearer session-token',
+            'X-Workspace-Id': 'ws-1',
+          },
+        }),
+      );
+      const json = await expectJson<{ userId: string; workspaceRole: string }>(res, 200);
+      expect(json.userId).toBe('user-1');
+      expect(json.workspaceRole).toBe('partner');
+    });
   });
 
   // ─── POST /email/request ───

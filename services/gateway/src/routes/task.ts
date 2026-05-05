@@ -1,9 +1,9 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { and, desc, eq } from 'drizzle-orm';
-import { tasks, taskRuns } from '@pilot/db/schema';
+import { operators, tasks, taskRuns } from '@pilot/db/schema';
 import { CreateTaskInput, TaskStatusSchema } from '@pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId, workspaceIdMismatch } from '../lib/workspace.js';
+import { getWorkspaceId, requireWorkspaceRole, workspaceIdMismatch } from '../lib/workspace.js';
 
 export function taskRoutes(deps: GatewayDeps) {
   const app = new Hono();
@@ -26,6 +26,8 @@ export function taskRoutes(deps: GatewayDeps) {
   app.post('/', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'create workspace tasks');
+    if (roleDenied) return roleDenied;
     const raw = await c.req.json();
     if (workspaceIdMismatch(c, raw.workspaceId)) {
       return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
@@ -40,6 +42,9 @@ export function taskRoutes(deps: GatewayDeps) {
     }
 
     const body = parsed.data;
+    const operatorDenied = await requireWorkspaceOperator(deps, c, workspaceId, body.operatorId);
+    if (operatorDenied) return operatorDenied;
+
     const [task] = await deps.db
       .insert(tasks)
       .values({
@@ -70,6 +75,8 @@ export function taskRoutes(deps: GatewayDeps) {
   app.put('/:id/status', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'mutate workspace task status');
+    if (roleDenied) return roleDenied;
 
     const { id } = c.req.param();
     const raw = (await c.req.json()) as { status?: string };
@@ -104,6 +111,8 @@ export function taskRoutes(deps: GatewayDeps) {
   app.post('/:id/run', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'run workspace tasks');
+    if (roleDenied) return roleDenied;
 
     const { id } = c.req.param();
     const [task] = await deps.db
@@ -159,6 +168,24 @@ export function taskRoutes(deps: GatewayDeps) {
   });
 
   return app;
+}
+
+async function requireWorkspaceOperator(
+  deps: GatewayDeps,
+  c: Context,
+  workspaceId: string,
+  operatorId?: string,
+): Promise<Response | null> {
+  if (!operatorId) return null;
+  const [operator] = await deps.db
+    .select({ id: operators.id })
+    .from(operators)
+    .where(and(eq(operators.id, operatorId), eq(operators.workspaceId, workspaceId)))
+    .limit(1);
+  if (!operator) {
+    return c.json({ error: 'operatorId does not belong to authenticated workspace' }, 403);
+  }
+  return null;
 }
 
 async function executeTaskRun(

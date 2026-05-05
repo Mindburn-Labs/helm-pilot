@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { TenantSecretStore } from '@pilot/db/tenant-secret-store';
 import { SECRET_KINDS, type SecretKind, SecretDecryptionError } from '@pilot/shared/secrets';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId } from '../lib/workspace.js';
+import { getWorkspaceId, requireWorkspaceRole } from '../lib/workspace.js';
 
 /**
  * Per-tenant secret management.
@@ -23,6 +23,8 @@ export function secretsRoutes(deps: GatewayDeps) {
   app.get('/', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'inspect workspace secret metadata');
+    if (roleDenied) return roleDenied;
     const rows = await store.list(workspaceId);
     return c.json({ secrets: rows });
   });
@@ -35,6 +37,8 @@ export function secretsRoutes(deps: GatewayDeps) {
   app.put('/:kind', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'write workspace secrets');
+    if (roleDenied) return roleDenied;
 
     const kind = c.req.param('kind') as SecretKind;
     if (!isValidKind(kind)) {
@@ -61,6 +65,8 @@ export function secretsRoutes(deps: GatewayDeps) {
   app.delete('/:kind', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'delete workspace secrets');
+    if (roleDenied) return roleDenied;
     const kind = c.req.param('kind') as SecretKind;
     const deleted = await store.delete(workspaceId, kind);
     if (!deleted) return c.json({ error: 'Secret not found' }, 404);
@@ -75,6 +81,8 @@ export function secretsRoutes(deps: GatewayDeps) {
   app.post('/:kind/verify', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'verify workspace secrets');
+    if (roleDenied) return roleDenied;
     const kind = c.req.param('kind') as SecretKind;
     try {
       const value = await store.get(workspaceId, kind);

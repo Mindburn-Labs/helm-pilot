@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { operators, operatorRoles, operatorConfigs } from '@pilot/db/schema';
 import { CreateOperatorInput, UpdateOperatorInput } from '@pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId, workspaceIdMismatch } from '../lib/workspace.js';
+import { getWorkspaceId, requireWorkspaceRole, workspaceIdMismatch } from '../lib/workspace.js';
 
 export function operatorRoutes(deps: GatewayDeps) {
   const app = new Hono();
@@ -23,6 +23,8 @@ export function operatorRoutes(deps: GatewayDeps) {
   app.post('/', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'create workspace operators');
+    if (roleDenied) return roleDenied;
     const raw = await c.req.json();
     if (workspaceIdMismatch(c, raw.workspaceId)) {
       return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
@@ -93,6 +95,8 @@ export function operatorRoutes(deps: GatewayDeps) {
     const { id } = c.req.param();
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'mutate workspace operators');
+    if (roleDenied) return roleDenied;
 
     const raw = await c.req.json();
     const parsed = UpdateOperatorInput.safeParse(raw);

@@ -15,6 +15,7 @@ declare module 'hono' {
   interface ContextVariableMap {
     userId: string;
     workspaceId: string;
+    workspaceRole: string;
   }
 }
 
@@ -103,6 +104,7 @@ export function requireAuth(db: Db) {
         return c.json({ error: 'Not a member of this workspace' }, 403);
       }
       c.set('workspaceId', workspaceId);
+      c.set('workspaceRole', membership.role);
     }
 
     c.set('userId', userId);

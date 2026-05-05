@@ -9,6 +9,7 @@ function appWithContext(routeFactory: typeof launchRoutes, deps = createMockDeps
   app.use('*', async (c, next) => {
     c.set('userId', 'user-1');
     c.set('workspaceId', 'ws-1');
+    c.set('workspaceRole', 'owner');
     await next();
   });
   app.route('/', routeFactory(deps));
