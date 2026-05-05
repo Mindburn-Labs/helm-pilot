@@ -1,11 +1,12 @@
 import type { Db } from '@pilot/db/client';
 import type { MemoryService } from '@pilot/memory';
 import { OperatorComputerUseInput, ScraplingFetchInput } from '@pilot/shared/schemas';
-import { getCapabilityRecord } from '@pilot/shared/capabilities';
+import { getCapabilityRecord, type CapabilityKey } from '@pilot/shared/capabilities';
 import { SubagentSpawnRequestSchema, SubagentParallelRequestSchema } from '@pilot/shared/subagents';
 import type { HelmClient } from '@pilot/helm-client';
 import { withToolSpan } from '@pilot/shared/otel';
 import type { McpClient } from '@pilot/shared/mcp';
+import { scoreOpportunityEvidence } from '@pilot/shared/scoring';
 import type { ToolDef } from './agent-loop.js';
 import type { Conductor, ParentContext } from './conductor.js';
 import { sanitizeToolOutput } from './sanitize-output.js';
@@ -173,10 +174,22 @@ export class ToolRegistry {
       .map((t) => ({ name: t.name, description: t.description }));
   }
 
+  getToolManifest(name: string): ToolManifest | undefined {
+    const tool = this.tools.get(name);
+    if (!tool) return undefined;
+    return normalizeToolManifest(name, tool.manifest);
+  }
+
   /** Execute a tool by name */
   async execute(name: string, input: unknown, context?: ToolExecutionContext): Promise<unknown> {
     const tool = this.tools.get(name);
     if (!tool) return { error: `Unknown tool: ${name}` };
+    if (tool.stub && !isExplicitDemoToolMode()) {
+      return {
+        error: `Tool ${name} is marked as stub-only and is unavailable to autonomous agents outside explicit demo/test mode`,
+        capability: tool.capabilityKey ? getCapabilityRecord(tool.capabilityKey) : undefined,
+      };
+    }
     const boundInput =
       context && !name.startsWith('mcp.') ? bindToolContext(input, context) : input;
     const previousParentContext = this.parentContext;
@@ -511,21 +524,68 @@ export class ToolRegistry {
     this.register({
       name: 'score_opportunity',
       description:
-        'Score an opportunity (enqueues background job). Input: {"opportunityId": "..."}',
+        'Score an opportunity with evidence-backed startup criteria. Input: {"opportunityId": "...", "founderSignals": ["..."], "citations": [{"url":"...","title":"...","note":"..."}]}',
       modes: ['discover'],
+      capabilityKey: 'opportunity_scoring',
+      manifest: {
+        key: 'score_opportunity',
+        version: 'evidence_v1',
+        riskClass: 'low',
+        effectLevel: 'E1',
+        requiredEvidence: ['opportunity_score', 'citations'],
+        permissionRequirements: ['opportunity:score'],
+        outputSensitivity: 'internal',
+      },
       execute: async (input) => {
         const capability = getCapabilityRecord('opportunity_scoring');
-        const { opportunityId } = input as { opportunityId: string };
+        const { opportunityId, workspaceId, founderSignals, citations } = input as {
+          opportunityId: string;
+          workspaceId?: string;
+          founderSignals?: string[];
+          citations?: Array<{ url?: string; title?: string; note?: string }>;
+        };
         // Verify opportunity exists
-        const { opportunities } = await import('@pilot/db/schema');
-        const { eq } = await import('drizzle-orm');
+        const { opportunities, opportunityScores } = await import('@pilot/db/schema');
+        const { and, eq } = await import('drizzle-orm');
         const [opp] = await this.db
           .select()
           .from(opportunities)
-          .where(eq(opportunities.id, opportunityId))
+          .where(
+            workspaceId
+              ? and(eq(opportunities.id, opportunityId), eq(opportunities.workspaceId, workspaceId))
+              : eq(opportunities.id, opportunityId),
+          )
           .limit(1);
         if (!opp) return { error: 'Opportunity not found', capability };
-        return { queued: true, opportunityId, message: 'Scoring job enqueued', capability };
+        const score = scoreOpportunityEvidence({
+          title: opp.title,
+          description: opp.description,
+          source: opp.source,
+          sourceUrl: opp.sourceUrl ?? undefined,
+          rawData: opp.rawData,
+          aiFriendlyOk: Boolean(opp.aiFriendlyOk),
+          founderSignals: Array.isArray(founderSignals) ? founderSignals : [],
+          citations: Array.isArray(citations) ? citations : [],
+        });
+        await this.db.insert(opportunityScores).values({
+          opportunityId,
+          overallScore: score.overall,
+          founderFitScore: score.dimensions.founderFit,
+          marketSignal: score.dimensions.marketPain,
+          feasibility: score.dimensions.technicalFeasibility,
+          timing: score.dimensions.urgency,
+          scoringMethod: 'evidence_v1',
+        });
+        await this.db
+          .update(opportunities)
+          .set({ status: 'scored' })
+          .where(eq(opportunities.id, opportunityId));
+        return {
+          opportunityId,
+          method: 'evidence_v1',
+          ...score,
+          capability,
+        };
       },
     });
 
@@ -1529,11 +1589,27 @@ export class ToolRegistry {
   }
 }
 
+export type ToolRiskClass = 'low' | 'medium' | 'high' | 'restricted';
+export type ToolEffectLevel = 'E1' | 'E2' | 'E3' | 'E4';
+
+export interface ToolManifest {
+  key: string;
+  version: string;
+  riskClass: ToolRiskClass;
+  effectLevel: ToolEffectLevel;
+  requiredEvidence: string[];
+  permissionRequirements: string[];
+  outputSensitivity: 'public' | 'internal' | 'sensitive';
+}
+
 export interface Tool {
   name: string;
   description: string;
   /** If set, tool is only available in these product modes. Unset = all modes. */
   modes?: string[];
+  manifest?: Partial<ToolManifest>;
+  stub?: boolean;
+  capabilityKey?: CapabilityKey;
   execute: (input: unknown) => Promise<unknown>;
 }
 
@@ -1544,9 +1620,76 @@ export interface ToolExecutionContext {
   operatorId?: string;
   approvalId?: string;
   policyVersion?: string;
+  policyDecisionId?: string;
   actionHash?: string;
   parentTaskRunId?: string;
   rootTaskRunId?: string;
+  ventureId?: string;
+  missionId?: string;
+  evidenceIds?: string[];
+}
+
+function normalizeToolManifest(name: string, manifest?: Partial<ToolManifest>): ToolManifest {
+  const effectLevel = manifest?.effectLevel ?? inferToolEffectLevel(name);
+  return {
+    key: manifest?.key ?? name,
+    version: manifest?.version ?? 'inferred:v1',
+    riskClass: manifest?.riskClass ?? effectLevelToRiskClass(effectLevel),
+    effectLevel,
+    requiredEvidence: manifest?.requiredEvidence ?? inferRequiredEvidence(name),
+    permissionRequirements: manifest?.permissionRequirements ?? [`tool:${name}:execute`],
+    outputSensitivity: manifest?.outputSensitivity ?? inferOutputSensitivity(name),
+  };
+}
+
+function inferToolEffectLevel(name: string): ToolEffectLevel {
+  if (
+    name.includes('delete') ||
+    name.includes('stripe') ||
+    name.includes('payment') ||
+    name.includes('domain.purchase') ||
+    name.includes('company_formation')
+  ) {
+    return 'E4';
+  }
+  if (
+    name.includes('deploy') ||
+    name.includes('rollback') ||
+    name.includes('send') ||
+    name.includes('write') ||
+    name.includes('subagent.')
+  ) {
+    return 'E3';
+  }
+  if (name.includes('scrapling') || name.includes('mcp.') || name.includes('fetch')) return 'E2';
+  return 'E1';
+}
+
+function effectLevelToRiskClass(effectLevel: ToolEffectLevel): ToolRiskClass {
+  if (effectLevel === 'E4') return 'restricted';
+  if (effectLevel === 'E3') return 'high';
+  if (effectLevel === 'E2') return 'medium';
+  return 'low';
+}
+
+function inferRequiredEvidence(name: string): string[] {
+  if (name === 'finish') return ['run_summary'];
+  if (name === 'score_opportunity') return ['opportunity_score', 'citations'];
+  if (name.includes('scrapling') || name.includes('fetch')) return ['source_snapshot'];
+  if (name.includes('deploy') || name.includes('rollback')) return ['deployment_log'];
+  if (name.includes('subagent.')) return ['subagent_run_summary'];
+  return ['tool_result'];
+}
+
+function inferOutputSensitivity(name: string): ToolManifest['outputSensitivity'] {
+  if (name.includes('connector') || name.includes('email') || name.includes('mcp.')) {
+    return 'sensitive';
+  }
+  return 'internal';
+}
+
+function isExplicitDemoToolMode(): boolean {
+  return process.env['PILOT_TOOL_DEMO_MODE'] === '1';
 }
 
 function bindToolContext(input: unknown, context: ToolExecutionContext): unknown {
@@ -1559,8 +1702,11 @@ function bindToolContext(input: unknown, context: ToolExecutionContext): unknown
     ...(context.operatorId ? { operatorId: context.operatorId } : {}),
     ...(context.approvalId ? { approvalId: context.approvalId } : {}),
     ...(context.policyVersion ? { policyVersion: context.policyVersion } : {}),
+    ...(context.policyDecisionId ? { policyDecisionId: context.policyDecisionId } : {}),
     ...(context.actionHash ? { actionHash: context.actionHash } : {}),
     ...(context.parentTaskRunId ? { parentTaskRunId: context.parentTaskRunId } : {}),
     ...(context.rootTaskRunId ? { rootTaskRunId: context.rootTaskRunId } : {}),
+    ...(context.ventureId ? { ventureId: context.ventureId } : {}),
+    ...(context.missionId ? { missionId: context.missionId } : {}),
   };
 }

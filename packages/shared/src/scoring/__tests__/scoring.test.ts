@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   heuristicScore,
   scoreOpportunity,
+  scoreOpportunityEvidence,
   scoreWithLlm,
   OPPORTUNITY_SCORE_PROMPT_VERSION,
   buildOpportunityScorePrompt,
@@ -56,6 +57,48 @@ describe('heuristicScore', () => {
     const short = heuristicScore({ ...validInput, description: 'x' });
     const long = heuristicScore({ ...validInput, description: 'x'.repeat(3000) });
     expect(long.overall).toBeGreaterThan(short.overall);
+  });
+});
+
+describe('scoreOpportunityEvidence', () => {
+  it('returns evidence-backed dimensions, assumptions, citations, and confidence', () => {
+    const result = scoreOpportunityEvidence({
+      title: 'AI compliance workflow for finance teams',
+      description:
+        'Finance teams have urgent, manual, expensive compliance workflows with clear ROI and paid budget.',
+      source: 'yc',
+      sourceUrl: 'https://example.com/source',
+      rawData: { quote: 'manual process is slow' },
+      aiFriendlyOk: true,
+      founderSignals: ['finance automation', 'compliance'],
+      citations: [{ url: 'https://example.com/source', title: 'Source' }],
+    });
+
+    expect(result.overall).toBeGreaterThan(0);
+    expect(result.dimensions.marketPain).toBeGreaterThan(35);
+    expect(result.dimensions.urgency).toBeGreaterThan(30);
+    expect(result.dimensions.confidence).toBeGreaterThan(0);
+    expect(result.assumptions.length).toBeGreaterThan(0);
+    expect(result.citations).toEqual([{ url: 'https://example.com/source', title: 'Source' }]);
+    expect(result.rationale).toContain('Evidence-backed score');
+  });
+
+  it('falls back to source URL as citation when explicit citations are absent', () => {
+    const result = scoreOpportunityEvidence({
+      title: 'Manual CRM cleanup',
+      description: 'Sales teams waste time on broken manual data cleanup.',
+      source: 'manual',
+      sourceUrl: 'https://example.com/manual',
+      rawData: null,
+      aiFriendlyOk: false,
+      founderSignals: [],
+      citations: [],
+    });
+
+    expect(result.citations).toEqual([{ url: 'https://example.com/manual', title: 'manual' }]);
+    expect(result.assumptions).toContain(
+      'Founder fit used generic AI-friendly/default signals because no founder signals were supplied.',
+    );
   });
 });
 

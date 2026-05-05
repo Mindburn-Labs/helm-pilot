@@ -319,6 +319,49 @@ describe('ToolRegistry', () => {
       const result = await registry.execute('throws_string', {});
       expect(result).toEqual({ error: 'Tool execution failed' });
     });
+
+    it('rejects stub tools unless explicit demo mode is enabled', async () => {
+      const previous = process.env['PILOT_TOOL_DEMO_MODE'];
+      delete process.env['PILOT_TOOL_DEMO_MODE'];
+      const registry = createRegistry();
+      const executeFn = vi.fn(async () => ({ ok: true }));
+      registry.register({
+        name: 'stub_only',
+        description: 'Stub-only test tool',
+        stub: true,
+        capabilityKey: 'opportunity_scoring',
+        execute: executeFn,
+      });
+
+      const result = await registry.execute('stub_only', {});
+
+      expect(executeFn).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        error:
+          'Tool stub_only is marked as stub-only and is unavailable to autonomous agents outside explicit demo/test mode',
+        capability: getCapabilityRecord('opportunity_scoring'),
+      });
+      if (previous === undefined) delete process.env['PILOT_TOOL_DEMO_MODE'];
+      else process.env['PILOT_TOOL_DEMO_MODE'] = previous;
+    });
+
+    it('allows stub tools only when explicit demo mode is enabled', async () => {
+      const previous = process.env['PILOT_TOOL_DEMO_MODE'];
+      process.env['PILOT_TOOL_DEMO_MODE'] = '1';
+      const registry = createRegistry();
+      registry.register({
+        name: 'demo_stub',
+        description: 'Demo stub tool',
+        stub: true,
+        execute: async () => ({ ok: true }),
+      });
+
+      const result = await registry.execute('demo_stub', {});
+
+      expect(result).toEqual({ ok: true });
+      if (previous === undefined) delete process.env['PILOT_TOOL_DEMO_MODE'];
+      else process.env['PILOT_TOOL_DEMO_MODE'] = previous;
+    });
   });
 
   // ─── Built-in tool behaviors ───
@@ -423,25 +466,79 @@ describe('ToolRegistry', () => {
   });
 
   describe('built-in: score_opportunity', () => {
-    it('returns capability metadata with the stub scoring enqueue result', async () => {
+    it('returns an evidence-backed scorecard and persists score rows', async () => {
+      const insertValues = vi.fn(async () => []);
+      const updateWhere = vi.fn(async () => []);
+      const updateSet = vi.fn(() => ({ where: updateWhere }));
       const db = {
         select: vi.fn(() => ({
           from: vi.fn(() => ({
             where: vi.fn(() => ({
-              limit: vi.fn(async () => [{ id: 'opp-1' }]),
+              limit: vi.fn(async () => [
+                {
+                  id: 'opp-1',
+                  title: 'AI compliance workflow for finance teams',
+                  description:
+                    'Finance teams have urgent, manual, expensive compliance workflows with clear ROI and paid budget.',
+                  source: 'yc',
+                  sourceUrl: 'https://example.com/source',
+                  rawData: { quote: 'manual process is slow' },
+                  aiFriendlyOk: true,
+                },
+              ]),
             })),
           })),
         })),
+        insert: vi.fn(() => ({ values: insertValues })),
+        update: vi.fn(() => ({ set: updateSet })),
       };
       const registry = createRegistryWithDb(db);
 
-      const result = await registry.execute('score_opportunity', { opportunityId: 'opp-1' });
-
-      expect(result).toEqual({
-        queued: true,
+      const result = await registry.execute('score_opportunity', {
         opportunityId: 'opp-1',
-        message: 'Scoring job enqueued',
+        founderSignals: ['finance automation', 'compliance'],
+        citations: [{ url: 'https://example.com/source', title: 'Source' }],
+      });
+
+      expect(result).toMatchObject({
+        opportunityId: 'opp-1',
+        method: 'evidence_v1',
         capability: getCapabilityRecord('opportunity_scoring'),
+        dimensions: {
+          marketPain: expect.any(Number),
+          urgency: expect.any(Number),
+          icpClarity: expect.any(Number),
+          monetization: expect.any(Number),
+          channelAccessibility: expect.any(Number),
+          competition: expect.any(Number),
+          founderFit: expect.any(Number),
+          technicalFeasibility: expect.any(Number),
+          evidenceQuality: expect.any(Number),
+          confidence: expect.any(Number),
+        },
+      });
+      expect((result as { overall: number }).overall).toBeGreaterThan(0);
+      expect((result as { assumptions: string[] }).assumptions.length).toBeGreaterThan(0);
+      expect((result as { citations: unknown[] }).citations).toHaveLength(1);
+      expect(insertValues).toHaveBeenCalledWith(
+        expect.objectContaining({
+          opportunityId: 'opp-1',
+          scoringMethod: 'evidence_v1',
+        }),
+      );
+      expect(updateSet).toHaveBeenCalledWith({ status: 'scored' });
+    }, 10_000);
+
+    it('exposes a typed manifest for opportunity scoring', () => {
+      const registry = createRegistry();
+
+      expect(registry.getToolManifest('score_opportunity')).toMatchObject({
+        key: 'score_opportunity',
+        version: 'evidence_v1',
+        riskClass: 'low',
+        effectLevel: 'E1',
+        requiredEvidence: ['opportunity_score', 'citations'],
+        permissionRequirements: ['opportunity:score'],
       });
     });
   });

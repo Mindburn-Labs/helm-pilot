@@ -19,6 +19,7 @@ import { emitConductEvent } from './conduct-stream.js';
 import { validateL1 } from '@pilot/shared/conformance';
 import { createLogger } from '@pilot/shared/logger';
 import { CHECKPOINT_EVERY_N_ITERATIONS, writeCheckpoint } from './checkpoint.js';
+import { ToolBroker } from './tool-broker.js';
 
 const l1InferenceLog = createLogger('agent-loop-l1');
 
@@ -48,13 +49,16 @@ export type ApprovalNotifyFn = (
 export class AgentLoop {
   private llm: LlmProvider | null = null;
   private tools: ToolRegistry | null = null;
+  private readonly toolBroker: ToolBroker;
   private onApproval: ApprovalNotifyFn | null = null;
 
   constructor(
     readonly db: Db,
     private readonly trust: TrustBoundary,
     private helmClient?: HelmClient,
-  ) {}
+  ) {
+    this.toolBroker = new ToolBroker(db);
+  }
 
   setHelmClient(helmClient: HelmClient | undefined): void {
     this.helmClient = helmClient;
@@ -745,15 +749,26 @@ export class AgentLoop {
         workspaceId: params.workspaceId,
         taskId: params.taskId,
         policyVersion: this.currentPolicyVersion(),
+        ...(this.lastToolGovernance?.decisionId
+          ? { policyDecisionId: this.lastToolGovernance.decisionId }
+          : {}),
         actionHash: computeActionHash(action),
         ...(params.operatorId ? { operatorId: params.operatorId } : {}),
+        ...(params.ventureId ? { ventureId: params.ventureId } : {}),
+        ...(params.missionId ? { missionId: params.missionId } : {}),
         ...(approvalId ? { approvalId } : {}),
         ...(parentTaskRunId ? { parentTaskRunId } : {}),
         ...(this.currentSubagentFrame?.rootTaskRunId
           ? { rootTaskRunId: this.currentSubagentFrame.rootTaskRunId }
           : {}),
       };
-      return await this.tools.execute(action.tool, action.input, context);
+      const brokered = await this.toolBroker.execute(
+        this.tools,
+        action.tool,
+        action.input,
+        context,
+      );
+      return brokered.output;
     } catch (err) {
       captureException(err, {
         tags: { tool: action.tool, source: 'executeAction' },
@@ -1229,6 +1244,8 @@ function parsePlanResponse(response: string): Pick<ActionRecord, 'tool' | 'input
 export interface AgentRunParams {
   taskId: string;
   workspaceId: string;
+  ventureId?: string;
+  missionId?: string;
   operatorId?: string;
   iterationBudget?: number;
   context: string;

@@ -194,16 +194,20 @@ const capabilityRecords = validateCapabilityRecords([
   {
     key: 'opportunity_scoring',
     name: 'Opportunity scoring',
-    state: 'stub',
+    state: 'implemented',
     summary:
-      'Opportunity scoring is not yet a real evidence-backed startup evaluation across pain, urgency, ICP, channel, competition, founder fit, feasibility, confidence, and citations.',
+      'score_opportunity returns an evidence-backed startup scorecard across pain, urgency, ICP, monetization, channel, competition, founder fit, feasibility, evidence quality, confidence, assumptions, and citations.',
     owner: 'Tooling Agent',
     blockers: [
-      'score_opportunity is not a complete evidence-backed implementation',
-      'opportunity_scout is not wired to durable evidence and assumptions',
-      'Scoring output is not attached to tool execution, evidence, and audit records',
+      'PMF Discovery Eval has not promoted the capability to production_ready',
+      'Scoring rationale and citations are persisted through tool_executions/audit metadata, but not yet a first-class Evidence Center artifact pack',
+      'Scoring remains deterministic evidence scoring until governed LLM scorer promotion has eval coverage',
     ],
-    evidence: ['Gate 5 must replace stub scoring with a governed tool implementation'],
+    evidence: [
+      'Gate 5 score_opportunity persists opportunity_scores, returns dimensions/citations/assumptions, and updates opportunity status',
+      'Tool Broker records action/tool_execution/audit metadata for autonomous score_opportunity calls',
+      'opportunity_scout tool scope includes create_opportunity and score_opportunity so scraped candidates can be persisted before scoring',
+    ],
     evalRequirement: 'PMF Discovery Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,
   },
