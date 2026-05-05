@@ -303,7 +303,7 @@ const capabilityRecords = validateCapabilityRecords([
     owner: 'Runtime Agent',
     blockers: [
       'Proof DAG Lineage Regression has not promoted the capability to production_ready',
-      'Command Center still needs a dedicated proof-DAG view instead of raw task_run/handoff rows',
+      'Command Center has an API proof-DAG route but still needs a founder-facing proof-DAG UI',
       'Nested mission-level replay and recovery evals have not proven lineage across checkpoint boundaries',
     ],
     evidence: [
@@ -312,6 +312,7 @@ const capabilityRecords = validateCapabilityRecords([
       'Conductor writes a subagent_spawn task_run row, attaches the SUBAGENT_SPAWN evidence pack to that row, and fails closed if persistence/attachment fails',
       'SubagentLoop persists child actions with lineage_kind=subagent_action anchored to the subagent task_run root/parent frame',
       'agent_handoffs records parent_task_run_id, child_task_run_id, handoff status, skill metadata, input, and output',
+      'Gateway exposes /api/command-center/proof-dag/:taskRunId for workspace-scoped parent/spawn/child/evidence DAG inspection',
       'orchestrator tests cover parent anchor pre-persistence, spawn row lineage fields, child action lineage fields, evidence attachment failure, handoff persistence failure, and concurrent subagent spawn isolation',
     ],
     evalRequirement: 'Proof DAG Lineage Regression',
@@ -326,7 +327,7 @@ const capabilityRecords = validateCapabilityRecords([
     owner: 'Foundation Agent',
     blockers: [
       'Approval Resume Isolation Regression has not promoted the capability to production_ready',
-      'Subagent proof DAG lineage is still blocked, so child-row replay opt-in is not exposed as a production workflow',
+      'Subagent proof DAG lineage is implemented but not production_ready, so child-row replay opt-in is not exposed as a production workflow',
       'Long-running mission replay and recovery evals have not proven resume behavior across mission-level checkpoints',
     ],
     evidence: [
@@ -369,6 +370,7 @@ const capabilityRecords = validateCapabilityRecords([
     ],
     evidence: [
       'Gate 8 adds /api/command-center backed by durable task/action/tool/evidence/browser/computer/artifact/audit/approval/handoff rows',
+      'Gate 8 adds /api/command-center/proof-dag/:taskRunId for subagent proof DAG inspection without production promotion',
       'apps/web /command-center renders capability truth, blocked mission runtime, receipt chips, evidence drawers, browser/computer replay rows, and escalation state from the API',
     ],
     evalRequirement: 'Command Center Real-State UX Eval',

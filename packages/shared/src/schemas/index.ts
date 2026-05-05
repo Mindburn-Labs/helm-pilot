@@ -100,8 +100,10 @@ export {
 } from './managed-telegram.js';
 
 export {
+  type CommandCenterProofDagResponse,
   type CommandCenterResponse,
   type CommandCenterRuntimeTruth,
+  CommandCenterProofDagResponseSchema,
   CommandCenterResponseSchema,
   CommandCenterRuntimeTruthSchema,
 } from './command-center.js';

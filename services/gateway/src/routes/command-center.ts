@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, or } from 'drizzle-orm';
 import {
   actions,
   agentHandoffs,
@@ -19,7 +19,10 @@ import {
   getCapabilitySummary,
   type CapabilityKey,
 } from '@pilot/shared/capabilities';
-import { CommandCenterResponseSchema } from '@pilot/shared/schemas';
+import {
+  CommandCenterProofDagResponseSchema,
+  CommandCenterResponseSchema,
+} from '@pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId, getWorkspaceRole, requireWorkspaceRole } from '../lib/workspace.js';
 
@@ -183,6 +186,100 @@ export function commandCenterRoutes(deps: GatewayDeps) {
         agentHandoffs: handoffRows,
         artifacts: artifactRows,
       },
+    });
+
+    return c.json(response);
+  });
+
+  app.get('/proof-dag/:taskRunId', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view subagent proof DAG');
+    if (roleDenied) return roleDenied;
+
+    const rootTaskRunId = c.req.param('taskRunId');
+    const capability = getCapabilityRecord('subagent_lineage');
+    if (!capability) return c.json({ error: 'capability registry incomplete' }, 500);
+
+    const [rootRun] = await deps.db
+      .select()
+      .from(taskRuns)
+      .where(eq(taskRuns.id, rootTaskRunId))
+      .limit(1);
+    if (!rootRun) return c.json({ error: 'Task run not found' }, 404);
+
+    const [task] = await deps.db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(and(eq(tasks.id, rootRun.taskId), eq(tasks.workspaceId, workspaceId)))
+      .limit(1);
+    if (!task) return c.json({ error: 'Task run not found in workspace' }, 404);
+
+    const taskRunRows = await deps.db
+      .select()
+      .from(taskRuns)
+      .where(
+        and(
+          eq(taskRuns.taskId, rootRun.taskId),
+          or(
+            eq(taskRuns.id, rootTaskRunId),
+            eq(taskRuns.rootTaskRunId, rootTaskRunId),
+            eq(taskRuns.parentTaskRunId, rootTaskRunId),
+            eq(taskRuns.spawnedByActionId, rootTaskRunId),
+          ),
+        ),
+      )
+      .orderBy(asc(taskRuns.runSequence), asc(taskRuns.startedAt), asc(taskRuns.id))
+      .limit(200);
+
+    const taskRunIds = Array.from(new Set(taskRunRows.map((row) => row.id)));
+    const handoffRows =
+      taskRunIds.length === 0
+        ? []
+        : await deps.db
+            .select()
+            .from(agentHandoffs)
+            .where(
+              and(
+                eq(agentHandoffs.workspaceId, workspaceId),
+                or(
+                  inArray(agentHandoffs.parentTaskRunId, taskRunIds),
+                  inArray(agentHandoffs.childTaskRunId, taskRunIds),
+                ),
+              ),
+            )
+            .orderBy(desc(agentHandoffs.createdAt), desc(agentHandoffs.id))
+            .limit(200);
+    const evidenceRows =
+      taskRunIds.length === 0
+        ? []
+        : await deps.db
+            .select()
+            .from(evidencePacks)
+            .where(
+              and(
+                eq(evidencePacks.workspaceId, workspaceId),
+                inArray(evidencePacks.taskRunId, taskRunIds),
+              ),
+            )
+            .orderBy(desc(evidencePacks.receivedAt), desc(evidencePacks.id))
+            .limit(200);
+
+    const response = CommandCenterProofDagResponseSchema.parse({
+      workspaceId,
+      rootTaskRunId,
+      generatedAt: new Date().toISOString(),
+      productionReady: false,
+      capability,
+      dag: {
+        taskRuns: taskRunRows,
+        agentHandoffs: handoffRows,
+        evidencePacks: evidenceRows,
+      },
+      blockers: [
+        'Proof DAG route is implemented for inspection but has not passed Proof DAG Lineage Regression',
+        'This route does not promote subagent_lineage or command_center to production_ready',
+      ],
     });
 
     return c.json(response);

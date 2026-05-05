@@ -252,4 +252,113 @@ describe('commandCenterRoutes', () => {
     expect(body.recent.browserObservations[0]?.domHash).toBe('sha256:dom');
     expect(body.recent.computerActions[0]?.actionType).toBe('terminal_command');
   });
+
+  it('returns a workspace-scoped subagent proof DAG without production promotion', async () => {
+    const rootTaskRunId = '00000000-0000-4000-8000-000000000101';
+    const spawnTaskRunId = '00000000-0000-4000-8000-000000000102';
+    const childTaskRunId = '00000000-0000-4000-8000-000000000103';
+    const { fetch } = createApp([
+      [
+        {
+          id: rootTaskRunId,
+          taskId: 'task-1',
+          status: 'completed',
+          lineageKind: 'parent_action',
+          startedAt: new Date('2026-05-05T09:00:00Z'),
+        },
+      ],
+      [{ id: 'task-1' }],
+      [
+        {
+          id: rootTaskRunId,
+          taskId: 'task-1',
+          status: 'completed',
+          lineageKind: 'parent_action',
+          startedAt: new Date('2026-05-05T09:00:00Z'),
+        },
+        {
+          id: spawnTaskRunId,
+          taskId: 'task-1',
+          status: 'running',
+          actionTool: 'subagent.spawn',
+          parentTaskRunId: rootTaskRunId,
+          rootTaskRunId,
+          spawnedByActionId: rootTaskRunId,
+          lineageKind: 'subagent_spawn',
+          startedAt: new Date('2026-05-05T09:01:00Z'),
+        },
+        {
+          id: childTaskRunId,
+          taskId: 'task-1',
+          status: 'completed',
+          actionTool: 'finish',
+          parentTaskRunId: spawnTaskRunId,
+          rootTaskRunId,
+          spawnedByActionId: spawnTaskRunId,
+          lineageKind: 'subagent_action',
+          startedAt: new Date('2026-05-05T09:02:00Z'),
+        },
+      ],
+      [
+        {
+          id: 'handoff-1',
+          workspaceId,
+          taskId: 'task-1',
+          parentTaskRunId: rootTaskRunId,
+          childTaskRunId: spawnTaskRunId,
+          fromAgent: 'conductor',
+          toAgent: 'opportunity_scout',
+          status: 'completed',
+          createdAt: new Date('2026-05-05T09:01:00Z'),
+        },
+      ],
+      [
+        {
+          id: 'ep-spawn',
+          workspaceId,
+          taskRunId: spawnTaskRunId,
+          decisionId: 'local_spawn_1',
+          verdict: 'ALLOW',
+          policyVersion: 'founder-ops-v1',
+          action: 'SUBAGENT_SPAWN',
+          resource: 'opportunity_scout',
+          principal: `workspace:${workspaceId}/operator:growth/subagent:opportunity_scout:abc123`,
+          receivedAt: new Date('2026-05-05T09:01:00Z'),
+        },
+      ],
+    ]);
+
+    const res = await fetch('GET', `/proof-dag/${rootTaskRunId}`, wsHeader);
+    const body = await expectJson<{
+      workspaceId: string;
+      rootTaskRunId: string;
+      productionReady: boolean;
+      capability: { key: string; state: string };
+      dag: {
+        taskRuns: Array<{ id: string; lineageKind: string; spawnedByActionId?: string }>;
+        agentHandoffs: Array<{ childTaskRunId: string }>;
+        evidencePacks: Array<{ taskRunId: string; action: string }>;
+      };
+      blockers: string[];
+    }>(res, 200);
+
+    expect(body.workspaceId).toBe(workspaceId);
+    expect(body.rootTaskRunId).toBe(rootTaskRunId);
+    expect(body.productionReady).toBe(false);
+    expect(body.capability).toMatchObject({ key: 'subagent_lineage', state: 'implemented' });
+    expect(body.dag.taskRuns.map((run) => run.lineageKind)).toEqual([
+      'parent_action',
+      'subagent_spawn',
+      'subagent_action',
+    ]);
+    expect(body.dag.taskRuns.find((run) => run.id === childTaskRunId)?.spawnedByActionId).toBe(
+      spawnTaskRunId,
+    );
+    expect(body.dag.agentHandoffs[0]?.childTaskRunId).toBe(spawnTaskRunId);
+    expect(body.dag.evidencePacks[0]).toMatchObject({
+      taskRunId: spawnTaskRunId,
+      action: 'SUBAGENT_SPAWN',
+    });
+    expect(body.blockers.join(' ')).toContain('has not passed Proof DAG Lineage Regression');
+  });
 });
