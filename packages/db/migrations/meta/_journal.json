@@ -190,6 +190,13 @@
       "when": 1778018400000,
       "tag": "0025_evidence_items",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1778022000000,
+      "tag": "0026_tool_broker_policy_pins",
+      "breakpoints": true
     }
   ]
 }

@@ -1925,6 +1925,7 @@ export interface ToolExecutionContext {
   approvalId?: string;
   policyVersion?: string;
   policyDecisionId?: string;
+  helmDocumentVersionPins?: Record<string, string>;
   actionHash?: string;
   parentTaskRunId?: string;
   rootTaskRunId?: string;
@@ -2053,6 +2054,9 @@ function bindToolContext(input: unknown, context: ToolExecutionContext): unknown
     ...(context.approvalId ? { approvalId: context.approvalId } : {}),
     ...(context.policyVersion ? { policyVersion: context.policyVersion } : {}),
     ...(context.policyDecisionId ? { policyDecisionId: context.policyDecisionId } : {}),
+    ...(context.helmDocumentVersionPins
+      ? { helmDocumentVersionPins: context.helmDocumentVersionPins }
+      : {}),
     ...(context.actionHash ? { actionHash: context.actionHash } : {}),
     ...(context.parentTaskRunId ? { parentTaskRunId: context.parentTaskRunId } : {}),
     ...(context.rootTaskRunId ? { rootTaskRunId: context.rootTaskRunId } : {}),

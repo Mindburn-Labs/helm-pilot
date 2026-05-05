@@ -43,6 +43,7 @@ export class ToolBroker {
     const inputHash = hashJson({ tool: toolName, input: sanitizedInput });
     const idempotencyKey = buildIdempotencyKey(context, toolName, inputHash);
     const actorType = context.operatorId ? 'operator' : 'agent';
+    const policyPin = buildPolicyPin(manifest, context);
 
     const [action] = await this.db
       .insert(actions)
@@ -59,13 +60,15 @@ export class ToolBroker {
         riskClass: manifest.riskClass,
         status: 'running',
         inputHash,
-        policyDecisionId: context.policyDecisionId ?? null,
-        policyVersion: context.policyVersion ?? null,
+        policyDecisionId: policyPin.policyDecisionId,
+        policyVersion: policyPin.policyVersion,
+        helmDocumentVersionPins: policyPin.documentVersionPins,
         metadata: {
           broker: 'tool_broker_v1',
           manifest,
           actionHash: context.actionHash ?? null,
           approvalId: context.approvalId ?? null,
+          policyPin,
         },
       })
       .returning({ id: actions.id });
@@ -86,8 +89,9 @@ export class ToolBroker {
         status: 'running',
         idempotencyKey,
         evidenceIds: context.evidenceIds ?? [],
-        policyDecisionId: context.policyDecisionId ?? null,
-        policyVersion: context.policyVersion ?? null,
+        policyDecisionId: policyPin.policyDecisionId,
+        policyVersion: policyPin.policyVersion,
+        helmDocumentVersionPins: policyPin.documentVersionPins,
       })
       .returning({ id: toolExecutions.id });
 
@@ -146,8 +150,10 @@ export class ToolBroker {
         inputHash,
         outputHash,
         evidenceIds,
-        policyDecisionId: context.policyDecisionId ?? null,
-        policyVersion: context.policyVersion ?? null,
+        policyDecisionId: policyPin.policyDecisionId,
+        policyVersion: policyPin.policyVersion,
+        helmDocumentVersionPins: policyPin.documentVersionPins,
+        policyPin,
         credentialBoundary: 'sanitized_input_output_only',
       },
     } satisfies Parameters<typeof appendEvidenceItem>[1];
@@ -222,8 +228,10 @@ export class ToolBroker {
         riskClass: manifest.riskClass,
         evidenceItemId: finalEvidenceItemId,
         evidenceIds: persistedEvidenceIds,
-        policyDecisionId: context.policyDecisionId ?? null,
-        policyVersion: context.policyVersion ?? null,
+        policyDecisionId: policyPin.policyDecisionId,
+        policyVersion: policyPin.policyVersion,
+        helmDocumentVersionPins: policyPin.documentVersionPins,
+        policyPin,
       },
     });
 
@@ -251,6 +259,7 @@ export class ToolBroker {
     const reason = `evidence persistence failed for elevated tool execution: ${stringifyError(
       params.error,
     )}`;
+    const policyPin = buildPolicyPin(params.manifest, params.context);
     await this.db
       .update(toolExecutions)
       .set({
@@ -289,7 +298,9 @@ export class ToolBroker {
         evidenceRequired: true,
         evidencePersistenceRequired: 'fail_closed_for_elevated_actions',
         policyDecisionId: params.context.policyDecisionId ?? null,
-        policyVersion: params.context.policyVersion ?? null,
+        policyVersion: policyVersionFor(params.manifest, params.context),
+        helmDocumentVersionPins: policyPin.documentVersionPins,
+        policyPin,
       },
     });
   }
@@ -364,6 +375,23 @@ function isElevatedManifest(manifest: ToolManifest): boolean {
     manifest.effectLevel === 'E3' ||
     manifest.effectLevel === 'E4'
   );
+}
+
+function policyVersionFor(manifest: ToolManifest, context: ToolExecutionContext): string {
+  return context.policyVersion ?? `local:tool-broker:${manifest.version}:${manifest.effectLevel}`;
+}
+
+function buildPolicyPin(manifest: ToolManifest, context: ToolExecutionContext) {
+  const policyVersion = policyVersionFor(manifest, context);
+  const documentVersionPins = context.helmDocumentVersionPins ?? {
+    toolAccessPolicy: policyVersion,
+  };
+  return {
+    policyDecisionId: context.policyDecisionId ?? null,
+    policyVersion,
+    decisionRequired: isElevatedManifest(manifest),
+    documentVersionPins,
+  };
 }
 
 function inferRequiredEvidence(toolName: string): string[] {
