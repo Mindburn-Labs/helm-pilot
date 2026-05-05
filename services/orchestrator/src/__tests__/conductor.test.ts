@@ -69,7 +69,7 @@ function makeSkill(overrides: Partial<SkillDefinition> = {}): SkillDefinition {
   };
 }
 
-function makeMockDb(options: { failInsertTable?: unknown } = {}) {
+function makeMockDb(options: { failInsertTable?: unknown; failUpdateTable?: unknown } = {}) {
   let autoId = 0;
   return {
     insert: vi.fn((table: unknown) => {
@@ -92,11 +92,16 @@ function makeMockDb(options: { failInsertTable?: unknown } = {}) {
         })),
       })),
     })),
-    update: vi.fn(() => ({
-      set: vi.fn(() => ({
-        where: vi.fn(async () => []),
-      })),
-    })),
+    update: vi.fn((table: unknown) => {
+      if (table === options.failUpdateTable) {
+        throw new Error(`update failed for ${String(table)}`);
+      }
+      return {
+        set: vi.fn(() => ({
+          where: vi.fn(async () => []),
+        })),
+      };
+    }),
   } as any;
 }
 
@@ -211,6 +216,29 @@ describe('Conductor.spawn', () => {
         spawnedByActionId: 'tr-parent',
         lineageKind: 'subagent_spawn',
       }),
+    );
+
+    const childActionRun = valuesPayloads.find((p) => p['actionTool'] === 'finish');
+    expect(childActionRun).toEqual(
+      expect.objectContaining({
+        rootTaskRunId: 'tr-parent',
+        lineageKind: 'subagent_action',
+      }),
+    );
+    expect(childActionRun?.['parentTaskRunId']).not.toBe('tr-parent');
+    expect(childActionRun?.['spawnedByActionId']).toBe(childActionRun?.['parentTaskRunId']);
+
+    const updatePayloads: Record<string, unknown>[] = [];
+    for (const result of db.update.mock.results) {
+      const chain = result.value as { set: ReturnType<typeof vi.fn> };
+      for (const setCall of chain.set.mock.calls) {
+        updatePayloads.push(setCall[0] as Record<string, unknown>);
+      }
+    }
+    expect(updatePayloads).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ taskRunId: childActionRun?.['parentTaskRunId'] }),
+      ]),
     );
   });
 
@@ -393,6 +421,24 @@ describe('Conductor.spawn', () => {
     expect(result.summary).toContain('Failed to persist agent handoff');
     expect(llm.complete).not.toHaveBeenCalled();
   });
+
+  it('fails closed when the spawn evidence pack cannot be anchored to the subagent run', async () => {
+    const registry = new SubagentRegistry([makeDef({ name: 'scout_x' })]);
+    const db = makeMockDb({ failUpdateTable: 'evidencePacks' });
+    const llm = makeLlm();
+    const tools = new ToolRegistry(db);
+    const conductor = new Conductor(db, registry, tools, makePolicy(), llm);
+
+    const result = await conductor.spawn(baseCtx, {
+      name: 'scout_x',
+      task: 'scan market',
+    });
+
+    expect(result.verdict).toBe('failed');
+    expect(result.error).toBe('subagent_persistence_failed');
+    expect(result.summary).toContain('Failed to anchor SUBAGENT_SPAWN evidence');
+    expect(llm.complete).not.toHaveBeenCalled();
+  });
 });
 
 describe('Conductor.parallel', () => {
@@ -447,6 +493,7 @@ describe('Conductor.parallel', () => {
     ]);
 
     const principals: string[] = [];
+    const spawnRuns: Record<string, unknown>[] = [];
     for (const result of insertSpy.mock.results) {
       const chain = result.value as { values: ReturnType<typeof vi.fn> };
       for (const valCall of chain.values.mock.calls) {
@@ -454,9 +501,23 @@ describe('Conductor.parallel', () => {
         if (row['action'] === 'SUBAGENT_SPAWN') {
           principals.push(String(row['principal']));
         }
+        if (row['actionTool'] === 'subagent.spawn') {
+          spawnRuns.push(row);
+        }
       }
     }
     expect(principals).toHaveLength(2);
     expect(principals[0]).not.toBe(principals[1]);
+    expect(spawnRuns).toHaveLength(2);
+    for (const run of spawnRuns) {
+      expect(run).toEqual(
+        expect.objectContaining({
+          parentTaskRunId: 'tr-parent',
+          rootTaskRunId: 'tr-parent',
+          spawnedByActionId: 'tr-parent',
+          lineageKind: 'subagent_spawn',
+        }),
+      );
+    }
   });
 });
