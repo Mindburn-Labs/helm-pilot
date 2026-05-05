@@ -140,7 +140,7 @@ export type PilotEvalScenario = z.infer<typeof PilotEvalScenarioSchema>;
 export type PilotEvalRunRecord = z.infer<typeof PilotEvalRunRecordSchema>;
 export type PilotEvalStepRecord = z.infer<typeof PilotEvalStepRecordSchema>;
 export type RecordPilotEvalRunInput = z.infer<typeof RecordPilotEvalRunInputSchema>;
-export type ExecutePilotEvalInput = z.infer<typeof ExecutePilotEvalInputSchema>;
+export type ExecutePilotEvalInput = z.input<typeof ExecutePilotEvalInputSchema>;
 export type CapabilityPromotionCheck = z.infer<typeof CapabilityPromotionCheckSchema>;
 
 export const pilotProductionEvalSuite: readonly PilotEvalScenario[] = [
@@ -629,13 +629,15 @@ export function executePilotProductionEval(input: ExecutePilotEvalInput): {
   }
 
   const missingAuditCoverage =
-    scenario?.auditRequirements.filter((requirement) => !parsed.auditCoverage.includes(requirement)) ??
-    [];
+    scenario?.auditRequirements.filter(
+      (requirement) => !parsed.auditCoverage.includes(requirement),
+    ) ?? [];
   if (missingAuditCoverage.length > 0) {
     blockers.push(`Missing audit coverage: ${missingAuditCoverage.join(', ')}`);
   }
 
   const status = blockers.length === 0 ? 'passed' : 'failed';
+  const completedAt = parsed.completedAt ?? new Date().toISOString();
   const metadata = {
     ...parsed.metadata,
     executionMode: 'control_plane_proof_check',
@@ -660,7 +662,7 @@ export function executePilotProductionEval(input: ExecutePilotEvalInput): {
       failureReason: blockers.length > 0 ? blockers.join('; ') : undefined,
       summary: parsed.summary,
       metadata,
-      completedAt: parsed.completedAt ?? new Date().toISOString(),
+      completedAt,
       steps: parsed.steps,
     },
   };

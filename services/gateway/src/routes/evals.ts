@@ -17,13 +17,16 @@ import {
   type CapabilityRecord,
 } from '@pilot/shared/capabilities';
 import {
+  ExecutePilotEvalInputSchema,
   PilotEvalIdSchema,
   PilotEvalRunRecordSchema,
   PilotEvalStatusSchema,
   RecordPilotEvalRunInputSchema,
   checkCapabilityPromotionReadiness,
+  executePilotProductionEval,
   getPilotProductionEvalSuite,
   type PilotEvalRunRecord,
+  type RecordPilotEvalRunInput,
 } from '@pilot/shared/eval';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId, requireWorkspaceRole, workspaceIdMismatch } from '../lib/workspace.js';
@@ -77,6 +80,178 @@ function toEvalRunResponse(row: typeof evalRuns.$inferSelect) {
     ...toPilotEvalRunRecord(row),
     startedAt: toIso(row.startedAt),
     createdAt: toIso(row.createdAt),
+  };
+}
+
+async function persistEvalRun(
+  deps: GatewayDeps,
+  workspaceId: string,
+  input: RecordPilotEvalRunInput,
+  extraResponse: Record<string, unknown> = {},
+) {
+  const scenario = getPilotProductionEvalSuite().find((item) => item.id === input.evalId);
+  const defaultCapabilityKey = scenario?.capabilityKeys[0];
+  const completedAt =
+    input.completedAt ??
+    (input.status === 'passed' || input.status === 'failed' ? new Date().toISOString() : undefined);
+
+  if (scenario) {
+    await deps.db
+      .insert(evaluations)
+      .values({
+        evalId: scenario.id,
+        name: scenario.name,
+        capabilityKeys: scenario.capabilityKeys,
+        scenario,
+      })
+      .onConflictDoUpdate({
+        target: evaluations.evalId,
+        set: {
+          name: scenario.name,
+          capabilityKeys: scenario.capabilityKeys,
+          scenario,
+        },
+      });
+  }
+
+  const [created] = await deps.db
+    .insert(evalRuns)
+    .values({
+      workspaceId,
+      evalId: input.evalId,
+      status: input.status,
+      capabilityKey: input.capabilityKey ?? defaultCapabilityKey ?? null,
+      runRef: input.runRef ?? null,
+      failureReason: input.failureReason ?? input.summary ?? null,
+      evidenceRefs: input.evidenceRefs,
+      auditReceiptRefs: input.auditReceiptRefs,
+      metadata: input.metadata,
+      completedAt: completedAt ? new Date(completedAt) : null,
+    })
+    .returning();
+
+  if (!created) {
+    return {
+      status: 500 as const,
+      body: { error: 'eval run was not persisted' },
+    };
+  }
+
+  if (input.steps.length > 0) {
+    await deps.db.insert(evalSteps).values(
+      input.steps.map((step) => ({
+        evalRunId: created.id,
+        stepKey: step.stepKey,
+        status: step.status,
+        evidenceRefs: step.evidenceRefs,
+        auditReceiptRefs: step.auditReceiptRefs,
+        metadata: step.metadata,
+        completedAt: step.completedAt ? new Date(step.completedAt) : null,
+      })),
+    );
+  }
+
+  if (input.evidenceRefs.length > 0) {
+    await deps.db.insert(evalEvidenceLinks).values(
+      input.evidenceRefs.map((evidenceRef, index) => ({
+        workspaceId,
+        evalRunId: created.id,
+        evidenceRef,
+        auditReceiptRef: input.auditReceiptRefs[index] ?? null,
+      })),
+    );
+  }
+
+  const terminal = input.status === 'passed' || input.status === 'failed';
+  const passed = input.status === 'passed';
+  const blockers = passed
+    ? []
+    : [input.failureReason ?? input.summary ?? `${input.evalId} did not pass`];
+
+  let result: unknown;
+  let blockerTask: unknown;
+  const promotions = [];
+  const runRecord = toPilotEvalRunRecord(created);
+  const promotionChecks = passed
+    ? (input.capabilityKey ? [input.capabilityKey] : (scenario?.capabilityKeys ?? []))
+        .map((capabilityKey) => getCapabilityRecord(capabilityKey))
+        .filter((capability): capability is CapabilityRecord => Boolean(capability))
+        .map((capability) =>
+          checkCapabilityPromotionReadiness({
+            capability,
+            runs: [{ ...runRecord, capabilityKey: capability.key }],
+          }),
+        )
+    : [];
+
+  if (terminal) {
+    const [createdResult] = await deps.db
+      .insert(evalResults)
+      .values({
+        workspaceId,
+        evalRunId: created.id,
+        evalId: input.evalId,
+        capabilityKey: created.capabilityKey ?? input.capabilityKey ?? defaultCapabilityKey ?? null,
+        status: input.status,
+        passed,
+        summary: input.summary ?? input.failureReason ?? null,
+        blockers,
+      })
+      .returning();
+    result = createdResult;
+  }
+
+  if (input.status === 'failed') {
+    const [createdTask] = await deps.db
+      .insert(tasks)
+      .values({
+        workspaceId,
+        title: `[Eval Blocker] ${scenario?.name ?? input.evalId}`,
+        description:
+          input.failureReason ?? input.summary ?? `Production eval ${input.evalId} failed.`,
+        mode: 'eval',
+        status: 'pending',
+        priority: 100,
+        metadata: {
+          kind: 'production_eval_blocker',
+          productionReadyBlocked: true,
+          evalId: input.evalId,
+          evalRunId: created.id,
+          capabilityKey: created.capabilityKey ?? input.capabilityKey ?? null,
+        },
+      })
+      .returning();
+    blockerTask = createdTask;
+  }
+
+  for (const check of promotionChecks) {
+    if (!check.canPromote) continue;
+    const [promotion] = await deps.db
+      .insert(capabilityPromotions)
+      .values({
+        workspaceId,
+        capabilityKey: check.capability.key,
+        evalRunId: created.id,
+        status: 'eligible',
+        promotedState: 'production_ready',
+        evidenceRefs: check.evidenceRefs,
+        auditReceiptRefs: check.auditReceiptRefs,
+      })
+      .returning();
+    if (promotion) promotions.push(promotion);
+  }
+
+  return {
+    status: 201 as const,
+    body: {
+      ...toEvalRunResponse(created),
+      result,
+      blockerTask,
+      promotionChecks,
+      promotions,
+      productionReadyRegistryMutation: false,
+      ...extraResponse,
+    },
   };
 }
 
@@ -149,162 +324,35 @@ export function evalRoutes(deps: GatewayDeps) {
       return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
     }
 
-    const scenario = getPilotProductionEvalSuite().find((item) => item.id === parsed.data.evalId);
-    const defaultCapabilityKey = scenario?.capabilityKeys[0];
-    const completedAt =
-      parsed.data.completedAt ??
-      (parsed.data.status === 'passed' || parsed.data.status === 'failed'
-        ? new Date().toISOString()
-        : undefined);
+    const persisted = await persistEvalRun(deps, workspaceId, parsed.data);
+    return c.json(persisted.body, persisted.status);
+  });
 
-    if (scenario) {
-      await deps.db
-        .insert(evaluations)
-        .values({
-          evalId: scenario.id,
-          name: scenario.name,
-          capabilityKeys: scenario.capabilityKeys,
-          scenario,
-        })
-        .onConflictDoUpdate({
-          target: evaluations.evalId,
-          set: {
-            name: scenario.name,
-            capabilityKeys: scenario.capabilityKeys,
-            scenario,
-          },
-        });
+  app.post('/execute', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'execute production eval');
+    if (roleDenied) return roleDenied;
+
+    const raw = await c.req.json().catch(() => ({}));
+    if (workspaceIdMismatch(c, (raw as { workspaceId?: string }).workspaceId)) {
+      return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
     }
 
-    const [created] = await deps.db
-      .insert(evalRuns)
-      .values({
-        workspaceId,
-        evalId: parsed.data.evalId,
-        status: parsed.data.status,
-        capabilityKey: parsed.data.capabilityKey ?? defaultCapabilityKey ?? null,
-        runRef: parsed.data.runRef ?? null,
-        failureReason: parsed.data.failureReason ?? parsed.data.summary ?? null,
-        evidenceRefs: parsed.data.evidenceRefs,
-        auditReceiptRefs: parsed.data.auditReceiptRefs,
-        metadata: parsed.data.metadata,
-        completedAt: completedAt ? new Date(completedAt) : null,
-      })
-      .returning();
-
-    if (!created) return c.json({ error: 'eval run was not persisted' }, 500);
-
-    if (parsed.data.steps.length > 0) {
-      await deps.db.insert(evalSteps).values(
-        parsed.data.steps.map((step) => ({
-          evalRunId: created.id,
-          stepKey: step.stepKey,
-          status: step.status,
-          evidenceRefs: step.evidenceRefs,
-          auditReceiptRefs: step.auditReceiptRefs,
-          metadata: step.metadata,
-          completedAt: step.completedAt ? new Date(step.completedAt) : null,
-        })),
-      );
+    const parsed = ExecutePilotEvalInputSchema.safeParse({
+      ...(raw as Record<string, unknown>),
+      workspaceId,
+    });
+    if (!parsed.success) {
+      return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
     }
 
-    if (parsed.data.evidenceRefs.length > 0) {
-      await deps.db.insert(evalEvidenceLinks).values(
-        parsed.data.evidenceRefs.map((evidenceRef, index) => ({
-          workspaceId,
-          evalRunId: created.id,
-          evidenceRef,
-          auditReceiptRef: parsed.data.auditReceiptRefs[index] ?? null,
-        })),
-      );
-    }
-
-    const passed = parsed.data.status === 'passed';
-    const blockers = passed
-      ? []
-      : [parsed.data.failureReason ?? parsed.data.summary ?? `${parsed.data.evalId} did not pass`];
-    const [result] = await deps.db
-      .insert(evalResults)
-      .values({
-        workspaceId,
-        evalRunId: created.id,
-        evalId: parsed.data.evalId,
-        capabilityKey:
-          created.capabilityKey ?? parsed.data.capabilityKey ?? defaultCapabilityKey ?? null,
-        status: parsed.data.status,
-        passed,
-        summary: parsed.data.summary ?? parsed.data.failureReason ?? null,
-        blockers,
-      })
-      .returning();
-
-    let blockerTask: unknown;
-    if (parsed.data.status === 'failed') {
-      const [createdTask] = await deps.db
-        .insert(tasks)
-        .values({
-          workspaceId,
-          title: `[Eval Blocker] ${scenario?.name ?? parsed.data.evalId}`,
-          description:
-            parsed.data.failureReason ??
-            parsed.data.summary ??
-            `Production eval ${parsed.data.evalId} failed.`,
-          mode: 'eval',
-          status: 'pending',
-          priority: 100,
-          metadata: {
-            kind: 'production_eval_blocker',
-            productionReadyBlocked: true,
-            evalId: parsed.data.evalId,
-            evalRunId: created.id,
-            capabilityKey: created.capabilityKey ?? parsed.data.capabilityKey ?? null,
-          },
-        })
-        .returning();
-      blockerTask = createdTask;
-    }
-
-    const runRecord = toPilotEvalRunRecord(created);
-    const promotionChecks = passed
-      ? (parsed.data.capabilityKey ? [parsed.data.capabilityKey] : (scenario?.capabilityKeys ?? []))
-          .map((capabilityKey) => getCapabilityRecord(capabilityKey))
-          .filter((capability): capability is CapabilityRecord => Boolean(capability))
-          .map((capability) =>
-            checkCapabilityPromotionReadiness({
-              capability,
-              runs: [{ ...runRecord, capabilityKey: capability.key }],
-            }),
-          )
-      : [];
-    const promotions = [];
-    for (const check of promotionChecks) {
-      if (!check.canPromote) continue;
-      const [promotion] = await deps.db
-        .insert(capabilityPromotions)
-        .values({
-          workspaceId,
-          capabilityKey: check.capability.key,
-          evalRunId: created.id,
-          status: 'eligible',
-          promotedState: 'production_ready',
-          evidenceRefs: check.evidenceRefs,
-          auditReceiptRefs: check.auditReceiptRefs,
-        })
-        .returning();
-      if (promotion) promotions.push(promotion);
-    }
-
-    return c.json(
-      {
-        ...toEvalRunResponse(created),
-        result,
-        blockerTask,
-        promotionChecks,
-        promotions,
-        productionReadyRegistryMutation: false,
-      },
-      201,
-    );
+    const executed = executePilotProductionEval(parsed.data);
+    const persisted = await persistEvalRun(deps, workspaceId, executed.run, {
+      executionMode: executed.executionMode,
+      executionBlockers: executed.blockers,
+    });
+    return c.json(persisted.body, persisted.status);
   });
 
   app.post('/promotion-check', async (c) => {
