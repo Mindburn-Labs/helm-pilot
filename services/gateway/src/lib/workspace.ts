@@ -1,7 +1,7 @@
 import { type Context } from 'hono';
 import { and, eq } from 'drizzle-orm';
 import { type Db } from '@pilot/db/client';
-import { operators } from '@pilot/db/schema';
+import { operators, workspaceMembers } from '@pilot/db/schema';
 import { WorkspaceRoleSchema, type WorkspaceRole } from '@pilot/shared/schemas';
 
 const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = {
@@ -78,4 +78,18 @@ export async function requireWorkspaceOperator(
 ): Promise<Response | null> {
   if (await workspaceOperatorBelongsToWorkspace(db, workspaceId, operatorId)) return null;
   return c.json({ error: 'operatorId does not belong to authenticated workspace' }, 403);
+}
+
+export async function workspaceUserBelongsToWorkspace(
+  db: Db,
+  workspaceId: string,
+  userId?: string | null,
+): Promise<boolean> {
+  if (!userId) return true;
+  const [member] = await db
+    .select({ id: workspaceMembers.id })
+    .from(workspaceMembers)
+    .where(and(eq(workspaceMembers.userId, userId), eq(workspaceMembers.workspaceId, workspaceId)))
+    .limit(1);
+  return Boolean(member);
 }

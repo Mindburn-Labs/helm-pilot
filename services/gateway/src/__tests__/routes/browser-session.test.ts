@@ -15,6 +15,8 @@ const taskId = '00000000-0000-4000-8000-000000000002';
 const sessionId = '00000000-0000-4000-8000-000000000003';
 const grantId = '00000000-0000-4000-8000-000000000004';
 const evidencePackId = '00000000-0000-4000-8000-000000000005';
+const foreignOperatorId = '00000000-0000-4000-8000-000000000006';
+const foreignUserId = '00000000-0000-4000-8000-000000000007';
 const wsHeader = { 'X-Workspace-Id': workspaceId };
 
 function createBrowserAccessHelmClient(decisionId = 'dec-browser-access') {
@@ -315,6 +317,85 @@ describe('browserSessionRoutes', () => {
     const body = await expectJson<{ error: string }>(res, 503);
 
     expect(body.error).toContain('HELM governance client is required');
+    expect(inserts).toEqual([]);
+  });
+
+  it('rejects browser grants to operators outside the authenticated workspace', async () => {
+    const { db, inserts } = createBrowserDb([
+      [{ id: sessionId, workspaceId, allowedOrigins: ['https://www.ycombinator.com'] }],
+      [],
+    ]);
+    const helmClient = createBrowserAccessHelmClient('dec-browser-session-grant');
+    const deps = createMockDeps({ db: db as never, helmClient: helmClient as never });
+    const { fetch } = testApp(browserSessionRoutes, deps);
+
+    const res = await fetch(
+      'POST',
+      `/${sessionId}/grants`,
+      {
+        workspaceId,
+        grantedToType: 'operator',
+        grantedToId: foreignOperatorId,
+        allowedOrigins: ['https://www.ycombinator.com'],
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{ error: string }>(res, 403);
+
+    expect(body.error).toContain('granted operator does not belong');
+    expect(helmClient.evaluate).not.toHaveBeenCalled();
+    expect(inserts).toEqual([]);
+  });
+
+  it('rejects browser grants to users outside the authenticated workspace', async () => {
+    const { db, inserts } = createBrowserDb([
+      [{ id: sessionId, workspaceId, allowedOrigins: ['https://www.ycombinator.com'] }],
+      [],
+    ]);
+    const helmClient = createBrowserAccessHelmClient('dec-browser-session-grant');
+    const deps = createMockDeps({ db: db as never, helmClient: helmClient as never });
+    const { fetch } = testApp(browserSessionRoutes, deps);
+
+    const res = await fetch(
+      'POST',
+      `/${sessionId}/grants`,
+      {
+        workspaceId,
+        grantedToType: 'user',
+        grantedToId: foreignUserId,
+        allowedOrigins: ['https://www.ycombinator.com'],
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{ error: string }>(res, 403);
+
+    expect(body.error).toContain('granted user does not belong');
+    expect(helmClient.evaluate).not.toHaveBeenCalled();
+    expect(inserts).toEqual([]);
+  });
+
+  it('requires a concrete recipient id for operator and user browser grants', async () => {
+    const { db, inserts } = createBrowserDb([
+      [{ id: sessionId, workspaceId, allowedOrigins: ['https://www.ycombinator.com'] }],
+    ]);
+    const helmClient = createBrowserAccessHelmClient('dec-browser-session-grant');
+    const deps = createMockDeps({ db: db as never, helmClient: helmClient as never });
+    const { fetch } = testApp(browserSessionRoutes, deps);
+
+    const res = await fetch(
+      'POST',
+      `/${sessionId}/grants`,
+      {
+        workspaceId,
+        grantedToType: 'operator',
+        allowedOrigins: ['https://www.ycombinator.com'],
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{ error: string }>(res, 400);
+
+    expect(body.error).toContain('grantedToId is required');
+    expect(helmClient.evaluate).not.toHaveBeenCalled();
     expect(inserts).toEqual([]);
   });
 

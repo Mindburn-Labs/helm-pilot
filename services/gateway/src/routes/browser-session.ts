@@ -22,7 +22,13 @@ import {
   type EvaluateResult,
 } from '@pilot/helm-client';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId, requireWorkspaceRole, workspaceIdMismatch } from '../lib/workspace.js';
+import {
+  getWorkspaceId,
+  requireWorkspaceRole,
+  workspaceIdMismatch,
+  workspaceOperatorBelongsToWorkspace,
+  workspaceUserBelongsToWorkspace,
+} from '../lib/workspace.js';
 
 export function browserSessionRoutes(deps: GatewayDeps) {
   const app = new Hono();
@@ -149,6 +155,13 @@ export function browserSessionRoutes(deps: GatewayDeps) {
     ) {
       return c.json({ error: 'grant origin exceeds session allowedOrigins' }, 403);
     }
+
+    const recipientDenied = await validateBrowserGrantRecipient(deps, {
+      workspaceId: parsed.data.workspaceId,
+      grantedToType: parsed.data.grantedToType,
+      grantedToId: parsed.data.grantedToId,
+    });
+    if (recipientDenied) return recipientDenied;
 
     const governed = await evaluateBrowserAccessAction(deps, {
       workspaceId: parsed.data.workspaceId,
@@ -590,6 +603,50 @@ function hashText(text: string) {
 
 function browserHelmDocumentVersionPins(policyVersion: string): Record<string, string> {
   return { browserReadPolicy: policyVersion };
+}
+
+async function validateBrowserGrantRecipient(
+  deps: GatewayDeps,
+  input: {
+    workspaceId: string;
+    grantedToType: 'agent' | 'operator' | 'user';
+    grantedToId?: string;
+  },
+): Promise<Response | null> {
+  if (input.grantedToType === 'agent') return null;
+
+  if (!input.grantedToId) {
+    return Response.json(
+      { error: `grantedToId is required for ${input.grantedToType} browser grants` },
+      { status: 400 },
+    );
+  }
+
+  if (input.grantedToType === 'operator') {
+    const belongs = await workspaceOperatorBelongsToWorkspace(
+      deps.db,
+      input.workspaceId,
+      input.grantedToId,
+    );
+    return belongs
+      ? null
+      : Response.json(
+          { error: 'granted operator does not belong to authenticated workspace' },
+          { status: 403 },
+        );
+  }
+
+  const belongs = await workspaceUserBelongsToWorkspace(
+    deps.db,
+    input.workspaceId,
+    input.grantedToId,
+  );
+  return belongs
+    ? null
+    : Response.json(
+        { error: 'granted user does not belong to authenticated workspace' },
+        { status: 403 },
+      );
 }
 
 async function evaluateBrowserAccessAction(
