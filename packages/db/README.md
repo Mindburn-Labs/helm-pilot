@@ -5,7 +5,7 @@
 
 Active package surface for the pilot project.
 
-The package owns Drizzle schema and migrations. Migration `0017_ingestion_replay_columns` adds replay tracking for YC ingestion records: `replay_count` and `last_replayed_at`.
+The package owns Drizzle schema and migrations. Migration `0018_foundation_lineage_a2a` adds deterministic task-run lineage fields and durable A2A thread/message tables for Gate 1 foundation replay.
 
 ## Canonical Interface
 

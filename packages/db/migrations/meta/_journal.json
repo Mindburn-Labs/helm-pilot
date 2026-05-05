@@ -134,6 +134,13 @@
       "when": 1777907800000,
       "tag": "0017_ingestion_replay_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1777984800000,
+      "tag": "0018_foundation_lineage_a2a",
+      "breakpoints": true
     }
   ]
 }

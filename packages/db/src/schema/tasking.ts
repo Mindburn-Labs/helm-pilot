@@ -39,49 +39,69 @@ export const tasks = pgTable(
   ],
 );
 
-export const taskRuns = pgTable('task_runs', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  taskId: uuid('task_id')
-    .notNull()
-    .references(() => tasks.id, { onDelete: 'cascade' }),
-  status: text('status').notNull().default('running'),
-  actionTool: text('action_tool'),
-  actionInput: jsonb('action_input'),
-  actionHash: text('action_hash'),
-  actionOutput: jsonb('action_output'),
-  verdict: text('verdict'),
-  iterationsUsed: integer('iterations_used').default(0),
-  iterationBudget: integer('iteration_budget').default(50),
-  modelUsed: text('model_used'),
-  tokensIn: integer('tokens_in').default(0),
-  tokensOut: integer('tokens_out').default(0),
-  costUsd: numeric('cost_usd', { precision: 10, scale: 4 }).default('0'),
-  error: text('error'),
-  // ─── HELM governance anchors (Phase 1) ───
-  // Every row produced by the orchestrator after Phase 1 carries the upstream
-  // HELM decision ID and policy version. Inspectable alongside the action it
-  // governed; cross-referenced with evidence_packs for full audit chain.
-  helmDecisionId: text('helm_decision_id'),
-  helmPolicyVersion: text('helm_policy_version'),
-  helmReasonCode: text('helm_reason_code'),
-  // ─── Governed-subagent lineage (Phase 12) ───
-  // When this row represents a subagent run, parentTaskRunId points at the
-  // parent conductor's run. operatorRole carries the subagent's role for
-  // audit queries ("every Content Operator action last week"). Budget slice
-  // columns track USD allocated vs consumed inside this child. All null for
-  // non-subagent rows — additive, zero-regression.
-  parentTaskRunId: uuid('parent_task_run_id'),
-  operatorRole: text('operator_role'),
-  budgetSliceUsed: numeric('budget_slice_used', { precision: 10, scale: 4 }).default('0'),
-  budgetSliceAllocated: numeric('budget_slice_allocated', { precision: 10, scale: 4 }),
-  startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
-  completedAt: timestamp('completed_at', { withTimezone: true }),
-  // Phase 16 Track N — long-running / 8-hour autonomous execution.
-  // Backed by migration 0014.
-  checkpointState: jsonb('checkpoint_state'),
-  lastCheckpointAt: timestamp('last_checkpoint_at', { withTimezone: true }),
-  watchdogAlertedAt: timestamp('watchdog_alerted_at', { withTimezone: true }),
-});
+export const taskRuns = pgTable(
+  'task_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    status: text('status').notNull().default('running'),
+    actionTool: text('action_tool'),
+    actionInput: jsonb('action_input'),
+    actionHash: text('action_hash'),
+    actionOutput: jsonb('action_output'),
+    verdict: text('verdict'),
+    iterationsUsed: integer('iterations_used').default(0),
+    iterationBudget: integer('iteration_budget').default(50),
+    modelUsed: text('model_used'),
+    tokensIn: integer('tokens_in').default(0),
+    tokensOut: integer('tokens_out').default(0),
+    costUsd: numeric('cost_usd', { precision: 10, scale: 4 }).default('0'),
+    error: text('error'),
+    // ─── HELM governance anchors (Phase 1) ───
+    // Every row produced by the orchestrator after Phase 1 carries the upstream
+    // HELM decision ID and policy version. Inspectable alongside the action it
+    // governed; cross-referenced with evidence_packs for full audit chain.
+    helmDecisionId: text('helm_decision_id'),
+    helmPolicyVersion: text('helm_policy_version'),
+    helmReasonCode: text('helm_reason_code'),
+    // ─── Governed-subagent lineage (Phase 12) ───
+    // When this row represents a subagent run, parentTaskRunId points at the
+    // parent conductor's run. operatorRole carries the subagent's role for
+    // audit queries ("every Content Operator action last week"). Budget slice
+    // columns track USD allocated vs consumed inside this child. All null for
+    // non-subagent rows — additive, zero-regression.
+    parentTaskRunId: uuid('parent_task_run_id'),
+    rootTaskRunId: uuid('root_task_run_id'),
+    spawnedByActionId: uuid('spawned_by_action_id'),
+    lineageKind: text('lineage_kind').notNull().default('parent_action'),
+    runSequence: integer('run_sequence').notNull().default(0),
+    checkpointId: text('checkpoint_id'),
+    operatorRole: text('operator_role'),
+    budgetSliceUsed: numeric('budget_slice_used', { precision: 10, scale: 4 }).default('0'),
+    budgetSliceAllocated: numeric('budget_slice_allocated', { precision: 10, scale: 4 }),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    // Phase 16 Track N — long-running / 8-hour autonomous execution.
+    // Backed by migration 0014.
+    checkpointState: jsonb('checkpoint_state'),
+    lastCheckpointAt: timestamp('last_checkpoint_at', { withTimezone: true }),
+    watchdogAlertedAt: timestamp('watchdog_alerted_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('task_runs_task_replay_idx').on(
+      table.taskId,
+      table.lineageKind,
+      table.runSequence,
+      table.startedAt,
+      table.id,
+    ),
+    index('task_runs_parent_idx').on(table.parentTaskRunId),
+    index('task_runs_root_idx').on(table.rootTaskRunId),
+    index('task_runs_spawned_by_action_idx').on(table.spawnedByActionId),
+  ],
+);
 
 export const taskArtifacts = pgTable('task_artifacts', {
   id: uuid('id').primaryKey().defaultRandom(),

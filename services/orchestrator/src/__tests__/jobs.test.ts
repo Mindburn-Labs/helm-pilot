@@ -4,11 +4,38 @@ import { registerJobHandlers } from '../jobs.js';
 vi.mock('@pilot/db/schema', () => ({
   opportunities: 'opportunities',
   opportunityScores: 'opportunityScores',
-  taskRuns: 'taskRuns',
+  taskRuns: {
+    id: 'taskRuns.id',
+    taskId: 'taskRuns.taskId',
+    actionTool: 'taskRuns.actionTool',
+    lineageKind: 'taskRuns.lineageKind',
+    parentTaskRunId: 'taskRuns.parentTaskRunId',
+    runSequence: 'taskRuns.runSequence',
+    startedAt: 'taskRuns.startedAt',
+  },
+  tasks: {
+    id: 'tasks.id',
+    workspaceId: 'tasks.workspaceId',
+    status: 'tasks.status',
+    updatedAt: 'tasks.updatedAt',
+  },
+  workspaces: { id: 'workspaces.id' },
+  workspaceDeletions: {
+    workspaceId: 'workspaceDeletions.workspaceId',
+    hardDeletedAt: 'workspaceDeletions.hardDeletedAt',
+    hardDeleteAfter: 'workspaceDeletions.hardDeleteAfter',
+  },
+  founderProfiles: { id: 'founderProfiles.id', workspaceId: 'founderProfiles.workspaceId' },
+  founderStrengths: { founderId: 'founderStrengths.founderId' },
 }));
 
 vi.mock('drizzle-orm', () => ({
+  and: vi.fn((...conditions: unknown[]) => ({ op: 'and', conditions })),
+  asc: vi.fn((col: unknown) => ({ op: 'asc', col })),
   eq: vi.fn((_col: any, val: any) => ({ col: _col, val })),
+  isNotNull: vi.fn((col: unknown) => ({ op: 'isNotNull', col })),
+  isNull: vi.fn((col: unknown) => ({ op: 'isNull', col })),
+  lt: vi.fn((col: unknown, val: unknown) => ({ op: 'lt', col, val })),
 }));
 
 vi.mock('@pilot/shared/logger', () => ({
@@ -205,13 +232,23 @@ describe('registerJobHandlers', () => {
           actions: [],
         })),
       } as any;
+      let selectCount = 0;
+      mockDb.select = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => {
+              selectCount++;
+              return selectCount === 1 ? [{ id: 'task-1' }] : [];
+            }),
+            orderBy: vi.fn(async () => []),
+          })),
+        })),
+      }));
 
       registerJobHandlers(mockBoss, { db: mockDb, orchestrator: mockOrchestrator });
       const handler = handlers.get('task.resume')!;
 
-      await handler([
-        { data: { taskId: 'task-1', workspaceId: 'ws-1', context: 'test' } },
-      ]);
+      await handler([{ data: { taskId: 'task-1', workspaceId: 'ws-1', context: 'test' } }]);
 
       expect(mockOrchestrator.resumeTask).toHaveBeenCalledWith(
         expect.objectContaining({

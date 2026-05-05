@@ -153,6 +153,57 @@ describe('AgentLoop', () => {
     expect(mockDb.insert).toHaveBeenCalled();
   });
 
+  it('pre-persists a parent task_run anchor before executing a subagent tool', async () => {
+    const rows: unknown[] = [];
+    const db = {
+      insert: vi.fn(() => ({
+        values: vi.fn((row: unknown) => {
+          rows.push(row);
+          return {
+            returning: vi.fn(async () => [{ id: 'parent-run-1' }]),
+          };
+        }),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn(async () => []),
+        })),
+      })),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => []),
+          })),
+        })),
+      })),
+    } as any;
+    const llm = {
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce('{"tool":"subagent.spawn","input":{"name":"scout","task":"scan"}}')
+        .mockResolvedValueOnce('{"tool":"finish","input":{"summary":"done"}}'),
+    } as any;
+    const tools = {
+      execute: vi.fn(async (tool: string, _input: unknown, context: unknown) => {
+        if (tool === 'subagent.spawn') {
+          expect(context).toEqual(expect.objectContaining({ parentTaskRunId: 'parent-run-1' }));
+        }
+        return { name: 'scout', verdict: 'completed' };
+      }),
+      listTools: vi.fn(() => [{ name: 'subagent.spawn', description: 'Spawn' }]),
+      listToolsForMode: vi.fn(() => [{ name: 'subagent.spawn', description: 'Spawn' }]),
+    } as any;
+    const loop = new AgentLoop(db, mockTrust);
+    loop.setLlm(llm);
+    loop.setTools(tools);
+
+    const result = await loop.execute(baseParams());
+
+    expect(result.status).toBe('completed');
+    expect(rows[0]).toEqual(expect.objectContaining({ actionTool: 'subagent.spawn' }));
+    expect(db.update).toHaveBeenCalledWith('taskRuns');
+  });
+
   it('execute() saves operator memory after run when operatorId is provided', async () => {
     const loop = new AgentLoop(mockDb, mockTrust);
     loop.setLlm(mockLlm);

@@ -250,6 +250,8 @@ export class Conductor {
     const subagentTaskRunId = await this.writeSubagentTaskRun({
       taskId: parentCtx.taskId,
       parentTaskRunId: parentCtx.parentTaskRunId,
+      rootTaskRunId: parentCtx.rootTaskRunId ?? parentCtx.parentTaskRunId,
+      spawnedByActionId: parentCtx.parentTaskRunId,
       def,
       task,
       allocatedUsd,
@@ -257,6 +259,8 @@ export class Conductor {
 
     return {
       parentTaskRunId: subagentTaskRunId,
+      rootTaskRunId: parentCtx.rootTaskRunId ?? parentCtx.parentTaskRunId ?? subagentTaskRunId,
+      spawnedByActionId: parentCtx.parentTaskRunId,
       parentEvidencePackId: spawnPackId,
       operatorRole: def.operatorRole,
       budgetSliceAllocated: allocatedUsd,
@@ -344,6 +348,8 @@ export class Conductor {
   private async writeSubagentTaskRun(params: {
     taskId: string;
     parentTaskRunId: string | null;
+    rootTaskRunId: string | null;
+    spawnedByActionId: string | null;
     def: SubagentDefinition;
     task: string;
     allocatedUsd: number;
@@ -362,6 +368,11 @@ export class Conductor {
           iterationBudget: params.def.iterationBudget,
           modelUsed: 'conductor',
           parentTaskRunId: params.parentTaskRunId,
+          rootTaskRunId: params.rootTaskRunId,
+          spawnedByActionId: params.spawnedByActionId,
+          lineageKind: 'subagent_spawn',
+          runSequence: 0,
+          checkpointId: null,
           operatorRole: params.def.operatorRole,
           budgetSliceAllocated: params.allocatedUsd.toFixed(4),
           budgetSliceUsed: '0.0000',
@@ -397,6 +408,8 @@ export interface ParentContext {
   taskId: string;
   /** task_runs.id of the conductor iteration that produced this spawn. */
   parentTaskRunId: string | null;
+  /** Root parent task run for nested subagent proof DAGs. */
+  rootTaskRunId?: string | null;
   operatorRole: string;
   policyVersion: string;
   /** USD available to the conductor for delegations this iteration. */

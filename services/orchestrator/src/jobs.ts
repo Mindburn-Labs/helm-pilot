@@ -1,8 +1,16 @@
 import PgBoss from 'pg-boss';
-import { and, eq, lt } from 'drizzle-orm';
+import { and, eq, isNull, lt } from 'drizzle-orm';
 import { type Db } from '@pilot/db/client';
-import { opportunityScores, opportunities, tasks, taskRuns, workspaces, workspaceDeletions, founderProfiles, founderStrengths } from '@pilot/db/schema';
-import { isNull } from 'drizzle-orm';
+import {
+  opportunityScores,
+  opportunities,
+  tasks,
+  taskRuns,
+  workspaces,
+  workspaceDeletions,
+  founderProfiles,
+  founderStrengths,
+} from '@pilot/db/schema';
 import { scoreOpportunity } from '@pilot/shared/scoring';
 import { type MemoryService } from '@pilot/memory';
 import { type LlmProvider } from '@pilot/shared/llm';
@@ -11,9 +19,9 @@ import {
   type RefreshNotifier,
   registerRefreshJobs,
 } from '@pilot/connectors';
-import { type ActionRecord } from './agent-loop.js';
 import { createLogger } from '@pilot/shared/logger';
 import { type Orchestrator } from './index.js';
+import { loadParentRunHistory } from './run-history.js';
 
 const log = createLogger('jobs');
 
@@ -127,7 +135,12 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
           .where(eq(opportunities.id, opportunityId));
 
         log.info(
-          { opportunityId, method: result.method, overall: result.overall, promptVersion: result.promptVersion },
+          {
+            opportunityId,
+            method: result.method,
+            overall: result.overall,
+            promptVersion: result.promptVersion,
+          },
           'Opportunity scored',
         );
       } catch (err) {
@@ -159,50 +172,51 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
   });
 
   // ─── Task Resume (after approval) ───
-  boss.work('task.resume', async (jobs: PgBoss.Job<{ taskId: string; workspaceId: string; operatorId?: string; context: string }>[]) => {
-    for (const job of jobs) {
-      const { taskId, workspaceId, operatorId, context } = job.data;
-      log.info({ taskId }, 'Resuming task after approval');
+  boss.work(
+    'task.resume',
+    async (
+      jobs: PgBoss.Job<{
+        taskId: string;
+        workspaceId: string;
+        operatorId?: string;
+        context: string;
+      }>[],
+    ) => {
+      for (const job of jobs) {
+        const { taskId, workspaceId, operatorId, context } = job.data;
+        log.info({ taskId }, 'Resuming task after approval');
 
-      if (!deps.orchestrator) {
-        log.warn('Orchestrator not available for task resume');
-        continue;
+        if (!deps.orchestrator) {
+          log.warn('Orchestrator not available for task resume');
+          continue;
+        }
+
+        try {
+          const history = await loadParentRunHistory(deps.db, { taskId, workspaceId });
+          if (!history.taskFound) {
+            log.warn({ taskId, workspaceId }, 'Skipping resume for task outside workspace');
+            continue;
+          }
+
+          const result = await deps.orchestrator.resumeTask({
+            taskId,
+            workspaceId,
+            operatorId,
+            context,
+            priorActions: history.priorActions,
+          });
+
+          log.info(
+            { taskId, status: result.status, iterations: result.iterationsUsed },
+            'Task resumed',
+          );
+        } catch (err) {
+          log.error({ err, taskId }, 'Failed to resume task');
+          throw err;
+        }
       }
-
-      try {
-        // Load prior action history from task_runs
-        const { taskRuns } = await import('@pilot/db/schema');
-        const runs = await deps.db
-          .select()
-          .from(taskRuns)
-          .where(eq(taskRuns.taskId, taskId));
-
-        const priorActions = runs
-          .filter((r) => r.actionTool)
-          .map((r, i) => ({
-            tool: r.actionTool ?? 'unknown',
-            input: r.actionInput ?? {},
-            actionHash: r.actionHash ?? undefined,
-            output: r.actionOutput ?? null,
-            verdict: r.verdict ?? (r.status === 'awaiting_approval' ? 'require_approval' : 'allow'),
-            iteration: r.iterationsUsed ?? i + 1,
-          })) as ActionRecord[];
-
-        const result = await deps.orchestrator.resumeTask({
-          taskId,
-          workspaceId,
-          operatorId,
-          context,
-          priorActions,
-        });
-
-        log.info({ taskId, status: result.status, iterations: result.iterationsUsed }, 'Task resumed');
-      } catch (err) {
-        log.error({ err, taskId }, 'Failed to resume task');
-        throw err;
-      }
-    }
-  });
+    },
+  );
 
   // ─── Pipeline Execution (Python scripts) ───
   //
@@ -255,38 +269,51 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
     log.info({ stdout: stdout.slice(0, 200), pipeline: name }, 'Pipeline completed');
   }
 
-  boss.work('pipeline.yc-scrape', async (jobs: PgBoss.Job<{ replayPath?: string; batch?: string; limit?: number; workspaceId?: string }>[]) => {
-    for (const job of jobs) {
-      try {
-        const args = [
-          ...(job.data?.replayPath ? ['--replay', job.data.replayPath] : []),
-          ...(job.data?.batch ? ['--batch', job.data.batch] : []),
-          ...(job.data?.limit ? ['--limit', String(job.data.limit)] : []),
-          ...(job.data?.workspaceId ? ['--workspace-id', job.data.workspaceId] : []),
-        ];
-        await runPipeline('pipeline.yc-scrape', args);
-      } catch (err) {
-        log.error({ err }, 'YC scraper pipeline failed');
-        throw err;
+  boss.work(
+    'pipeline.yc-scrape',
+    async (
+      jobs: PgBoss.Job<{
+        replayPath?: string;
+        batch?: string;
+        limit?: number;
+        workspaceId?: string;
+      }>[],
+    ) => {
+      for (const job of jobs) {
+        try {
+          const args = [
+            ...(job.data?.replayPath ? ['--replay', job.data.replayPath] : []),
+            ...(job.data?.batch ? ['--batch', job.data.batch] : []),
+            ...(job.data?.limit ? ['--limit', String(job.data.limit)] : []),
+            ...(job.data?.workspaceId ? ['--workspace-id', job.data.workspaceId] : []),
+          ];
+          await runPipeline('pipeline.yc-scrape', args);
+        } catch (err) {
+          log.error({ err }, 'YC scraper pipeline failed');
+          throw err;
+        }
       }
-    }
-  });
+    },
+  );
 
-  boss.work('pipeline.startup-school', async (jobs: PgBoss.Job<{ replayPath?: string; limit?: number; workspaceId?: string }>[]) => {
-    for (const job of jobs) {
-      try {
-        const args = [
-          ...(job.data?.replayPath ? ['--replay', job.data.replayPath] : []),
-          ...(job.data?.limit ? ['--limit', String(job.data.limit)] : []),
-          ...(job.data?.workspaceId ? ['--workspace-id', job.data.workspaceId] : []),
-        ];
-        await runPipeline('pipeline.startup-school', args);
-      } catch (err) {
-        log.error({ err }, 'Startup School pipeline failed');
-        throw err;
+  boss.work(
+    'pipeline.startup-school',
+    async (jobs: PgBoss.Job<{ replayPath?: string; limit?: number; workspaceId?: string }>[]) => {
+      for (const job of jobs) {
+        try {
+          const args = [
+            ...(job.data?.replayPath ? ['--replay', job.data.replayPath] : []),
+            ...(job.data?.limit ? ['--limit', String(job.data.limit)] : []),
+            ...(job.data?.workspaceId ? ['--workspace-id', job.data.workspaceId] : []),
+          ];
+          await runPipeline('pipeline.startup-school', args);
+        } catch (err) {
+          log.error({ err }, 'Startup School pipeline failed');
+          throw err;
+        }
       }
-    }
-  });
+    },
+  );
 
   boss.work('pipeline.ingest-knowledge', async (jobs: PgBoss.Job[]) => {
     for (const _job of jobs) {
@@ -299,24 +326,34 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
     }
   });
 
-  boss.work('pipeline.yc-private', async (jobs: PgBoss.Job<{ grantId: string; action?: 'validate' | 'sync'; limit?: number; workspaceId?: string }>[]) => {
-    for (const job of jobs) {
-      try {
-        const args = [
-          '--grant-id',
-          job.data.grantId,
-          '--action',
-          job.data.action ?? 'sync',
-          ...(job.data.limit ? ['--limit', String(job.data.limit)] : []),
-          ...(job.data.workspaceId ? ['--workspace-id', job.data.workspaceId] : []),
-        ];
-        await runPipeline('pipeline.yc-private', args);
-      } catch (err) {
-        log.error({ err }, 'YC private pipeline failed');
-        throw err;
+  boss.work(
+    'pipeline.yc-private',
+    async (
+      jobs: PgBoss.Job<{
+        grantId: string;
+        action?: 'validate' | 'sync';
+        limit?: number;
+        workspaceId?: string;
+      }>[],
+    ) => {
+      for (const job of jobs) {
+        try {
+          const args = [
+            '--grant-id',
+            job.data.grantId,
+            '--action',
+            job.data.action ?? 'sync',
+            ...(job.data.limit ? ['--limit', String(job.data.limit)] : []),
+            ...(job.data.workspaceId ? ['--workspace-id', job.data.workspaceId] : []),
+          ];
+          await runPipeline('pipeline.yc-private', args);
+        } catch (err) {
+          log.error({ err }, 'YC private pipeline failed');
+          throw err;
+        }
       }
-    }
-  });
+    },
+  );
 
   // ─── Crashed-Task Reaper ───
   // If the gateway/orchestrator crashes mid-agent-loop, a task row stays in
@@ -362,7 +399,12 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
         const pending = await deps.db
           .select()
           .from(workspaceDeletions)
-          .where(and(isNull(workspaceDeletions.hardDeletedAt), lt(workspaceDeletions.hardDeleteAfter, new Date())))
+          .where(
+            and(
+              isNull(workspaceDeletions.hardDeletedAt),
+              lt(workspaceDeletions.hardDeleteAfter, new Date()),
+            ),
+          )
           .limit(limit);
         let deleted = 0;
         for (const row of pending) {
@@ -414,10 +456,10 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
   // pg-boss v10 requires queues to exist before scheduling. createQueue is idempotent
   // on already-existing queues but errors if not called first for a new queue.
   const scheduledJobs: Array<[string, string]> = [
-    ['pipeline.yc-scrape', '0 3 * * 0'],       // Weekly Sunday 3am UTC
-    ['pipeline.startup-school', '0 4 * * 0'],  // Weekly Sunday 4am UTC
-    ['pipeline.cluster', '0 2 * * *'],         // Daily 2am UTC — rebuild workspace clusters
-    ['tasks.reap_stuck', '*/5 * * * *'],       // Every 5 minutes
+    ['pipeline.yc-scrape', '0 3 * * 0'], // Weekly Sunday 3am UTC
+    ['pipeline.startup-school', '0 4 * * 0'], // Weekly Sunday 4am UTC
+    ['pipeline.cluster', '0 2 * * *'], // Daily 2am UTC — rebuild workspace clusters
+    ['tasks.reap_stuck', '*/5 * * * *'], // Every 5 minutes
     ['tenant.hard-delete-sweep', '0 5 * * *'], // Daily 5am UTC — past-grace hard delete
   ];
   for (const [name, cron] of scheduledJobs) {
