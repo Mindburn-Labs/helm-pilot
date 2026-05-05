@@ -474,6 +474,22 @@ Return the Gate 9 startup lifecycle template set for the authenticated workspace
 
 Compile a founder goal into a non-production governed lifecycle DAG draft. Requires at least the workspace `partner` role. The response is `compiled_not_persisted`, includes required agents, skills, tools, evidence, HELM policy classes, escalation conditions, and acceptance criteria, and never starts execution.
 
+### GET /api/evals/production-suite
+
+Return the Gate 10 production autonomy eval suite. Requires at least the workspace `partner` role. The response lists the required eval scenarios, mapped capability keys, required tools/integrations/HELM policies, success and failure criteria, evidence requirements, and audit requirements.
+
+### GET /api/evals/runs
+
+List durable eval run records for the authenticated workspace. Requires at least the workspace `partner` role. Returned rows are workspace-scoped and normalized for promotion checks.
+
+### POST /api/evals/runs
+
+Record a durable eval run with status, capability key, evidence references, audit receipt references, optional run reference, step metadata, failure reason, summary, and completion metadata. Requires at least the workspace `partner` role. Failed runs create blocker tasks. Passed runs may create `capability_promotions` eligibility rows, but the route does not mutate the shared capability registry or mark anything `production_ready`.
+
+### POST /api/evals/promotion-check
+
+Check whether a capability may be promoted to `production_ready` using submitted eval run records or durable workspace eval runs when no run list is supplied. Requires at least the workspace `partner` role. The response blocks promotion unless the mapped eval has `passed` status, at least one evidence reference, at least one audit receipt reference, and `completedAt`.
+
 ### GET /health
 
 Health check (public).

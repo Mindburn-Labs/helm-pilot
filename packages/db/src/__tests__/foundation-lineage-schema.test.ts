@@ -6,7 +6,13 @@ import {
   browserObservations,
   browserSessionGrants,
   browserSessions,
+  capabilityPromotions,
   computerActions,
+  evalEvidenceLinks,
+  evalResults,
+  evalRuns,
+  evalSteps,
+  evaluations,
   taskRuns,
 } from '../schema/index.js';
 
@@ -60,5 +66,19 @@ describe('Gate 7 computer operation schema', () => {
     expect(computerActions.fileDiff.name).toBe('file_diff');
     expect(computerActions.evidencePackId.name).toBe('evidence_pack_id');
     expect(computerActions.replayIndex.name).toBe('replay_index');
+  });
+});
+
+describe('Gate 10 production eval schema', () => {
+  it('exports durable eval run, result, evidence, and promotion tables', () => {
+    expect(evaluations.evalId.name).toBe('eval_id');
+    expect(evalRuns.workspaceId.name).toBe('workspace_id');
+    expect(evalRuns.evidenceRefs.name).toBe('evidence_refs');
+    expect(evalRuns.auditReceiptRefs.name).toBe('audit_receipt_refs');
+    expect(evalSteps.evalRunId.name).toBe('eval_run_id');
+    expect(evalResults.passed.name).toBe('passed');
+    expect(evalEvidenceLinks.evidenceRef.name).toBe('evidence_ref');
+    expect(capabilityPromotions.capabilityKey.name).toBe('capability_key');
+    expect(capabilityPromotions.promotedState.name).toBe('promoted_state');
   });
 });

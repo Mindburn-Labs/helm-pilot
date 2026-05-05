@@ -1,1 +1,21 @@
 export { logEvalEntry, flushBraintrust, gradeOutput } from './braintrust.js';
+export {
+  type CapabilityPromotionCheck,
+  type PilotEvalId,
+  type PilotEvalRunRecord,
+  type PilotEvalScenario,
+  type PilotEvalStepRecord,
+  type RecordPilotEvalRunInput,
+  CapabilityPromotionCheckSchema,
+  PilotEvalIdSchema,
+  PilotEvalRunRecordSchema,
+  PilotEvalScenarioSchema,
+  PilotEvalStatusSchema,
+  PilotEvalStepRecordSchema,
+  RecordPilotEvalRunInputSchema,
+  RecordablePilotEvalStatusSchema,
+  checkCapabilityPromotionReadiness,
+  getPilotProductionEvalSuite,
+  getRequiredEvalForCapability,
+  pilotProductionEvalSuite,
+} from './production-suite.js';
