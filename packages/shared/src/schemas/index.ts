@@ -105,3 +105,20 @@ export {
   CommandCenterResponseSchema,
   CommandCenterRuntimeTruthSchema,
 } from './command-center.js';
+
+export {
+  type CompiledStartupLifecycleMission,
+  type CompileStartupLifecycleInput,
+  type StartupLifecycleEdge,
+  type StartupLifecycleNode,
+  type StartupLifecycleStage,
+  CompiledStartupLifecycleMissionSchema,
+  CompileStartupLifecycleInputSchema,
+  StartupLifecycleAutonomyModeSchema,
+  StartupLifecycleEdgeSchema,
+  StartupLifecycleNodeSchema,
+  StartupLifecycleStageSchema,
+  StartupLifecycleStageValues,
+  compileStartupLifecycleMission,
+  getStartupLifecycleTemplates,
+} from './startup-lifecycle.js';

@@ -466,6 +466,14 @@ Return one capability state, blockers, evidence notes, owner, and required eval 
 
 Return the Gate 8 command-center aggregate for the authenticated workspace. Requires at least the workspace `partner` role. The response includes capability truth, real durable task/task-run/action/tool-execution/receipt/approval/audit/browser/computer/handoff/artifact rows, and a runtime-truth statement that keeps mission autonomy blocked until eval-backed promotion.
 
+### GET /api/startup-lifecycle/templates
+
+Return the Gate 9 startup lifecycle template set for the authenticated workspace. Requires at least the workspace `partner` role and returns capability truth with the template node contracts.
+
+### POST /api/startup-lifecycle/compile
+
+Compile a founder goal into a non-production governed lifecycle DAG draft. Requires at least the workspace `partner` role. The response is `compiled_not_persisted`, includes required agents, skills, tools, evidence, HELM policy classes, escalation conditions, and acceptance criteria, and never starts execution.
+
 ### GET /health
 
 Health check (public).

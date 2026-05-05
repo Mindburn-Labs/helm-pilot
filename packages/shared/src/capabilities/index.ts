@@ -355,16 +355,20 @@ const capabilityRecords = validateCapabilityRecords([
   {
     key: 'startup_lifecycle',
     name: 'Startup lifecycle engine',
-    state: 'blocked',
+    state: 'prototype',
     summary:
-      'Pilot has startup-domain surfaces, but no mission compiler that turns founder goals into governed lifecycle DAGs from onboarding through PMF, build, launch, growth, sales, formation, and operations.',
+      'Pilot can compile a founder goal into a governed startup lifecycle DAG draft across onboarding, PMF, build, launch, growth, sales, formation, fundraising, and operations, but it does not execute that DAG as durable mission runtime yet.',
     owner: 'Runtime Agent',
     blockers: [
-      'No lifecycle mission templates with required agents, skills, tools, evidence, policy classes, and acceptance criteria',
-      'No legal/financial/external communication escalation contract per lifecycle stage',
+      'Lifecycle DAG is compiled but not persisted as venture/mission/action runtime state',
+      'Nodes are not yet executable through the mission runtime and Tool Broker as a single startup launch workflow',
+      'Legal/financial/external communication escalation contracts are compiled but not enforced by a running lifecycle engine',
       'No end-to-end startup launch eval passing against the lifecycle engine',
     ],
-    evidence: ['Gate 9 must encode startup lifecycle workflows after runtime and governance gates'],
+    evidence: [
+      'Gate 9 adds startup lifecycle templates with agents, skills, tools, evidence, HELM policy classes, escalation conditions, and acceptance criteria',
+      'Gateway exposes /api/startup-lifecycle/compile for partner-scoped founder-goal compilation without starting execution',
+    ],
     evalRequirement: 'Full Startup Launch Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,
   },
