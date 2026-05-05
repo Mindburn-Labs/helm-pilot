@@ -24,7 +24,7 @@ This is the control artifact for moving Pilot from a governed agent/task prototy
 | Capability                   | Current state | Owner            | Production gate                                                |
 | ---------------------------- | ------------- | ---------------- | -------------------------------------------------------------- |
 | `mission_runtime`            | `blocked`     | Foundation Agent | Full Startup Launch Eval and Multi-Agent Parallel Build Eval   |
-| `helm_receipts`              | `prototype`   | Governance Agent | HELM Governance Eval                                           |
+| `helm_receipts`              | `implemented` | Governance Agent | HELM Governance Eval                                           |
 | `workspace_rbac`             | `blocked`     | Governance Agent | HELM Governance Eval and RBAC regressions                      |
 | `operator_scoping`           | `blocked`     | Governance Agent | Cross-workspace operator rejection regression                  |
 | `decision_court`             | `stub`        | Decision Agent   | Decision Court Governed Model Eval                             |

@@ -158,6 +158,15 @@ export interface HelmClientConfig {
   baseBackoffMs?: number;
   /** Fail closed when true (default): any non-200 / non-403 error denies the call. */
   failClosed?: boolean;
+  /**
+   * Receipt persistence contract.
+   *
+   * - best_effort: emit receipts when a sink exists; sink failures do not fail the call.
+   * - required_for_elevated: medium/high/restricted evaluate actions require a sink and
+   *   fail closed when persistence fails.
+   * - required: every emitted receipt requires durable sink persistence.
+   */
+  receiptPersistence?: 'best_effort' | 'required_for_elevated' | 'required';
   /** Optional fetch implementation for tests. */
   fetchImpl?: typeof fetch;
   /** Optional receipt callback (e.g. persist to evidence_packs table). */

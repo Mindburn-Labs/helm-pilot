@@ -35,7 +35,7 @@ describe('capabilityRoutes', () => {
       'stub',
     );
     expect(json.capabilities.find((capability) => capability.key === 'helm_receipts')?.state).toBe(
-      'prototype',
+      'implemented',
     );
     expect(
       json.capabilities.find((capability) => capability.key === 'browser_execution')?.state,

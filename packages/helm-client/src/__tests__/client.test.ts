@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   HelmClient,
   HelmDeniedError,
@@ -19,7 +19,10 @@ function makeResponse(opts: {
   });
 }
 
-function goodReceiptHeaders(verdict = 'ALLOW', extras: Record<string, string> = {}): Record<string, string> {
+function goodReceiptHeaders(
+  verdict = 'ALLOW',
+  extras: Record<string, string> = {},
+): Record<string, string> {
   return {
     'x-helm-decision-id': 'dec-123',
     'x-helm-verdict': verdict,
@@ -134,9 +137,7 @@ describe('HelmClient.chatCompletion', () => {
   });
 
   it('fails closed when 403 is missing governance headers', async () => {
-    fetchMock.mockResolvedValue(
-      makeResponse({ status: 403, body: { reason: 'rogue deny' } }),
-    );
+    fetchMock.mockResolvedValue(makeResponse({ status: 403, body: { reason: 'rogue deny' } }));
     const client = new HelmClient({ baseUrl: 'http://helm:8080', fetchImpl: fetchMock });
     await expect(
       client.chatCompletion('p', { model: 'gpt-4', messages: [] }),
@@ -177,7 +178,11 @@ describe('HelmClient.chatCompletion', () => {
 
   it('does NOT retry on 403 (definitive verdict)', async () => {
     fetchMock.mockResolvedValue(
-      makeResponse({ status: 403, body: { reason: 'blocked' }, headers: goodReceiptHeaders('DENY') }),
+      makeResponse({
+        status: 403,
+        body: { reason: 'blocked' },
+        headers: goodReceiptHeaders('DENY'),
+      }),
     );
     const client = new HelmClient({
       baseUrl: 'http://helm:8080',
@@ -222,9 +227,9 @@ describe('HelmClient.chatCompletion', () => {
 
 describe('HelmClient.health', () => {
   it('returns ok + latency on 200', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      makeResponse({ status: 200, body: { status: 'ok', version: '0.3.0' } }),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(makeResponse({ status: 200, body: { status: 'ok', version: '0.3.0' } }));
     const client = new HelmClient({
       baseUrl: 'http://helm:8080',
       healthUrl: 'http://helm:8081',
@@ -254,6 +259,16 @@ describe('HelmClient.health', () => {
 });
 
 describe('HelmClient.evaluate', () => {
+  const originalNodeEnv = process.env['NODE_ENV'];
+
+  afterEach(() => {
+    if (originalNodeEnv === undefined) {
+      delete process.env['NODE_ENV'];
+    } else {
+      process.env['NODE_ENV'] = originalNodeEnv;
+    }
+  });
+
   it('posts to canonical helm-oss evaluate and returns a synthesized receipt', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       makeResponse({
@@ -309,6 +324,83 @@ describe('HelmClient.evaluate', () => {
       client.evaluate({ principal: 'p', action: 'TOOL_USE', resource: 'github.commit' }),
     ).rejects.toBeInstanceOf(HelmDeniedError);
   });
+
+  it('fails closed before elevated production evaluate when no receipt sink exists', async () => {
+    process.env['NODE_ENV'] = 'production';
+    const fetchMock = vi.fn();
+    const client = new HelmClient({ baseUrl: 'http://helm:8080', fetchImpl: fetchMock });
+
+    await expect(
+      client.evaluate({
+        principal: 'workspace:ws-1/operator:agent',
+        action: 'TOOL_USE',
+        resource: 'github.commit',
+        effectLevel: 'E2',
+      }),
+    ).rejects.toBeInstanceOf(HelmUnreachableError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when elevated receipt persistence fails', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      makeResponse({
+        status: 200,
+        body: {
+          allow: true,
+          verdict: 'ALLOW',
+          receipt_id: 'rcpt-3',
+          decision_id: 'dec-3',
+          decision_hash: 'sha256:ghi',
+          policy_ref: 'founder-ops-v1',
+        },
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = new HelmClient({
+      baseUrl: 'http://helm:8080',
+      fetchImpl: fetchMock,
+      receiptPersistence: 'required_for_elevated',
+      onReceipt: vi.fn(async () => {
+        throw new Error('db unavailable');
+      }),
+    });
+
+    await expect(
+      client.evaluate({
+        principal: 'workspace:ws-1/operator:agent',
+        action: 'TOOL_USE',
+        resource: 'github.commit',
+        effectLevel: 'E2',
+      }),
+    ).rejects.toBeInstanceOf(HelmUnreachableError);
+  });
+
+  it('allows low-risk evaluate without a receipt sink outside production', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      makeResponse({
+        status: 200,
+        body: {
+          allow: true,
+          verdict: 'ALLOW',
+          receipt_id: 'rcpt-low',
+          decision_id: 'dec-low',
+          decision_hash: 'sha256:low',
+          policy_ref: 'founder-ops-v1',
+        },
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = new HelmClient({ baseUrl: 'http://helm:8080', fetchImpl: fetchMock });
+
+    const result = await client.evaluate({
+      principal: 'workspace:ws-1/operator:agent',
+      action: 'TOOL_USE',
+      resource: 'read_status',
+      effectLevel: 'E1',
+    });
+
+    expect(result.receipt.decisionId).toBe('dec-low');
+  });
 });
 
 describe('HelmClient.evaluateOperatorComputerUse', () => {
@@ -359,7 +451,11 @@ describe('parseReceiptHeaders', () => {
       'x-helm-policy-version': 'v1',
       'x-helm-decision-hash': 'sha256:xx',
     });
-    const r = parseReceiptHeaders(headers, { action: 'LLM_INFERENCE', resource: 'gpt-4', principal: 'p' });
+    const r = parseReceiptHeaders(headers, {
+      action: 'LLM_INFERENCE',
+      resource: 'gpt-4',
+      principal: 'p',
+    });
     expect(r).not.toBeNull();
     expect(r!.verdict).toBe('ALLOW');
     expect(r!.decisionHash).toBe('sha256:xx');

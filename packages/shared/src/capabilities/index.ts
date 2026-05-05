@@ -96,18 +96,19 @@ const capabilityRecords = validateCapabilityRecords([
   {
     key: 'helm_receipts',
     name: 'Mandatory HELM receipts',
-    state: 'prototype',
+    state: 'implemented',
     summary:
-      'HELM receipts exist in important paths, but receipt persistence is not yet a mandatory global sink for every HelmClient.evaluate() path.',
+      'HelmClient.evaluate now requires a durable receipt sink for elevated actions and fails closed when that sink is missing or cannot persist.',
     owner: 'Governance Agent',
     blockers: [
-      'No global mandatory receipt sink',
-      'Medium/high/restricted actions do not uniformly fail closed when receipt persistence fails',
+      'HELM Governance Eval has not promoted the capability to production_ready',
       'Policy and document version pinning is not attached to every meaningful action',
+      'Non-evaluate HELM helper endpoints still need explicit action-catalog classification',
     ],
     evidence: [
-      'Current orchestrator governance paths persist receipts best-effort in some flows',
-      'Launch, connector, browser/computer, managed Telegram, and agent-loop paths still need uniform receipt mirroring',
+      'Gate 2A adds required_for_elevated receipt persistence to @pilot/helm-client evaluate()',
+      'Gateway server wiring installs a global evidence_packs receipt sink for HELM receipts',
+      'Tests cover missing sink and sink persistence failure for elevated evaluate actions',
     ],
     evalRequirement: 'HELM Governance Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,

@@ -53,7 +53,7 @@ describe('capability registry', () => {
 
     expect(markdown).toContain('Production-ready capabilities: 0/');
     expect(markdown).toContain('decision_court | stub');
-    expect(markdown).toContain('helm_receipts | prototype');
+    expect(markdown).toContain('helm_receipts | implemented');
     expect(markdown).toContain('browser_execution | blocked');
   });
 
