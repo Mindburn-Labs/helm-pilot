@@ -54,5 +54,20 @@ export const CommandCenterResponseSchema = z.object({
   }),
 });
 
+export const CommandCenterProofDagResponseSchema = z.object({
+  workspaceId: z.string().min(1),
+  rootTaskRunId: z.string().min(1),
+  generatedAt: z.string().datetime(),
+  productionReady: z.literal(false),
+  capability: CapabilityRecordSchema,
+  dag: z.object({
+    taskRuns: z.array(DurableRowSchema),
+    agentHandoffs: z.array(DurableRowSchema),
+    evidencePacks: z.array(DurableRowSchema),
+  }),
+  blockers: z.array(z.string().min(1)),
+});
+
 export type CommandCenterRuntimeTruth = z.infer<typeof CommandCenterRuntimeTruthSchema>;
 export type CommandCenterResponse = z.infer<typeof CommandCenterResponseSchema>;
+export type CommandCenterProofDagResponse = z.infer<typeof CommandCenterProofDagResponseSchema>;

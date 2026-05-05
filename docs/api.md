@@ -466,6 +466,10 @@ Return one capability state, blockers, evidence notes, owner, and required eval 
 
 Return the Gate 8 command-center aggregate for the authenticated workspace. Requires at least the workspace `partner` role. The response includes capability truth, real durable task/task-run/action/tool-execution/receipt/approval/audit/browser/computer/handoff/artifact rows, and a runtime-truth statement that keeps mission autonomy blocked until eval-backed promotion.
 
+### GET /api/command-center/proof-dag/:taskRunId
+
+Return a workspace-scoped proof DAG for a parent or subagent task run. Requires at least the workspace `partner` role. The response includes related task_run lineage rows, agent handoffs, evidence packs, capability truth, and blockers. It is an inspection route only; it does not promote `subagent_lineage` or `command_center` to `production_ready`.
+
 ### GET /api/startup-lifecycle/templates
 
 Return the Gate 9 startup lifecycle template set for the authenticated workspace. Requires at least the workspace `partner` role and returns capability truth with the template node contracts.
