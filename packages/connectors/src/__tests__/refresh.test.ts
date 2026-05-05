@@ -27,6 +27,7 @@ function makeDb() {
     values: Record<string, unknown>;
     where: unknown;
   }> = [];
+  const insertCalls: Array<Record<string, unknown>> = [];
 
   let nextSelectRows: unknown[] = [];
   let nextLockAcquired = true;
@@ -45,7 +46,14 @@ function makeDb() {
   });
 
   const db = {
-    insert: vi.fn(),
+    insert: vi.fn((_table: unknown) => ({
+      values: vi.fn((value: Record<string, unknown>) => {
+        insertCalls.push(value);
+        return {
+          returning: vi.fn(async () => [{ id: `evidence-item-${insertCalls.length}` }]),
+        };
+      }),
+    })),
     update: vi.fn((_table: unknown) => ({
       set: vi.fn((values: Record<string, unknown>) => ({
         where: (where: unknown) => {
@@ -61,6 +69,7 @@ function makeDb() {
   return {
     db,
     updateCalls,
+    insertCalls,
     setNextSelectRows: (rows: unknown[]) => {
       nextSelectRows = rows;
     },
@@ -131,9 +140,11 @@ describe('connector refresh — registerRefreshJobs', () => {
   });
 
   it('success path: clears attempts + needs_reauth', async () => {
-    const { db, updateCalls } = makeDb();
+    const { db, updateCalls, insertCalls, setNextSelectRows } = makeDb();
     const oauth = makeOauth('new_access_token');
     const { boss, handlers } = makeBoss();
+
+    setNextSelectRows([{ refreshAttempts: 2, workspaceId: 'ws_abc' }]);
 
     await refresh.registerRefreshJobs(boss, { db, oauth });
 
@@ -151,10 +162,27 @@ describe('connector refresh — registerRefreshJobs', () => {
       lastRefreshError: null,
       needsReauth: false,
     });
+    expect(insertCalls[0]).toMatchObject({
+      workspaceId: 'ws_abc',
+      evidenceType: 'connector_refresh_succeeded',
+      sourceType: 'connector_refresh_worker',
+      redactionState: 'redacted',
+      sensitivity: 'sensitive',
+      replayRef: 'connector-refresh:cg_1:succeeded:0',
+      metadata: expect.objectContaining({
+        grantId: 'cg_1',
+        connectorId: 'conn_github',
+        status: 'succeeded',
+        attempts: 0,
+        permanent: false,
+        credentialBoundary: 'no_raw_tokens_in_evidence',
+      }),
+    });
+    expect(JSON.stringify(insertCalls)).not.toContain('new_access_token');
   });
 
   it('first failure: bumps attempts, stays eligible', async () => {
-    const { db, updateCalls, setNextSelectRows } = makeDb();
+    const { db, updateCalls, insertCalls, setNextSelectRows } = makeDb();
     const oauth = makeOauth(null);
     const { boss, handlers } = makeBoss();
 
@@ -173,10 +201,23 @@ describe('connector refresh — registerRefreshJobs', () => {
       needsReauth: false,
     });
     expect(String(updateCalls[0]?.values['lastRefreshError'])).toMatch(/attempt 1/);
+    expect(insertCalls[0]).toMatchObject({
+      workspaceId: 'ws_abc',
+      evidenceType: 'connector_refresh_failed',
+      sourceType: 'connector_refresh_worker',
+      replayRef: 'connector-refresh:cg_2:failed:1',
+      metadata: expect.objectContaining({
+        grantId: 'cg_2',
+        connectorId: 'conn_github',
+        status: 'failed',
+        attempts: 1,
+        permanent: false,
+      }),
+    });
   });
 
   it('3rd failure: sets needs_reauth=true and invokes notifier', async () => {
-    const { db, updateCalls, setNextSelectRows } = makeDb();
+    const { db, updateCalls, insertCalls, setNextSelectRows } = makeDb();
     const oauth = makeOauth(null);
     const { boss, handlers } = makeBoss();
 
@@ -201,6 +242,17 @@ describe('connector refresh — registerRefreshJobs', () => {
     expect(updateCalls[0]?.values).toMatchObject({
       refreshAttempts: 3,
       needsReauth: true,
+    });
+    expect(insertCalls[0]).toMatchObject({
+      workspaceId: 'ws_abc',
+      evidenceType: 'connector_refresh_failed',
+      replayRef: 'connector-refresh:cg_3:failed:3',
+      metadata: expect.objectContaining({
+        grantId: 'cg_3',
+        connectorId: 'conn_github',
+        attempts: 3,
+        permanent: true,
+      }),
     });
   });
 
