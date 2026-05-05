@@ -39,6 +39,26 @@ export const TELEGRAM_MANAGED_ACTIONS = {
   DISABLE: 'TELEGRAM_CHILD_DISABLE',
 } as const;
 
+type ManagedTelegramEffectLevel = 'E1' | 'E2' | 'E3' | 'E4';
+
+export function managedTelegramActionEffectLevel(action: string): ManagedTelegramEffectLevel {
+  switch (action) {
+    case TELEGRAM_MANAGED_ACTIONS.SEND_MESSAGE:
+      return 'E2';
+    case TELEGRAM_MANAGED_ACTIONS.CLAIM:
+    case TELEGRAM_MANAGED_ACTIONS.SET_WEBHOOK:
+    case TELEGRAM_MANAGED_ACTIONS.ROTATE_TOKEN:
+    case TELEGRAM_MANAGED_ACTIONS.DISABLE:
+      return 'E3';
+    default:
+      return 'E2';
+  }
+}
+
+function isElevatedManagedTelegramAction(effectLevel: ManagedTelegramEffectLevel) {
+  return effectLevel === 'E2' || effectLevel === 'E3' || effectLevel === 'E4';
+}
+
 type ManagedBotRow = typeof managedTelegramBots.$inferSelect;
 type ManagedMessageRow = typeof managedTelegramBotMessages.$inferSelect;
 
@@ -883,10 +903,14 @@ export class ManagedTelegramBotService {
     resource: string;
     context?: Record<string, unknown>;
   }): Promise<EvaluateResult | null> {
+    const effectLevel = managedTelegramActionEffectLevel(input.action);
     if (!this.opts.helmClient) {
-      if (process.env['NODE_ENV'] === 'production' && process.env['HELM_FAIL_CLOSED'] !== '0') {
+      if (
+        isElevatedManagedTelegramAction(effectLevel) ||
+        (process.env['NODE_ENV'] === 'production' && process.env['HELM_FAIL_CLOSED'] !== '0')
+      ) {
         throw new ManagedTelegramBotError(
-          'HELM governance client is required for Telegram managed bot actions',
+          'HELM governance client is required for elevated Telegram managed bot actions',
           503,
         );
       }
@@ -897,6 +921,7 @@ export class ManagedTelegramBotService {
         principal: `workspace:${input.workspaceId}/operator:launch`,
         action: input.action,
         resource: input.resource,
+        effectLevel,
         context: { ...input.context, workspaceId: input.workspaceId },
       });
     } catch (err) {

@@ -3,6 +3,20 @@ import { Hono } from 'hono';
 import { launchRoutes } from '../../routes/launch.js';
 import { managedTelegramWebhookRoutes } from '../../routes/telegram-managed.js';
 import { createMockDeps, expectJson } from '../helpers.js';
+import {
+  ManagedTelegramBotService,
+  TELEGRAM_MANAGED_ACTIONS,
+  managedTelegramActionEffectLevel,
+} from '../../services/managed-telegram-bots.js';
+
+type ManagedTelegramActionEvaluator = {
+  evaluateAction(input: {
+    workspaceId: string;
+    action: string;
+    resource: string;
+    context?: Record<string, unknown>;
+  }): Promise<unknown>;
+};
 
 function appWithContext(routeFactory: typeof launchRoutes, deps = createMockDeps()) {
   const app = new Hono();
@@ -130,5 +144,64 @@ describe('managed Telegram child webhook route', () => {
 
     await expectJson(res, 200);
     expect(managedTelegram.handleChildWebhook).toHaveBeenCalledWith('bot-1', { update_id: 1 });
+  });
+});
+
+describe('managed Telegram service governance', () => {
+  it('classifies managed bot actions with explicit HELM effect levels', () => {
+    expect(managedTelegramActionEffectLevel(TELEGRAM_MANAGED_ACTIONS.SEND_MESSAGE)).toBe('E2');
+    expect(managedTelegramActionEffectLevel(TELEGRAM_MANAGED_ACTIONS.CLAIM)).toBe('E3');
+    expect(managedTelegramActionEffectLevel(TELEGRAM_MANAGED_ACTIONS.SET_WEBHOOK)).toBe('E3');
+    expect(managedTelegramActionEffectLevel(TELEGRAM_MANAGED_ACTIONS.ROTATE_TOKEN)).toBe('E3');
+    expect(managedTelegramActionEffectLevel(TELEGRAM_MANAGED_ACTIONS.DISABLE)).toBe('E3');
+  });
+
+  it('fails closed for elevated managed bot actions without HELM', async () => {
+    const deps = createMockDeps();
+    const service = new ManagedTelegramBotService({ db: deps.db as never });
+
+    await expect(
+      (service as unknown as ManagedTelegramActionEvaluator).evaluateAction({
+        workspaceId: 'ws-1',
+        action: TELEGRAM_MANAGED_ACTIONS.SEND_MESSAGE,
+        resource: 'telegram-managed-message:msg-1',
+      }),
+    ).rejects.toMatchObject({
+      status: 503,
+      message: 'HELM governance client is required for elevated Telegram managed bot actions',
+    });
+  });
+
+  it('passes managed bot effect levels into HELM evaluation', async () => {
+    const deps = createMockDeps();
+    const helmClient = {
+      evaluate: vi.fn(async () => ({
+        receipt: { decisionId: 'dec-1', verdict: 'ALLOW', reason: 'allowed' },
+      })),
+    };
+    const service = new ManagedTelegramBotService({
+      db: deps.db as never,
+      helmClient: helmClient as never,
+    });
+
+    await (service as unknown as ManagedTelegramActionEvaluator).evaluateAction({
+      workspaceId: 'ws-1',
+      action: TELEGRAM_MANAGED_ACTIONS.SET_WEBHOOK,
+      resource: 'telegram:123',
+      context: { managedBotId: 'bot-1' },
+    });
+
+    expect(helmClient.evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        principal: 'workspace:ws-1/operator:launch',
+        action: TELEGRAM_MANAGED_ACTIONS.SET_WEBHOOK,
+        resource: 'telegram:123',
+        effectLevel: 'E3',
+        context: expect.objectContaining({
+          workspaceId: 'ws-1',
+          managedBotId: 'bot-1',
+        }),
+      }),
+    );
   });
 });
