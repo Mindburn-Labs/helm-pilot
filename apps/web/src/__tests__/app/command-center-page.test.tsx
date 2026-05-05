@@ -92,6 +92,7 @@ describe('CommandCenterPage', () => {
             pendingApprovals: 1,
             recentActions: 1,
             recentEvidence: 1,
+            evidenceItems: 1,
             recentArtifacts: 1,
             browserObservations: 1,
             computerActions: 1,
@@ -141,6 +142,16 @@ describe('CommandCenterPage', () => {
                 policyVersion: 'founder-ops-v1',
                 action: 'TOOL_USE',
                 resource: 'score_opportunity',
+              },
+            ],
+            evidenceItems: [
+              {
+                id: 'ev-1',
+                evidenceType: 'tool_receipt',
+                sourceType: 'agent_loop',
+                title: 'TOOL_USE ALLOW',
+                redactionState: 'redacted',
+                replayRef: 'helm:dec-1',
               },
             ],
             approvals: [
@@ -284,6 +295,7 @@ describe('CommandCenterPage', () => {
     expect(screen.getAllByText('prototype').length).toBeGreaterThan(0);
     expect(screen.getAllByText('blocked').length).toBeGreaterThan(0);
     expect(screen.getAllByText('dec-1').length).toBeGreaterThan(0);
+    expect(screen.getByText('TOOL_USE ALLOW')).toBeTruthy();
     expect(screen.getByText('YC Account')).toBeTruthy();
     expect(screen.getByText('dev_server_status')).toBeTruthy();
     expect(screen.getByText('Opportunity Score')).toBeTruthy();

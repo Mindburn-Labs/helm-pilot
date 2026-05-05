@@ -346,10 +346,10 @@ const capabilityRecords = validateCapabilityRecords([
     name: 'Evidence ledger',
     state: 'prototype',
     summary:
-      'A canonical evidence_items schema exists to link governance receipts, tool executions, browser observations, computer actions, artifacts, audit events, and runtime rows, but writers do not yet append evidence for every meaningful action.',
+      'A canonical evidence_items schema exists and core HELM receipt, agent-loop receipt, subagent spawn, browser observation, and computer action writers append to it, but coverage is not yet complete for every meaningful action.',
     owner: 'Foundation Agent',
     blockers: [
-      'Runtime writers do not yet append evidence_items for every meaningful action',
+      'Artifact, eval, integration, lifecycle, and remaining tool writers do not yet append evidence_items for every meaningful action',
       'No browser/computer observation replay contract',
       'No mandatory evidence persistence before medium/high/restricted action execution',
     ],
@@ -357,6 +357,9 @@ const capabilityRecords = validateCapabilityRecords([
       'packages/db/src/schema/evidence.ts defines evidence_items with workspace, venture, mission, task, task_run, action, tool_execution, evidence_pack, browser_observation, computer_action, artifact, and audit_event links',
       'packages/db/migrations/0025_evidence_items.sql creates the canonical evidence_items ledger and indexes cross-surface lookup fields',
       'packages/db/src/__tests__/foundation-lineage-schema.test.ts verifies evidence item columns are exported',
+      'packages/db/src/evidence-ledger.ts exposes appendEvidenceItem for DB-owned evidence indexing',
+      'Gateway HELM receipt persistence, agent-loop governance mirroring, conductor SUBAGENT_SPAWN packs, browser read/extract, and safe computer actions append evidence_items rows',
+      '/api/command-center returns recent evidence_items and the web command center renders them in the evidence surface',
     ],
     evalRequirement: 'HELM Governance Eval and Recovery Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,

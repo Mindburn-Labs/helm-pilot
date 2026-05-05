@@ -52,6 +52,7 @@ interface CommandCenterResponse {
     pendingApprovals: number;
     recentActions: number;
     recentEvidence: number;
+    evidenceItems: number;
     recentArtifacts: number;
     browserObservations: number;
     computerActions: number;
@@ -62,6 +63,7 @@ interface CommandCenterResponse {
     actions: DurableRow[];
     toolExecutions: DurableRow[];
     evidencePacks: DurableRow[];
+    evidenceItems: DurableRow[];
     approvals: DurableRow[];
     auditEvents: DurableRow[];
     browserObservations: DurableRow[];
@@ -269,6 +271,7 @@ export default function CommandCenterPage() {
               <Stat label="Pending approvals" value={data.status.pendingApprovals} />
               <Stat label="Actions" value={data.status.recentActions} />
               <Stat label="Receipts" value={data.status.recentEvidence} />
+              <Stat label="Evidence items" value={data.status.evidenceItems} />
               <Stat label="Browser observations" value={data.status.browserObservations} />
               <Stat label="Computer actions" value={data.status.computerActions} />
             </section>
@@ -318,6 +321,15 @@ export default function CommandCenterPage() {
                 title="What Evidence Exists"
                 empty="No evidence, browser, or computer replay rows recorded yet."
                 rows={[
+                  ...data.recent.evidenceItems.slice(0, 6).map((row) => ({
+                    id: String(row.id ?? row.evidenceType ?? 'evidence-item'),
+                    title: display(row.title, display(row.evidenceType, 'Evidence item')),
+                    meta: `${display(row.sourceType, 'source')} / ${display(row.redactionState, 'redaction')}`,
+                    detail: display(
+                      row.replayRef,
+                      display(row.contentHash, display(row.summary, 'No replay reference')),
+                    ),
+                  })),
                   ...data.recent.browserObservations.slice(0, 5).map((row) => ({
                     id: String(row.id ?? row.url ?? 'browser'),
                     title: display(row.title, display(row.url, 'Browser observation')),

@@ -1,5 +1,6 @@
 import { serve } from '@hono/node-server';
 import PgBoss from 'pg-boss';
+import { appendEvidenceItem } from '@pilot/db';
 import { createDb, runMigrations, type Db } from '@pilot/db/client';
 import { evidencePacks } from '@pilot/db/schema';
 import { dirname, resolve } from 'node:path';
@@ -52,18 +53,48 @@ async function persistHelmReceipt(db: Db, receipt: HelmReceipt) {
       `Cannot persist HELM receipt without workspace principal: ${receipt.principal}`,
     );
   }
-  await db.insert(evidencePacks).values({
+  const [pack] = await db
+    .insert(evidencePacks)
+    .values({
+      workspaceId,
+      decisionId: receipt.decisionId,
+      verdict: receipt.verdict,
+      reasonCode: receipt.reason ?? null,
+      policyVersion: receipt.policyVersion,
+      decisionHash: receipt.decisionHash ?? null,
+      action: receipt.action,
+      resource: receipt.resource,
+      principal: receipt.principal,
+      signedBlob: receipt.signedBlob ?? null,
+      receivedAt: receipt.receivedAt,
+    })
+    .returning({ id: evidencePacks.id });
+
+  if (!pack?.id) {
+    throw new Error(`Cannot index HELM receipt evidence: ${receipt.decisionId}`);
+  }
+
+  await appendEvidenceItem(db, {
     workspaceId,
-    decisionId: receipt.decisionId,
-    verdict: receipt.verdict,
-    reasonCode: receipt.reason ?? null,
-    policyVersion: receipt.policyVersion,
-    decisionHash: receipt.decisionHash ?? null,
-    action: receipt.action,
-    resource: receipt.resource,
-    principal: receipt.principal,
-    signedBlob: receipt.signedBlob ?? null,
-    receivedAt: receipt.receivedAt,
+    evidencePackId: pack.id,
+    evidenceType: 'helm_receipt',
+    sourceType: 'helm_client',
+    title: `HELM ${receipt.action} ${receipt.verdict}`,
+    summary: receipt.reason ?? `${receipt.action} on ${receipt.resource}`,
+    redactionState: 'redacted',
+    sensitivity: 'internal',
+    contentHash: receipt.decisionHash ?? null,
+    replayRef: `helm:${receipt.decisionId}`,
+    observedAt: receipt.receivedAt,
+    metadata: {
+      decisionId: receipt.decisionId,
+      verdict: receipt.verdict,
+      policyVersion: receipt.policyVersion,
+      action: receipt.action,
+      resource: receipt.resource,
+      principal: receipt.principal,
+      receiptId: receipt.receiptId ?? null,
+    },
   });
 }
 

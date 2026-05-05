@@ -1,3 +1,4 @@
+import { appendEvidenceItem } from '@pilot/db';
 import { type Db } from '@pilot/db/client';
 import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
@@ -992,25 +993,52 @@ export class AgentLoop {
     const { gov, workspaceId, taskRunId, govAction, govResource, frame } = params;
     try {
       const { evidencePacks } = await import('@pilot/db/schema');
-      await this.db.insert(evidencePacks).values({
-        workspaceId,
-        decisionId: gov.decisionId,
-        taskRunId,
-        verdict: gov.verdict,
-        reasonCode: gov.reason ?? null,
-        policyVersion: gov.policyVersion,
-        decisionHash: gov.decisionHash ?? null,
-        action: govAction,
-        resource: govResource,
-        principal: gov.principal,
-        signedBlob: gov.signedBlob ?? null,
-        // Phase 12 — anchor child's receipt to parent's SUBAGENT_SPAWN pack.
-        parentEvidencePackId: frame?.parentEvidencePackId ?? null,
-      });
+      const [pack] = await this.db
+        .insert(evidencePacks)
+        .values({
+          workspaceId,
+          decisionId: gov.decisionId,
+          taskRunId,
+          verdict: gov.verdict,
+          reasonCode: gov.reason ?? null,
+          policyVersion: gov.policyVersion,
+          decisionHash: gov.decisionHash ?? null,
+          action: govAction,
+          resource: govResource,
+          principal: gov.principal,
+          signedBlob: gov.signedBlob ?? null,
+          // Phase 12 — anchor child's receipt to parent's SUBAGENT_SPAWN pack.
+          parentEvidencePackId: frame?.parentEvidencePackId ?? null,
+        })
+        .returning({ id: evidencePacks.id });
+      if (pack?.id) {
+        await appendEvidenceItem(this.db, {
+          workspaceId,
+          taskRunId,
+          evidencePackId: pack.id,
+          evidenceType: govAction === 'LLM_INFERENCE' ? 'llm_inference_receipt' : 'tool_receipt',
+          sourceType: 'agent_loop',
+          title: `${govAction} ${gov.verdict}`,
+          summary: gov.reason ?? `${govAction} on ${govResource}`,
+          redactionState: 'redacted',
+          sensitivity: 'internal',
+          contentHash: gov.decisionHash ?? null,
+          replayRef: `helm:${gov.decisionId}`,
+          metadata: {
+            decisionId: gov.decisionId,
+            verdict: gov.verdict,
+            policyVersion: gov.policyVersion,
+            action: govAction,
+            resource: govResource,
+            principal: gov.principal,
+            parentEvidencePackId: frame?.parentEvidencePackId ?? null,
+          },
+        });
+      }
       // v1.2.1 — L1 structural integrity check. Non-fatal; warnings logged.
       try {
         const result = validateL1({
-          id: '', // the insert doesn't return id here; id-less pack still validates other fields
+          id: pack?.id ?? '',
           decisionId: gov.decisionId,
           verdict: gov.verdict,
           policyVersion: gov.policyVersion,
@@ -1023,7 +1051,9 @@ export class AgentLoop {
           parentEvidencePackId: frame?.parentEvidencePackId ?? null,
         });
         const errors = result.findings.filter((f) => f.level === 'error');
-        // 'l1.missing_field' on `id` is expected here (see note above); filter.
+        // Preserve the historic id-missing tolerance for unusual mock DBs that
+        // do not return inserted ids; real writers index evidence_items only
+        // when the evidence_pack id is available.
         const realErrors = errors.filter((f) => f.field !== 'id');
         if (realErrors.length > 0) {
           l1InferenceLog.error(

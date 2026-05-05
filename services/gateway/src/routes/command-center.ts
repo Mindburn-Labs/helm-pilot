@@ -8,6 +8,7 @@ import {
   auditLog,
   browserObservations,
   computerActions,
+  evidenceItems,
   evidencePacks,
   taskRuns,
   tasks,
@@ -96,6 +97,13 @@ export function commandCenterRoutes(deps: GatewayDeps) {
       .orderBy(desc(evidencePacks.receivedAt), desc(evidencePacks.id))
       .limit(30);
 
+    const evidenceItemRows = await deps.db
+      .select()
+      .from(evidenceItems)
+      .where(eq(evidenceItems.workspaceId, workspaceId))
+      .orderBy(desc(evidenceItems.observedAt), desc(evidenceItems.id))
+      .limit(30);
+
     const approvalRows = await deps.db
       .select()
       .from(approvals)
@@ -169,6 +177,7 @@ export function commandCenterRoutes(deps: GatewayDeps) {
         pendingApprovals: approvalRows.length,
         recentActions: actionRows.length,
         recentEvidence: evidenceRows.length,
+        evidenceItems: evidenceItemRows.length,
         recentArtifacts: artifactRows.length,
         browserObservations: browserObservationRows.length,
         computerActions: computerActionRows.length,
@@ -179,6 +188,7 @@ export function commandCenterRoutes(deps: GatewayDeps) {
         actions: actionRows,
         toolExecutions: toolExecutionRows,
         evidencePacks: evidenceRows,
+        evidenceItems: evidenceItemRows,
         approvals: approvalRows,
         auditEvents: auditRows,
         browserObservations: browserObservationRows,
