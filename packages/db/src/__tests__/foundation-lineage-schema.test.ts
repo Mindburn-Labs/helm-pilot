@@ -58,8 +58,12 @@ describe('Gate 6 browser operation schema', () => {
   it('exports browser sessions, grants, and observations', () => {
     expect(browserSessions.workspaceId.name).toBe('workspace_id');
     expect(browserSessions.allowedOrigins.name).toBe('allowed_origins');
+    expect(browserSessions.helmDocumentVersionPins.name).toBe('helm_document_version_pins');
+    expect(browserSessions.evidencePackId.name).toBe('evidence_pack_id');
     expect(browserSessionGrants.sessionId.name).toBe('session_id');
     expect(browserSessionGrants.scope.name).toBe('scope');
+    expect(browserSessionGrants.helmDocumentVersionPins.name).toBe('helm_document_version_pins');
+    expect(browserSessionGrants.evidencePackId.name).toBe('evidence_pack_id');
     expect(browserActions.helmDocumentVersionPins.name).toBe('helm_document_version_pins');
     expect(browserObservations.actionId.name).toBe('action_id');
     expect(browserObservations.evidencePackId.name).toBe('evidence_pack_id');

@@ -242,6 +242,7 @@ const capabilityRecords = validateCapabilityRecords([
     evidence: [
       'Gate 6 adds browser_sessions, browser_session_grants, browser_actions, and browser_observations',
       'Gateway /api/browser-sessions stores session boundaries, grants active origins, and persists redacted observations',
+      'Browser session creation and grant mutations now require HELM evaluation and persist policy decision, document pins, and evidence pack metadata on session/grant rows',
     ],
     evalRequirement: 'YC Logged-In Browser Extraction Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,
@@ -260,6 +261,7 @@ const capabilityRecords = validateCapabilityRecords([
     ],
     evidence: [
       'operator.browser_read requires HELM evaluation before persisting a read-only observation',
+      'Browser session creation and active-tab grant APIs fail closed without HELM governance and persist access-boundary decision metadata before read/extract can occur',
       'Browser actions and observations persist URL, origin, title, redacted DOM, DOM hash, screenshot refs, extracted data, redactions, replay ordering, and HELM evidence pack id',
       'Gateway /api/browser-sessions/observations fails closed when HELM is not configured',
     ],

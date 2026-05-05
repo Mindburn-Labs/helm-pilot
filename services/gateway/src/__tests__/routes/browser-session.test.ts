@@ -17,6 +17,18 @@ const grantId = '00000000-0000-4000-8000-000000000004';
 const evidencePackId = '00000000-0000-4000-8000-000000000005';
 const wsHeader = { 'X-Workspace-Id': workspaceId };
 
+function createBrowserAccessHelmClient(decisionId = 'dec-browser-access') {
+  return {
+    evaluate: vi.fn(async () => ({
+      evidencePackId,
+      receipt: {
+        decisionId,
+        policyVersion: 'founder-ops-v1',
+      },
+    })),
+  };
+}
+
 function createBrowserDb(selectResults: unknown[][] = []) {
   const inserts: Array<{ table: unknown; value: unknown }> = [];
   const updates: Array<{ table: unknown; value: unknown }> = [];
@@ -94,7 +106,8 @@ function createBrowserDb(selectResults: unknown[][] = []) {
 describe('browserSessionRoutes', () => {
   it('creates a browser session without storing credentials', async () => {
     const { db, inserts } = createBrowserDb();
-    const deps = createMockDeps({ db: db as never });
+    const helmClient = createBrowserAccessHelmClient('dec-browser-session-create');
+    const deps = createMockDeps({ db: db as never, helmClient: helmClient as never });
     const { fetch } = testApp(browserSessionRoutes, deps);
 
     const res = await fetch(
@@ -113,14 +126,36 @@ describe('browserSessionRoutes', () => {
     const body = await expectJson<{ session: { id: string } }>(res, 201);
 
     expect(body.session.id).toBe(sessionId);
+    expect(helmClient.evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        principal: `workspace:${workspaceId}/operator:browser-session`,
+        action: 'BROWSER_SESSION_CREATE',
+        effectLevel: 'E3',
+      }),
+    );
     expect(inserts.find((insert) => insert.table === browserSessions)?.value).toMatchObject({
       workspaceId,
       name: 'Founder Chrome',
       allowedOrigins: ['https://www.ycombinator.com'],
+      policyDecisionId: 'dec-browser-session-create',
+      policyVersion: 'founder-ops-v1',
+      helmDocumentVersionPins: {
+        browserOperationPolicy: 'founder-ops-v1',
+      },
+      evidencePackId,
       metadata: {
         note: 'active tab only',
         apiKey: '[REDACTED]',
         credentialBoundary: 'session_use_only_no_cookie_or_password_export',
+        governance: {
+          policyDecisionId: 'dec-browser-session-create',
+          policyVersion: 'founder-ops-v1',
+          policyPin: {
+            documentVersionPins: {
+              browserOperationPolicy: 'founder-ops-v1',
+            },
+          },
+        },
       },
     });
     expect(JSON.stringify(inserts.map((insert) => insert.value))).not.toMatch(
@@ -129,7 +164,33 @@ describe('browserSessionRoutes', () => {
     expect(inserts.find((insert) => insert.table === auditLog)?.value).toMatchObject({
       action: 'BROWSER_SESSION_CREATED',
       verdict: 'allow',
+      metadata: {
+        governance: {
+          policyDecisionId: 'dec-browser-session-create',
+        },
+      },
     });
+  });
+
+  it('fails closed when creating a browser session without HELM', async () => {
+    const { db, inserts } = createBrowserDb();
+    const deps = createMockDeps({ db: db as never, helmClient: undefined });
+    const { fetch } = testApp(browserSessionRoutes, deps);
+
+    const res = await fetch(
+      'POST',
+      '/',
+      {
+        workspaceId,
+        name: 'Founder Chrome',
+        allowedOrigins: ['https://www.ycombinator.com'],
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{ error: string }>(res, 503);
+
+    expect(body.error).toContain('HELM governance client is required');
+    expect(inserts).toEqual([]);
   });
 
   it('requires owner role before mutating browser sessions', async () => {
@@ -171,6 +232,90 @@ describe('browserSessionRoutes', () => {
     const body = await expectJson<{ error: string }>(res, 403);
 
     expect(body.error).toContain('exceeds');
+  });
+
+  it('stores HELM governance when granting browser session access', async () => {
+    const { db, inserts } = createBrowserDb([
+      [{ id: sessionId, workspaceId, allowedOrigins: ['https://www.ycombinator.com'] }],
+    ]);
+    const helmClient = createBrowserAccessHelmClient('dec-browser-session-grant');
+    const deps = createMockDeps({ db: db as never, helmClient: helmClient as never });
+    const { fetch } = testApp(browserSessionRoutes, deps);
+
+    const res = await fetch(
+      'POST',
+      `/${sessionId}/grants`,
+      {
+        workspaceId,
+        taskId,
+        grantedToType: 'agent',
+        scope: 'read_extract',
+        allowedOrigins: ['https://www.ycombinator.com'],
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{ grant: { id: string } }>(res, 201);
+
+    expect(body.grant.id).toBe(grantId);
+    expect(helmClient.evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        principal: `workspace:${workspaceId}/operator:browser-session`,
+        action: 'BROWSER_SESSION_GRANT',
+        resource: `${sessionId}:read_extract`,
+        effectLevel: 'E3',
+        context: expect.objectContaining({
+          workspaceId,
+          source: 'gateway.browser-session',
+          sessionId,
+          taskId,
+          scope: 'read_extract',
+          allowedOrigins: ['https://www.ycombinator.com'],
+        }),
+      }),
+    );
+    expect(inserts.find((insert) => insert.table === browserSessionGrants)?.value).toMatchObject({
+      workspaceId,
+      sessionId,
+      taskId,
+      allowedOrigins: ['https://www.ycombinator.com'],
+      policyDecisionId: 'dec-browser-session-grant',
+      policyVersion: 'founder-ops-v1',
+      helmDocumentVersionPins: {
+        browserOperationPolicy: 'founder-ops-v1',
+      },
+      evidencePackId,
+    });
+    expect(inserts.find((insert) => insert.table === auditLog)?.value).toMatchObject({
+      action: 'BROWSER_SESSION_GRANTED',
+      verdict: 'allow',
+      metadata: {
+        governance: {
+          policyDecisionId: 'dec-browser-session-grant',
+        },
+      },
+    });
+  });
+
+  it('fails closed when granting browser session access without HELM', async () => {
+    const { db, inserts } = createBrowserDb([
+      [{ id: sessionId, workspaceId, allowedOrigins: ['https://www.ycombinator.com'] }],
+    ]);
+    const deps = createMockDeps({ db: db as never, helmClient: undefined });
+    const { fetch } = testApp(browserSessionRoutes, deps);
+
+    const res = await fetch(
+      'POST',
+      `/${sessionId}/grants`,
+      {
+        workspaceId,
+        allowedOrigins: ['https://www.ycombinator.com'],
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{ error: string }>(res, 503);
+
+    expect(body.error).toContain('HELM governance client is required');
+    expect(inserts).toEqual([]);
   });
 
   it('stores a HELM-approved redacted read-only browser observation', async () => {
