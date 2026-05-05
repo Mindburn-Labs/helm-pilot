@@ -97,7 +97,7 @@ No row may move to `production_ready` without passing eval metadata in the regis
 - Decision Court needs the governed model eval and first-class evidence/artifact ledger links before it can become `production_ready`.
 - Browser execution needs a productized browser extension/bridge and the YC logged-in extraction eval before it can become `production_ready`.
 - Computer use has a narrow safe local execution substrate, Tool Broker routing, command/file evidence, and deny policy; it still needs sandbox provider execution and the Safe Computer/Sandbox Action Eval before production-ready claims.
-- Subagent lineage has durable root/parent/spawn anchoring, evidence-pack attachment, handoff rows, and a proof-DAG API route, but still needs founder-facing proof-DAG UI and eval promotion before production-ready claims.
+- Subagent lineage has durable root/parent/spawn anchoring, evidence-pack attachment, handoff rows, a proof-DAG API route, and founder-facing proof-DAG inspection, but still needs eval promotion before production-ready claims.
 - Approval resume has deterministic parent-history loading and child-row exclusion, but still needs eval promotion before production-ready claims.
 - Skills must move from runtime-loaded prompt packages to fully Tool Broker governed callable capabilities, then pass the Skill Invocation Governance Eval.
 - HELM receipts have mandatory elevated-action sink enforcement, but still need HELM Governance Eval promotion before production-ready claims.
