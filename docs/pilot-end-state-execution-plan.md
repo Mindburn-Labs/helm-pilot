@@ -103,7 +103,7 @@ No row may move to `production_ready` without passing eval metadata in the regis
 - HELM receipts have mandatory elevated-action sink enforcement, but still need HELM Governance Eval promotion before production-ready claims.
 - Opportunity scoring needs PMF Discovery Eval promotion and first-class Evidence Center artifact packs before production-ready claims.
 - A2A gateway task state is durable in Postgres, but multi-agent mission handoff recovery still needs eval coverage before production-ready claims.
-- Mission runtime has durable venture, goal, mission, node, edge, task, and mission-task rows, but still needs executable scheduling, checkpoint, recovery, and replay semantics.
+- Mission runtime has durable venture, goal, mission, node, edge, task, and mission-task rows plus explicit scheduling and bounded ready-node execution, but still needs checkpoint, recovery, rollback, replay semantics, and eval promotion.
 - Workspace RBAC and operatorId scoping need centralized enforcement before broad delegated access.
 
 ## Ownership By Agent Area
