@@ -115,12 +115,22 @@ export interface OperatorComputerUseRequest {
   workspaceId: string;
   objective: string;
   targetUrl?: string;
-  environment?: 'browser' | 'desktop';
+  environment?: 'local' | 'sandbox';
+  operation: 'terminal_command' | 'file_read' | 'file_write' | 'dev_server_status';
   maxSteps?: number;
   taskId?: string;
   operatorId?: string;
   approvalCheckpoint?: string;
   evidencePackId?: string;
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  path?: string;
+  contentHash?: string;
+  expectedCurrentHash?: string;
+  maxBytes?: number;
+  timeoutMs?: number;
+  devServerUrl?: string;
 }
 
 export interface OperatorComputerUseResult {
@@ -131,11 +141,21 @@ export interface OperatorComputerUseResult {
     workspaceId: string;
     objective: string;
     targetUrl?: string;
-    environment: 'browser' | 'desktop';
+    environment: 'local' | 'sandbox';
+    operation: OperatorComputerUseRequest['operation'];
     maxSteps: number;
     taskId?: string;
     operatorId?: string;
     approvalCheckpoint?: string;
+    command?: string;
+    args?: string[];
+    cwd?: string;
+    path?: string;
+    contentHash?: string;
+    expectedCurrentHash?: string;
+    maxBytes?: number;
+    timeoutMs?: number;
+    devServerUrl?: string;
   };
 }
 

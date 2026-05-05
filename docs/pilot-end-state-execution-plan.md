@@ -11,7 +11,7 @@ This is the control artifact for moving Pilot from a governed agent/task prototy
 - Web exposes `/capabilities` in `apps/web/src/app/capabilities/page.tsx` and reads the API instead of route-local mock state.
 - README and roadmap already warn that Pilot is not production-ready as a fully autonomous startup OS.
 - Decision Court now splits `heuristic_preview`, `governed_llm_court`, and `unavailable`; governed mode requires HELM-governed model-call receipts and no longer silently falls back to fake adversarial output.
-- `operator.computer_use` currently stops at HELM preflight and does not execute a real computer/sandbox action, so it must remain `stub`.
+- `operator.computer_use` now supports narrow HELM-governed local safe actions for allowlisted terminal commands, project-scoped file reads/writes, and local dev-server status checks with durable `computer_actions` evidence rows. It remains `prototype`, not `production_ready`, because sandbox provider execution, unrestricted desktop automation, and the Safe Computer/Sandbox Action Eval are not complete.
 - `score_opportunity` now returns a deterministic evidence-backed scorecard and writes Tool Broker records for autonomous calls, but PMF Discovery Eval has not promoted it to `production_ready`.
 - Skill registry code exists under `packages/shared/src/skills`, and Gate 3 wires it into gateway/orchestrator/conductor with audited skill metadata on subagent spawns. It is still not `production_ready` because skills are not fully Tool Broker callable and have not passed the Skill Invocation Governance Eval.
 - Subagent spawn rows are partially represented through `task_runs.parent_task_run_id` and spawn evidence packs, but root lineage, spawn action anchoring, and proof DAG queries are not complete.
@@ -32,7 +32,7 @@ This is the control artifact for moving Pilot from a governed agent/task prototy
 | `opportunity_scoring`        | `implemented` | Tooling Agent    | PMF Discovery Eval                                             |
 | `browser_metadata_connector` | `implemented` | Browser Agent    | YC Logged-In Browser Extraction Eval                           |
 | `browser_execution`          | `prototype`   | Browser Agent    | YC Logged-In Browser Extraction Eval                           |
-| `computer_use`               | `stub`        | Computer Agent   | Safe Computer/Sandbox Action Eval                              |
+| `computer_use`               | `prototype`   | Computer Agent   | Safe Computer/Sandbox Action Eval                              |
 | `a2a_durable_state`          | `blocked`     | Foundation Agent | Multi-Agent Parallel Build Eval                                |
 | `subagent_lineage`           | `blocked`     | Runtime Agent    | Proof DAG Lineage Regression                                   |
 | `approval_resume`            | `blocked`     | Foundation Agent | Approval Resume Isolation Regression                           |
@@ -52,8 +52,8 @@ No row may move to `production_ready` without passing eval metadata in the regis
 - Gate 3, Runtime Agent and Skill Correctness: agent registry, runtime skill loading, manifest validation, scoped subagents, durable handoffs. Status: merged in PR #15, still not production-ready.
 - Gate 4, Decision Court Production Split: `heuristic_preview`, `governed_llm_court`, `unavailable`; governed model calls only in governed mode. Status: merged in PR #16, still not production-ready.
 - Gate 5, Tool Broker and Startup Tool Reality: typed manifests, tool execution ledger, stub rejection, real `score_opportunity`, `opportunity_scout` wiring. Status: merged in PR #17, still not production-ready.
-- Gate 6, Browser Operation: read-only logged-in browser sessions, active-tab grants, browser actions, screenshots, DOM hashes, redaction, replay, receipts. Status: current PR, prototype until eval-backed.
-- Gate 7, Computer/Sandbox Operation: governed safe terminal/file/dev-server actions with evidence and deny rules.
+- Gate 6, Browser Operation: read-only logged-in browser sessions, active-tab grants, browser actions, screenshots, DOM hashes, redaction, replay, receipts. Status: merged in PR #18, prototype until eval-backed.
+- Gate 7, Computer/Sandbox Operation: governed safe terminal/file/dev-server actions with evidence and deny rules. Status: current PR, prototype until eval-backed.
 - Gate 8, Command Center UI: real mission/action/evidence/receipt state, agent lanes, evidence drawer, permission graph, capability matrix.
 - Gate 9, Startup Lifecycle Engine: mission templates/compiler for founder lifecycle workflows with evidence and escalation conditions.
 - Gate 10, Eval Suite and Production Promotion: persisted eval runs, evidence packs, blocker creation, and registry promotion rules.
@@ -93,7 +93,7 @@ No row may move to `production_ready` without passing eval metadata in the regis
 
 - Decision Court needs the governed model eval and first-class evidence/artifact ledger links before it can become `production_ready`.
 - Browser execution needs a productized browser extension/bridge and the YC logged-in extraction eval before it can become `production_ready`.
-- Computer use needs a safe execution substrate, Tool Broker routing, command/file evidence, and deny policy.
+- Computer use has a narrow safe local execution substrate, Tool Broker routing, command/file evidence, and deny policy; it still needs sandbox provider execution and the Safe Computer/Sandbox Action Eval before production-ready claims.
 - Subagent lineage needs durable root/parent/spawn action anchoring and proof DAG queries.
 - Approval resume needs deterministic ordering and child-row exclusion.
 - Skills must move from runtime-loaded prompt packages to fully Tool Broker governed callable capabilities, then pass the Skill Invocation Governance Eval.

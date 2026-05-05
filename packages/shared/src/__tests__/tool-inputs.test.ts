@@ -4,6 +4,7 @@ import {
   CreateBrowserSessionGrantInput,
   CreateBrowserSessionInput,
   DecisionCourtRequestInput,
+  OperatorComputerUseInput,
 } from '../schemas/index.js';
 
 describe('DecisionCourtRequestInput', () => {
@@ -60,5 +61,40 @@ describe('browser operation inputs', () => {
         allowedOrigins: ['https://www.ycombinator.com/account'],
       }),
     ).toThrow(/must be a URL origin/u);
+  });
+});
+
+describe('computer operation inputs', () => {
+  const workspaceId = '00000000-0000-4000-8000-000000000001';
+
+  it('requires an explicit safe computer operation', () => {
+    const command = OperatorComputerUseInput.parse({
+      workspaceId,
+      operation: 'terminal_command',
+      objective: 'Check workspace path',
+      command: 'pwd',
+    });
+    expect(command.environment).toBe('local');
+    if (command.operation !== 'terminal_command') throw new Error('expected terminal command');
+    expect(command.cwd).toBe('.');
+    expect(command.args).toEqual([]);
+
+    const read = OperatorComputerUseInput.parse({
+      workspaceId,
+      operation: 'file_read',
+      objective: 'Read package metadata',
+      path: 'package.json',
+    });
+    if (read.operation !== 'file_read') throw new Error('expected file read');
+    expect(read.maxBytes).toBe(64_000);
+  });
+
+  it('rejects vague preflight-only computer requests', () => {
+    expect(() =>
+      OperatorComputerUseInput.parse({
+        workspaceId,
+        objective: 'Open the project and fix it',
+      }),
+    ).toThrow(/operation/u);
   });
 });

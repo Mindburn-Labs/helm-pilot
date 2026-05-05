@@ -221,4 +221,47 @@ describe('AgentLoop — HELM governance persistence', () => {
       policyVersion: 'founder-ops-v1',
     });
   });
+
+  it('classifies operator.computer_use as E3 before Tool Broker execution', async () => {
+    const { db, inserts } = makeMockDb();
+    const helmClient = {
+      evaluate: vi.fn(async () => ({
+        receipt: {
+          decisionId: 'dec-computer-tool',
+          receiptId: 'rcpt-computer-tool',
+          verdict: 'ALLOW',
+          policyVersion: 'founder-ops-v1',
+          decisionHash: 'sha256:computer-tool',
+          receivedAt: new Date(),
+          action: 'TOOL_USE',
+          resource: 'operator.computer_use',
+          principal: 'workspace:ws-1/operator:agent',
+        },
+      })),
+    };
+    const loop = new AgentLoop(db as never, mockTrust, helmClient as never);
+    loop.setLlm({
+      complete: vi.fn(),
+      completeWithUsage: vi.fn().mockResolvedValueOnce({
+        content:
+          '{"tool":"operator.computer_use","input":{"operation":"terminal_command","objective":"Check repo","command":"pwd"}}',
+        usage: { tokensIn: 10, tokensOut: 5, model: 'anthropic/claude-sonnet-4' },
+      }),
+    } as never);
+    loop.setTools(mockTools);
+
+    await loop.execute({ ...baseParams(), iterationBudget: 1 });
+
+    expect(helmClient.evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'TOOL_USE',
+        resource: 'operator.computer_use',
+        effectLevel: 'E3',
+      }),
+    );
+    expect(inserts.find((i) => i.table === 'actions')?.values).toMatchObject({
+      actionKey: 'operator.computer_use',
+      riskClass: 'high',
+    });
+  });
 });

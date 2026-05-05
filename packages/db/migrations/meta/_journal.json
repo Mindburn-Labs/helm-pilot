@@ -162,6 +162,13 @@
       "when": 1778004000000,
       "tag": "0021_browser_readonly_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1778007600000,
+      "tag": "0022_computer_safe_actions",
+      "breakpoints": true
     }
   ]
 }

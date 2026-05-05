@@ -14,6 +14,7 @@ import type { McpClient } from '@pilot/shared/mcp';
 import { scoreOpportunityEvidence } from '@pilot/shared/scoring';
 import type { ToolDef } from './agent-loop.js';
 import type { Conductor, ParentContext } from './conductor.js';
+import { executeSafeComputerUse } from './computer-use.js';
 import { sanitizeToolOutput } from './sanitize-output.js';
 
 /**
@@ -314,8 +315,18 @@ export class ToolRegistry {
     this.register({
       name: 'operator.computer_use',
       description:
-        'Request a governed computer-use run behind HELM. Input: {"workspaceId":"uuid","taskId":"uuid","operatorId":"uuid","objective":"...","targetUrl":"https://...","environment":"browser","maxSteps":12,"approvalCheckpoint":"before submit/payment/write"}',
+        'Run a narrow HELM-governed safe computer action through Tool Broker. Input: {"operation":"terminal_command","objective":"...","cwd":".","command":"pwd","args":[]} or {"operation":"file_read","path":"package.json"} or {"operation":"file_write","path":"tmp.txt","content":"..."} or {"operation":"dev_server_status","devServerUrl":"http://localhost:3000"}.',
       modes: ['discover', 'build', 'launch', 'apply'],
+      capabilityKey: 'computer_use',
+      manifest: {
+        key: 'operator.computer_use',
+        version: 'safe_computer_action_v1',
+        riskClass: 'high',
+        effectLevel: 'E3',
+        requiredEvidence: ['computer_action', 'command_or_file_evidence', 'helm_receipt'],
+        permissionRequirements: ['computer:safe_execute'],
+        outputSensitivity: 'sensitive',
+      },
       execute: async (input) => {
         const capability = getCapabilityRecord('computer_use');
         const parsed = OperatorComputerUseInput.safeParse(input);
@@ -334,19 +345,49 @@ export class ToolRegistry {
           };
         }
         const req = parsed.data;
+        if (!req.actionId) {
+          return {
+            error:
+              'operator.computer_use requires Tool Broker action context; refusing direct execution without durable action lineage',
+            capability,
+          };
+        }
+        if (req.operation === 'dev_server_status' && !(req.devServerUrl ?? req.targetUrl)) {
+          return {
+            error: 'operator.computer_use dev_server_status requires targetUrl or devServerUrl',
+            capability,
+          };
+        }
+        const devServerUrl =
+          req.operation === 'dev_server_status' ? (req.devServerUrl ?? req.targetUrl) : undefined;
+        const contentHash = req.operation === 'file_write' ? hashText(req.content) : undefined;
         const evaluation = await helmClient.evaluateOperatorComputerUse({
           principal: `workspace:${req.workspaceId}/operator:${req.operatorId ?? 'agent'}`,
           workspaceId: req.workspaceId,
           taskId: req.taskId,
           operatorId: req.operatorId,
           objective: req.objective,
-          targetUrl: req.targetUrl,
           environment: req.environment,
+          operation: req.operation,
           maxSteps: req.maxSteps,
           approvalCheckpoint: req.approvalCheckpoint,
           evidencePackId: req.evidencePackId,
+          ...(req.operation === 'terminal_command'
+            ? {
+                command: req.command,
+                args: req.args,
+                cwd: req.cwd,
+                timeoutMs: req.timeoutMs,
+              }
+            : {}),
+          ...(req.operation === 'file_read' ? { path: req.path, maxBytes: req.maxBytes } : {}),
+          ...(req.operation === 'file_write'
+            ? { path: req.path, contentHash, expectedCurrentHash: req.expectedCurrentHash }
+            : {}),
+          ...(devServerUrl ? { targetUrl: devServerUrl, devServerUrl } : {}),
         });
-        return { ...evaluation, capability };
+        const result = await executeSafeComputerUse(this.db, req, evaluation);
+        return { ...result, capability };
       },
     });
 
@@ -1922,7 +1963,9 @@ function normalizeOrigins(origins: string[]) {
 }
 
 function asStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
 }
 
 function hashText(text: string) {

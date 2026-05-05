@@ -426,10 +426,14 @@ describe('HelmClient.evaluateOperatorComputerUse', () => {
       principal: 'workspace:ws-1/operator:agent',
       workspaceId: 'ws-1',
       taskId: 'task-1',
-      objective: 'Inspect YC company profile',
-      targetUrl: 'https://www.ycombinator.com/companies',
+      objective: 'Check project status',
+      environment: 'local',
+      operation: 'terminal_command',
+      command: 'git',
+      args: ['status', '--short'],
+      cwd: '.',
       maxSteps: 8,
-      approvalCheckpoint: 'before submitting forms',
+      approvalCheckpoint: 'before file writes',
     });
 
     expect(result.status).toBe('approved_for_execution');
@@ -439,6 +443,8 @@ describe('HelmClient.evaluateOperatorComputerUse', () => {
     const body = JSON.parse(init.body as string);
     expect(body.tool).toBe('OPERATOR_COMPUTER_USE');
     expect(body.effect_level).toBe('E3');
+    expect(body.args.operation).toBe('terminal_command');
+    expect(body.args.command).toBe('git');
     expect(body.context.source).toBe('@pilot/helm-client.evaluateOperatorComputerUse');
   });
 });

@@ -6,6 +6,7 @@ import {
   browserObservations,
   browserSessionGrants,
   browserSessions,
+  computerActions,
   taskRuns,
 } from '../schema/index.js';
 
@@ -47,5 +48,17 @@ describe('Gate 6 browser operation schema', () => {
     expect(browserObservations.evidencePackId.name).toBe('evidence_pack_id');
     expect(browserObservations.redactedDomSnapshot.name).toBe('redacted_dom_snapshot');
     expect(browserObservations.redactions.name).toBe('redactions');
+  });
+});
+
+describe('Gate 7 computer operation schema', () => {
+  it('exports safe computer action evidence columns', () => {
+    expect(computerActions.workspaceId.name).toBe('workspace_id');
+    expect(computerActions.toolActionId.name).toBe('tool_action_id');
+    expect(computerActions.actionType.name).toBe('action_type');
+    expect(computerActions.command.name).toBe('command');
+    expect(computerActions.fileDiff.name).toBe('file_diff');
+    expect(computerActions.evidencePackId.name).toBe('evidence_pack_id');
+    expect(computerActions.replayIndex.name).toBe('replay_index');
   });
 });
