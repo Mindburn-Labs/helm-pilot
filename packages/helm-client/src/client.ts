@@ -64,6 +64,9 @@ export class HelmClient {
       baseBackoffMs: cfg.baseBackoffMs ?? DEFAULT_BASE_BACKOFF_MS,
       failClosed: cfg.failClosed ?? true,
       evaluateEnabled: cfg.evaluateEnabled ?? true,
+      receiptPersistence:
+        cfg.receiptPersistence ??
+        (process.env['NODE_ENV'] === 'production' ? 'required_for_elevated' : 'best_effort'),
       onReceipt: cfg.onReceipt,
       fetchImpl: cfg.fetchImpl ?? globalThis.fetch,
     };
@@ -93,9 +96,10 @@ export class HelmClient {
 
     const ctx = { action: 'LLM_INFERENCE', resource: body.model, principal: effectivePrincipal };
     const receipt = parseReceiptHeaders(response.headers, ctx);
+    const receiptRequired = this.receiptRequiredFor('LLM_INFERENCE', body.model, undefined);
 
     if (response.status === 403) {
-      await this.handleForbidden(response, receipt);
+      await this.handleForbidden(response, receipt, { receiptRequired });
       // handleForbidden always throws — this is unreachable
       throw new Error('unreachable');
     }
@@ -115,7 +119,7 @@ export class HelmClient {
       );
     }
 
-    await this.emitReceipt(receipt);
+    await this.emitReceipt(receipt, { required: receiptRequired });
 
     const parsed = (await response.json()) as ChatCompletionResult['body'];
     return { body: parsed, receipt };
@@ -157,6 +161,9 @@ export class HelmClient {
     const principal = req.principal || this.cfg.defaultPrincipal || 'anonymous';
     const url = `${this.cfg.baseUrl}/api/v1/evaluate`;
     const context = req.context ?? {};
+    const effectLevel = req.effectLevel ?? stringContextValue(context, 'effectLevel') ?? req.action;
+    const receiptRequired = this.receiptRequiredFor(req.action, req.resource, effectLevel);
+    this.assertReceiptSinkConfigured(req.action, req.resource, effectLevel);
     const response = await this.governedFetch(url, {
       method: 'POST',
       headers: {
@@ -168,7 +175,7 @@ export class HelmClient {
         tool: req.action,
         args: req.args ?? context,
         agent_id: principal,
-        effect_level: req.effectLevel ?? stringContextValue(context, 'effectLevel') ?? req.action,
+        effect_level: effectLevel,
         session_id:
           req.sessionId ??
           stringContextValue(context, 'sessionId') ??
@@ -190,7 +197,7 @@ export class HelmClient {
     const receipt = parseReceiptHeaders(response.headers, ctx);
 
     if (response.status === 403) {
-      await this.handleForbidden(response, receipt);
+      await this.handleForbidden(response, receipt, { receiptRequired });
       throw new Error('unreachable');
     }
 
@@ -207,7 +214,7 @@ export class HelmClient {
       throw new HelmUnreachableError('HELM evaluate response missing receipt fields');
     }
 
-    await this.emitReceipt(effectiveReceipt);
+    await this.emitReceipt(effectiveReceipt, { required: receiptRequired });
 
     const verdict = normalizeEvaluateVerdict(body);
     const reason = body.reason_code ?? body.reason ?? body.error ?? 'governance denied';
@@ -422,7 +429,11 @@ export class HelmClient {
     return Math.round(base + (Math.random() * 2 - 1) * jitter);
   }
 
-  private async handleForbidden(response: Response, receipt: HelmReceipt | null): Promise<never> {
+  private async handleForbidden(
+    response: Response,
+    receipt: HelmReceipt | null,
+    options: { receiptRequired?: boolean } = {},
+  ): Promise<never> {
     const reason = await readReason(response);
     if (!receipt) {
       throw new HelmUnreachableError(
@@ -430,18 +441,52 @@ export class HelmClient {
       );
     }
     const enriched: HelmReceipt = { ...receipt, reason };
-    await this.emitReceipt(enriched);
+    await this.emitReceipt(enriched, { required: options.receiptRequired === true });
     if (enriched.verdict === 'ESCALATE') throw new HelmEscalationError(enriched, reason);
     throw new HelmDeniedError(enriched, reason);
   }
 
-  private async emitReceipt(receipt: HelmReceipt): Promise<void> {
-    if (!this.cfg.onReceipt) return;
+  private async emitReceipt(
+    receipt: HelmReceipt,
+    options: { required?: boolean } = {},
+  ): Promise<void> {
+    if (!this.cfg.onReceipt) {
+      if (options.required) {
+        throw new HelmUnreachableError(
+          `HELM receipt sink is required for ${receipt.action}:${receipt.resource}`,
+        );
+      }
+      return;
+    }
     try {
       await this.cfg.onReceipt(receipt);
-    } catch {
-      // Receipt persistence failure must not break the governed call.
+    } catch (err) {
+      if (options.required) {
+        throw new HelmUnreachableError(
+          `HELM receipt persistence failed for ${receipt.action}:${receipt.resource}`,
+          err,
+        );
+      }
+      // Best-effort receipt persistence failure must not break the governed call.
     }
+  }
+
+  private assertReceiptSinkConfigured(
+    action: string,
+    resource: string,
+    effectLevel?: string,
+  ): void {
+    if (this.receiptRequiredFor(action, resource, effectLevel) && !this.cfg.onReceipt) {
+      throw new HelmUnreachableError(
+        `HELM receipt sink is required before evaluating ${action}:${resource}`,
+      );
+    }
+  }
+
+  private receiptRequiredFor(action: string, resource: string, effectLevel?: string): boolean {
+    if (this.cfg.receiptPersistence === 'required') return true;
+    if (this.cfg.receiptPersistence === 'best_effort') return false;
+    return isElevatedGovernedAction(action, resource, effectLevel);
   }
 }
 
@@ -504,6 +549,48 @@ interface HelmEvaluateBody {
   signature?: unknown;
   signed_blob?: unknown;
   signedBlob?: unknown;
+}
+
+function isElevatedGovernedAction(action: string, resource: string, effectLevel?: string): boolean {
+  const normalizedEffect = (effectLevel ?? '').trim().toUpperCase();
+  const effectMatch = /^E(\d+)$/u.exec(normalizedEffect);
+  if (effectMatch && Number(effectMatch[1]) >= 2) return true;
+  if (
+    [
+      'MEDIUM',
+      'HIGH',
+      'RESTRICTED',
+      'WRITE',
+      'DEPLOY',
+      'PUBLISH',
+      'DELETE',
+      'PAYMENT',
+      'EXTERNAL',
+      'ELEVATED',
+    ].includes(normalizedEffect)
+  ) {
+    return true;
+  }
+
+  const combined = `${action} ${resource}`.toLowerCase();
+  return [
+    'approval',
+    'browser',
+    'computer',
+    'connector',
+    'delete',
+    'deploy',
+    'invite',
+    'launch',
+    'operator',
+    'policy',
+    'rollback',
+    'secret',
+    'send',
+    'stripe',
+    'telegram',
+    'write',
+  ].some((token) => combined.includes(token));
 }
 
 function receiptFromEvaluateBody(
