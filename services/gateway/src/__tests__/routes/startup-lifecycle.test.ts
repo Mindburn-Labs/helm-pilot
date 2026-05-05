@@ -1,9 +1,28 @@
 import { describe, expect, it, vi } from 'vitest';
+import { evidenceItems } from '@pilot/db/schema';
 import { startupLifecycleRoutes } from '../../routes/startup-lifecycle.js';
 import { createMockDeps, expectJson, testApp } from '../helpers.js';
 
 const workspaceId = '00000000-0000-4000-8000-000000000001';
 const wsHeader = { 'X-Workspace-Id': workspaceId };
+
+function captureEvidenceItemInserts(deps: ReturnType<typeof createMockDeps>) {
+  const insertedEvidenceItems: unknown[] = [];
+  const originalInsert = deps.db.insert;
+  deps.db.insert = vi.fn((table: unknown) => {
+    if (table === evidenceItems) {
+      return {
+        values: vi.fn((value: unknown) => {
+          insertedEvidenceItems.push(value);
+          const id = `00000000-0000-4000-8000-00000000009${insertedEvidenceItems.length}`;
+          return { returning: vi.fn(async () => [{ id }]) };
+        }),
+      };
+    }
+    return originalInsert(table);
+  }) as typeof deps.db.insert;
+  return insertedEvidenceItems;
+}
 
 describe('startupLifecycleRoutes', () => {
   it('requires workspace scope', async () => {
@@ -125,6 +144,7 @@ describe('startupLifecycleRoutes', () => {
 
   it('persists a lifecycle DAG as durable mission runtime without starting execution', async () => {
     const deps = createMockDeps();
+    const insertedEvidenceItems = captureEvidenceItemInserts(deps);
     deps.db._setResult([{ id: '00000000-0000-4000-8000-000000000010' }]);
     const { fetch } = testApp(startupLifecycleRoutes, deps);
     const res = await fetch(
@@ -144,6 +164,7 @@ describe('startupLifecycleRoutes', () => {
       workspaceId: string;
       capabilityState: string;
       productionReady: boolean;
+      evidenceItemIds: string[];
       persisted: {
         ventureId: string;
         goalId: string;
@@ -166,12 +187,27 @@ describe('startupLifecycleRoutes', () => {
     expect(body.persisted.nodeCount).toBeGreaterThan(10);
     expect(body.persisted.edgeCount).toBeGreaterThan(0);
     expect(body.persisted.taskCount).toBe(body.persisted.nodeCount);
+    expect(body.evidenceItemIds).toEqual(['00000000-0000-4000-8000-000000000091']);
+    expect(insertedEvidenceItems[0]).toMatchObject({
+      workspaceId,
+      ventureId: '00000000-0000-4000-8000-000000000010',
+      missionId: '00000000-0000-4000-8000-000000000010',
+      evidenceType: 'startup_lifecycle_mission_persisted',
+      sourceType: 'gateway_startup_lifecycle',
+      redactionState: 'redacted',
+      replayRef: 'mission:00000000-0000-4000-8000-000000000010:persisted',
+      metadata: expect.objectContaining({
+        compilerVersion: 'startup-lifecycle.v1',
+        productionReady: false,
+      }),
+    });
     expect(body.mission.blockers.join(' ')).toContain('not executing through the runtime');
     expect(body.mission.blockers.join(' ')).not.toContain('not persisted');
   });
 
   it('schedules ready mission nodes without dispatching autonomous execution', async () => {
     const deps = createMockDeps();
+    const insertedEvidenceItems = captureEvidenceItemInserts(deps);
     const missionId = '00000000-0000-4000-8000-000000000020';
     const founderNodeId = '00000000-0000-4000-8000-000000000021';
     const ideationNodeId = '00000000-0000-4000-8000-000000000022';
@@ -245,6 +281,7 @@ describe('startupLifecycleRoutes', () => {
       readyNodes: Array<{ nodeKey: string; taskId?: string; waitingOn: string[] }>;
       blockedNodes: Array<{ nodeKey: string; waitingOn: string[] }>;
       queuedTaskIds: string[];
+      evidenceItemIds: string[];
       executionStarted: boolean;
       blockers: string[];
     }>(res, 200);
@@ -266,6 +303,21 @@ describe('startupLifecycleRoutes', () => {
       }),
     ]);
     expect(body.queuedTaskIds).toEqual([founderTaskId]);
+    expect(body.evidenceItemIds).toEqual(['00000000-0000-4000-8000-000000000091']);
+    expect(insertedEvidenceItems[0]).toMatchObject({
+      workspaceId,
+      missionId,
+      evidenceType: 'startup_lifecycle_nodes_scheduled',
+      sourceType: 'gateway_startup_lifecycle',
+      summary: '1 ready node(s), 2 blocked node(s)',
+      replayRef: `mission:${missionId}:schedule`,
+      metadata: expect.objectContaining({
+        schedulerVersion: 'mission-scheduler.v1',
+        readyNodeKeys: ['founder_onboarding'],
+        queuedTaskIds: [founderTaskId],
+        productionReady: false,
+      }),
+    });
     expect(body.executionStarted).toBe(false);
     expect(body.blockers.join(' ')).toContain('does not dispatch autonomous execution');
     expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
@@ -273,6 +325,7 @@ describe('startupLifecycleRoutes', () => {
 
   it('executes a ready mission node through the governed task runtime without production promotion', async () => {
     const deps = createMockDeps();
+    const insertedEvidenceItems = captureEvidenceItemInserts(deps);
     const missionId = '00000000-0000-4000-8000-000000000030';
     const ventureId = '00000000-0000-4000-8000-000000000031';
     const nodeId = '00000000-0000-4000-8000-000000000032';
@@ -399,6 +452,7 @@ describe('startupLifecycleRoutes', () => {
       missionStatus: string;
       run: { status: string; iterationsUsed: number; iterationBudget: number; actionCount: number };
       advancedReadyNodes: Array<{ nodeKey: string; taskId?: string; waitingOn: string[] }>;
+      evidenceItemIds: string[];
       blockers: string[];
     }>(res, 200);
 
@@ -416,6 +470,24 @@ describe('startupLifecycleRoutes', () => {
         waitingOn: [],
       }),
     ]);
+    expect(body.evidenceItemIds).toEqual(['00000000-0000-4000-8000-000000000091']);
+    expect(insertedEvidenceItems[0]).toMatchObject({
+      workspaceId,
+      ventureId,
+      missionId,
+      taskId,
+      evidenceType: 'startup_lifecycle_node_executed',
+      sourceType: 'gateway_startup_lifecycle',
+      summary: 'founder_onboarding finished with completed',
+      replayRef: `mission:${missionId}:node:${nodeId}:execute`,
+      metadata: expect.objectContaining({
+        executorVersion: 'mission-node-executor.v1',
+        nodeKey: 'founder_onboarding',
+        runStatus: 'completed',
+        nodeStatus: 'completed',
+        productionReady: false,
+      }),
+    });
     expect(body.run).toMatchObject({
       status: 'completed',
       iterationsUsed: 1,
@@ -437,6 +509,7 @@ describe('startupLifecycleRoutes', () => {
 
   it('executes bounded ready mission nodes in dependency order without production promotion', async () => {
     const deps = createMockDeps();
+    const insertedEvidenceItems = captureEvidenceItemInserts(deps);
     const missionId = '00000000-0000-4000-8000-000000000060';
     const ventureId = '00000000-0000-4000-8000-000000000061';
     const nodeId = '00000000-0000-4000-8000-000000000062';
@@ -593,6 +666,7 @@ describe('startupLifecycleRoutes', () => {
         advancedReadyNodes: Array<{ nodeId: string; taskId?: string }>;
       }>;
       remainingReadyNodeIds: string[];
+      evidenceItemIds: string[];
       blockers: string[];
     }>(res, 200);
 
@@ -620,6 +694,11 @@ describe('startupLifecycleRoutes', () => {
       }),
     ]);
     expect(body.remainingReadyNodeIds).toEqual([]);
+    expect(body.evidenceItemIds).toEqual([
+      '00000000-0000-4000-8000-000000000091',
+      '00000000-0000-4000-8000-000000000092',
+    ]);
+    expect(insertedEvidenceItems).toHaveLength(2);
     expect(body.blockers.join(' ')).toContain('not founder-off-grid autonomous execution');
     expect(deps.orchestrator.runTask).toHaveBeenCalledTimes(2);
     expect(deps.orchestrator.runTask).toHaveBeenNthCalledWith(
@@ -743,6 +822,7 @@ describe('startupLifecycleRoutes', () => {
 
   it('marks mission node and task failed when execution throws', async () => {
     const deps = createMockDeps();
+    const insertedEvidenceItems = captureEvidenceItemInserts(deps);
     const missionId = '00000000-0000-4000-8000-000000000050';
     const nodeId = '00000000-0000-4000-8000-000000000051';
     const taskId = '00000000-0000-4000-8000-000000000052';
@@ -804,14 +884,33 @@ describe('startupLifecycleRoutes', () => {
 
     const { fetch } = testApp(startupLifecycleRoutes, deps);
     const res = await fetch('POST', `/missions/${missionId}/nodes/${nodeId}/execute`, {}, wsHeader);
-    const body = await expectJson<{ error: string; detail: string; productionReady: boolean }>(
-      res,
-      502,
-    );
+    const body = await expectJson<{
+      error: string;
+      detail: string;
+      productionReady: boolean;
+      evidenceItemIds: string[];
+    }>(res, 502);
 
     expect(body.error).toContain('execution failed');
     expect(body.detail).toContain('HELM unavailable');
     expect(body.productionReady).toBe(false);
+    expect(body.evidenceItemIds).toEqual(['00000000-0000-4000-8000-000000000091']);
+    expect(insertedEvidenceItems[0]).toMatchObject({
+      workspaceId,
+      missionId,
+      taskId,
+      evidenceType: 'startup_lifecycle_node_failed',
+      sourceType: 'gateway_startup_lifecycle',
+      summary: 'HELM unavailable',
+      replayRef: `mission:${missionId}:node:${nodeId}:failure`,
+      metadata: expect.objectContaining({
+        executorVersion: 'mission-node-executor.v1',
+        nodeKey: 'founder_onboarding',
+        nodeStatus: 'failed',
+        missionStatus: 'blocked',
+        productionReady: false,
+      }),
+    });
     expect(updates.filter((payload) => payload.status === 'failed')).toHaveLength(2);
   });
 });
