@@ -462,6 +462,10 @@ Response: `{ "summary": { "total": 18, "productionReady": 0, "byState": { ... } 
 
 Return one capability state, blockers, evidence notes, owner, and required eval gate.
 
+### GET /api/command-center
+
+Return the Gate 8 command-center aggregate for the authenticated workspace. Requires at least the workspace `partner` role. The response includes capability truth, real durable task/task-run/action/tool-execution/receipt/approval/audit/browser/computer/handoff/artifact rows, and a runtime-truth statement that keeps mission autonomy blocked until eval-backed promotion.
+
 ### GET /health
 
 Health check (public).

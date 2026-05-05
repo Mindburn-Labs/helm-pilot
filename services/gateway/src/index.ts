@@ -41,6 +41,7 @@ import { secretsRoutes } from './routes/secrets.js';
 import { adminRoutes } from './routes/admin.js';
 import { conductRoutes } from './routes/conduct.js';
 import { browserSessionRoutes } from './routes/browser-session.js';
+import { commandCenterRoutes } from './routes/command-center.js';
 import { managedTelegramWebhookRoutes } from './routes/telegram-managed.js';
 import { type ConnectorRegistry, type OAuthFlowManager } from '@pilot/connectors';
 import { type CofounderEngine } from '@pilot/cofounder-engine';
@@ -244,6 +245,7 @@ export function createGateway(deps: GatewayDeps) {
   app.route('/api/decide', decideRoutes(deps));
   app.route('/api/orchestrator', conductRoutes(deps));
   app.route('/api/browser-sessions', browserSessionRoutes(deps));
+  app.route('/api/command-center', commandCenterRoutes(deps));
   app.route('/api/workspace/secrets', secretsRoutes(deps));
   app.route('/api/telegram/managed', managedTelegramWebhookRoutes(deps));
   // Admin surface — platform-wide, gated by PILOT_ADMIN_API_KEY. Mounted

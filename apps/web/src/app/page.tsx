@@ -28,7 +28,7 @@ export default function Home() {
         <div>
           <h1 style={{ fontSize: '2rem', fontWeight: 700 }}>Pilot</h1>
           <p style={{ color: '#888', fontSize: '1.1rem' }}>
-            Open-source autonomous founder operating system
+            HELM-governed founder operating system
           </p>
         </div>
         <button
@@ -54,6 +54,11 @@ export default function Home() {
           gap: '1rem',
         }}
       >
+        <NavCard
+          href="/command-center"
+          title="Command Center"
+          description="Inspect real task, action, evidence, receipt, and capability state"
+        />
         <NavCard
           href="/discover"
           title="Discover"

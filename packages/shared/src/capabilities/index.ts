@@ -336,16 +336,19 @@ const capabilityRecords = validateCapabilityRecords([
   {
     key: 'command_center',
     name: 'Command center UI',
-    state: 'blocked',
+    state: 'prototype',
     summary:
-      'The web app has mode pages and governance views, but not a command center backed by real mission/action/evidence/receipt state.',
+      'The web app has a command center backed by real task, action, tool execution, receipt, browser, computer, artifact, audit, handoff, approval, and capability-state rows, while mission DAG autonomy remains blocked.',
     owner: 'UI Agent',
     blockers: [
-      'Backend truth for mission/action/evidence is not ready',
-      'No live mission DAG, agent lanes, receipt chips, evidence drawer, or escalation inbox backed by durable state',
-      'Current UI can overstate autonomy unless capability truth is visible',
+      'Mission runtime is still blocked, so the command center cannot claim venture/mission DAG autonomy',
+      'No first-class permission graph, live mission graph, or founder-off-grid execution control surface',
+      'Command Center Real-State UX Eval has not promoted the capability to production_ready',
     ],
-    evidence: ['Gate 8 must wait for Gate 1 and Gate 2 backend truth'],
+    evidence: [
+      'Gate 8 adds /api/command-center backed by durable task/action/tool/evidence/browser/computer/artifact/audit/approval/handoff rows',
+      'apps/web /command-center renders capability truth, blocked mission runtime, receipt chips, evidence drawers, browser/computer replay rows, and escalation state from the API',
+    ],
     evalRequirement: 'Command Center Real-State UX Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,
   },
