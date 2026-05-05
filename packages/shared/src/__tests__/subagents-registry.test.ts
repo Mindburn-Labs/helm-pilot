@@ -30,6 +30,8 @@ tool_scope:
   allowed_tools:
     - get_founder_profile
     - analyze
+skills:
+  - yc-application-writing
 iteration_budget: 30
 model: sonnet
 ---
@@ -108,6 +110,7 @@ describe('SubagentRegistry', () => {
     expect(def!.execution).toBe('SUPERVISED');
     expect(def!.iterationBudget).toBe(30);
     expect(def!.model).toBe('sonnet');
+    expect(def!.skills).toEqual(['yc-application-writing']);
   });
 
   it('captures the Markdown body as systemPrompt', () => {
@@ -167,7 +170,7 @@ describe('SubagentRegistry', () => {
 });
 
 describe('SubagentRegistry — real built-in fixtures', () => {
-  it('loads the three packs/subagents/*.md definitions', () => {
+  it('loads the bundled packs/subagents/*.md definitions', () => {
     // Vitest runs from the package root; walk up to repo root to find packs/.
     const reg = SubagentRegistry.loadFromDisk(
       join(process.cwd(), '..', '..', 'packs', 'subagents'),
@@ -176,6 +179,15 @@ describe('SubagentRegistry — real built-in fixtures', () => {
     expect(names).toContain('opportunity_scout');
     expect(names).toContain('decision_facilitator');
     expect(names).toContain('founder_diagnostician');
+    expect(names).toContain('application_writer');
+  });
+
+  it('application_writer declares its runtime YC skill', () => {
+    const reg = SubagentRegistry.loadFromDisk(
+      join(process.cwd(), '..', '..', 'packs', 'subagents'),
+    );
+    const appWriter = reg.findByName('application_writer');
+    expect(appWriter?.skills).toEqual(['yc-application-writing']);
   });
 
   it('founder_diagnostician is READ_ONLY and R0', () => {

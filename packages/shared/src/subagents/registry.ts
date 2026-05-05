@@ -114,6 +114,7 @@ export function loadDefinitionFile(filePath: string): SubagentDefinition {
     toolScope: {
       allowedTools: extractAllowedTools(parsed.tool_scope, filePath),
     },
+    skills: Array.isArray(parsed.skills) ? (parsed.skills as string[]) : undefined,
     mcpServers: Array.isArray(parsed.mcp_servers)
       ? (parsed.mcp_servers as string[])
       : undefined,

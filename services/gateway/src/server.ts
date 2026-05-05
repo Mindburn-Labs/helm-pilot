@@ -18,6 +18,7 @@ import { TenantSecretStore } from '@pilot/db/tenant-secret-store';
 import { HelmClient, HelmLlmProvider, type HelmReceipt } from '@pilot/helm-client';
 import type { RefreshNotifier } from '@pilot/connectors';
 import { SubagentRegistry } from '@pilot/shared/subagents';
+import { SkillRegistry } from '@pilot/shared/skills';
 import { McpServerRegistry } from '@pilot/shared/mcp';
 import { createGateway } from './index.js';
 import { configureRateLimit } from './middleware/rate-limit.js';
@@ -252,6 +253,15 @@ async function main() {
   const subagentRegistry = SubagentRegistry.loadFromDisk();
   log.info({ count: subagentRegistry.size() }, 'Subagent registry loaded');
 
+  // Gate 3 — load runtime skills from packs/skills + ~/.pilot/skills and
+  // thread them into conductor/subagent execution. Missing registry would
+  // make declared skills runtime-dead, so surface the count at boot.
+  const skillRegistry = SkillRegistry.loadFromDisk();
+  log.info(
+    { count: skillRegistry.size(), skills: skillRegistry.list().map((skill) => skill.name) },
+    'Skill registry loaded',
+  );
+
   // Phase 14 (Track A) — load MCP server registry. Absent config file
   // → empty registry, subagents with `mcp_servers:` frontmatter boot
   // without upstream tools (silent-skip inside SubagentLoop).
@@ -289,6 +299,7 @@ async function main() {
     helmClient,
     llmResolver,
     subagentRegistry,
+    skillRegistry,
     mcpRegistry,
     oauth,
     refreshNotifier,

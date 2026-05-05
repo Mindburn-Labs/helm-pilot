@@ -67,6 +67,7 @@ export const SubagentDefinitionSchema = z.object({
   budgetWeight: z.number().positive().default(1),
   execution: SubagentExecutionModeSchema.default('AUTONOMOUS'),
   toolScope: SubagentToolScopeSchema,
+  skills: z.array(z.string()).default([]),
   mcpServers: z.array(z.string()).default([]),
   model: z.string().optional(),
   iterationBudget: z.number().int().positive().default(20),

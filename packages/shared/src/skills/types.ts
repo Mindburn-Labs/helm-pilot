@@ -22,6 +22,12 @@ export const SkillActivationSchema = z.enum([
 ]);
 export type SkillActivation = z.infer<typeof SkillActivationSchema>;
 
+export const SkillRiskProfileSchema = z.enum(['R0', 'R1', 'R2', 'R3']);
+export type SkillRiskProfile = z.infer<typeof SkillRiskProfileSchema>;
+
+export const SkillEvalStatusSchema = z.enum(['not_evaluated', 'passed', 'failed']);
+export type SkillEvalStatus = z.infer<typeof SkillEvalStatusSchema>;
+
 export const SkillDefinitionSchema = z.object({
   name: z
     .string()
@@ -30,6 +36,9 @@ export const SkillDefinitionSchema = z.object({
   description: z.string().min(1),
   version: z.string().min(1).default('1.0.0'),
   tools: z.array(z.string()).default([]),
+  riskProfile: SkillRiskProfileSchema.default('R1'),
+  permissionRequirements: z.array(z.string()).default([]),
+  evalStatus: SkillEvalStatusSchema.default('not_evaluated'),
   model: z.string().optional(),
   activation: SkillActivationSchema.default('auto'),
   body: z.string().min(1),

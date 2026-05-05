@@ -7,6 +7,7 @@ import {
   type SubagentDefinition,
   type SubagentRunResult,
 } from '@pilot/shared/subagents';
+import { type SkillMatch, type SkillRegistry } from '@pilot/shared/skills';
 import { type McpServerRegistry } from '@pilot/shared/mcp';
 import { type HelmClient } from '@pilot/helm-client';
 import { validateL1 } from '@pilot/shared/conformance';
@@ -17,6 +18,20 @@ import { SubagentLoop } from './subagent-loop.js';
 import { emitConductEvent } from './conduct-stream.js';
 
 const l1Log = createLogger('conductor-l1');
+
+type SpawnFrame = SubagentFrame & { handoffId: string | null };
+
+interface SkillInvocationAudit {
+  name: string;
+  version: string;
+  activationReason: SkillMatch['reason'];
+  score: number;
+  riskProfile: string;
+  permissionRequirements: string[];
+  evalStatus: string;
+  declaredTools: string[];
+  sourcePath: string;
+}
 
 /**
  * Conductor — orchestrates governed subagent delegations.
@@ -50,6 +65,7 @@ export class Conductor {
     private readonly parentPolicy: PolicyConfig,
     private readonly llm: LlmProvider,
     private readonly helmClient?: HelmClient,
+    private readonly skillRegistry?: SkillRegistry,
     /**
      * Phase 14 Track A — optional MCP server registry. When supplied,
      * each subagent spawn propagates it into SubagentLoop so upstream
@@ -75,13 +91,17 @@ export class Conductor {
       { weight: req.budgetWeight ?? def.budgetWeight, def },
     ]);
     const allocated = allocation[0]?.allocatedUsd ?? 0;
+    const skills = this.resolveSkills(def, req.task, parentCtx);
+    if ('errorResult' in skills) return skills.errorResult;
 
-    const frame = await this.beginSpawn({
+    const frame = await this.beginSpawnOrFail({
       parentCtx,
       def,
       allocatedUsd: allocated,
       task: req.task,
+      skills: skills.matches,
     });
+    if ('errorResult' in frame) return frame.errorResult;
 
     const loop = new SubagentLoop(
       this.db,
@@ -89,7 +109,7 @@ export class Conductor {
       this.parentPolicy,
       this.llm,
       this.helmClient,
-      undefined,
+      this.skillRegistry,
       this.mcpRegistry,
     );
     emitConductEvent({
@@ -101,9 +121,12 @@ export class Conductor {
       def,
       input: req.task,
       frame,
+      skillMatches: skills.matches,
       workspaceId: parentCtx.workspaceId,
       taskId: parentCtx.taskId,
+      mode: parentCtx.mode,
     });
+    await this.completeHandoff(frame.handoffId, result);
     emitConductEvent({
       type: 'subagent.completed',
       taskId: parentCtx.taskId,
@@ -144,19 +167,23 @@ export class Conductor {
 
     const runs = resolved.map(async (r, i) => {
       const allocated = allocs[i]?.allocatedUsd ?? 0;
-      const frame = await this.beginSpawn({
+      const skills = this.resolveSkills(r.def!, r.req.task, parentCtx);
+      if ('errorResult' in skills) return skills.errorResult;
+      const frame = await this.beginSpawnOrFail({
         parentCtx,
         def: r.def!,
         allocatedUsd: allocated,
         task: r.req.task,
+        skills: skills.matches,
       });
+      if ('errorResult' in frame) return frame.errorResult;
       const loop = new SubagentLoop(
         this.db,
         this.parentTools,
         this.parentPolicy,
         this.llm,
         this.helmClient,
-        undefined,
+        this.skillRegistry,
         this.mcpRegistry,
       );
       emitConductEvent({
@@ -168,9 +195,12 @@ export class Conductor {
         def: r.def!,
         input: r.req.task,
         frame,
+        skillMatches: skills.matches,
         workspaceId: parentCtx.workspaceId,
         taskId: parentCtx.taskId,
+        mode: parentCtx.mode,
       });
+      await this.completeHandoff(frame.handoffId, childResult);
       emitConductEvent({
         type: 'subagent.completed',
         taskId: parentCtx.taskId,
@@ -197,6 +227,103 @@ export class Conductor {
     return this.registry.findByName(ref) ?? this.registry.findByDescription(ref);
   }
 
+  private resolveSkills(
+    def: SubagentDefinition,
+    task: string,
+    parentCtx: ParentContext,
+  ): { matches: SkillMatch[] } | { errorResult: SubagentRunResult } {
+    if (def.skills.length > 0 && !this.skillRegistry) {
+      return {
+        errorResult: this.failSkillDenied(
+          def.name,
+          parentCtx,
+          'skill_registry_unavailable',
+          `Subagent "${def.name}" declares skills but no SkillRegistry is loaded.`,
+        ),
+      };
+    }
+
+    if (!this.skillRegistry) return { matches: [] };
+
+    const missing = def.skills.filter((name) => !this.skillRegistry?.findByName(name));
+    if (missing.length > 0) {
+      return {
+        errorResult: this.failSkillDenied(
+          def.name,
+          parentCtx,
+          'skill_not_loaded',
+          `Subagent "${def.name}" declares unloaded skill(s): ${missing.join(', ')}`,
+        ),
+      };
+    }
+
+    const explicitSkills = new Set(def.skills);
+    const allMatches = this.skillRegistry.match(task, def.skills);
+    const explicitMatches = allMatches.filter((match) => match.reason === 'explicit');
+    const autoMatches = allMatches
+      .filter((match) => match.reason === 'auto')
+      .slice(0, Math.max(0, 3 - explicitMatches.length));
+    const matches = [...explicitMatches, ...autoMatches];
+    const allowedTools = new Set(def.toolScope.allowedTools);
+    const permittedMatches: SkillMatch[] = [];
+    for (const match of matches) {
+      const deniedTools = match.skill.tools.filter((tool) => !allowedTools.has(tool));
+      if (deniedTools.length > 0) {
+        if (!explicitSkills.has(match.skill.name)) continue;
+        return {
+          errorResult: this.failSkillDenied(
+            def.name,
+            parentCtx,
+            'skill_tool_scope_denied',
+            `Skill "${match.skill.name}" requires tool(s) outside ${def.name} scope: ${deniedTools.join(', ')}`,
+          ),
+        };
+      }
+      permittedMatches.push(match);
+    }
+
+    return { matches: permittedMatches };
+  }
+
+  private failSkillDenied(
+    name: string,
+    parentCtx: ParentContext,
+    error: string,
+    summary: string,
+  ): SubagentRunResult {
+    return {
+      name,
+      summary,
+      costUsd: 0,
+      tokensIn: 0,
+      tokensOut: 0,
+      iterationsUsed: 0,
+      taskRunId: parentCtx.parentTaskRunId ?? '',
+      spawnEvidencePackId: '',
+      verdict: 'failed',
+      error,
+    };
+  }
+
+  private failSpawnPersistence(
+    name: string,
+    parentCtx: ParentContext,
+    summary: string,
+  ): SubagentRunResult {
+    return {
+      name,
+      summary,
+      costUsd: 0,
+      tokensIn: 0,
+      tokensOut: 0,
+      iterationsUsed: 0,
+      taskRunId: parentCtx.parentTaskRunId ?? '',
+      spawnEvidencePackId: '',
+      verdict: 'failed',
+      error: 'subagent_persistence_failed',
+    };
+  }
+
   /**
    * Weighted split with a 5% floor per child. Normalises if the naive
    * weighted sum exceeds remaining budget — prevents the parent LLM from
@@ -218,13 +345,34 @@ export class Conductor {
     return raw.map((v) => ({ allocatedUsd: v * scale }));
   }
 
+  private async beginSpawnOrFail(params: {
+    parentCtx: ParentContext;
+    def: SubagentDefinition;
+    allocatedUsd: number;
+    task: string;
+    skills: SkillMatch[];
+  }): Promise<SpawnFrame | { errorResult: SubagentRunResult }> {
+    try {
+      return await this.beginSpawn(params);
+    } catch (err) {
+      return {
+        errorResult: this.failSpawnPersistence(
+          params.def.name,
+          params.parentCtx,
+          err instanceof Error ? err.message : String(err),
+        ),
+      };
+    }
+  }
+
   private async beginSpawn(params: {
     parentCtx: ParentContext;
     def: SubagentDefinition;
     allocatedUsd: number;
     task: string;
-  }): Promise<SubagentFrame> {
-    const { parentCtx, def, allocatedUsd, task } = params;
+    skills: SkillMatch[];
+  }): Promise<SpawnFrame> {
+    const { parentCtx, def, allocatedUsd, task, skills } = params;
 
     const principalSuffix = randomUUID().slice(0, 6);
     const principal =
@@ -245,6 +393,9 @@ export class Conductor {
       def,
       policyVersion: parentCtx.policyVersion,
     });
+    if (!spawnPackId) {
+      throw new Error(`Failed to persist SUBAGENT_SPAWN evidence pack for "${def.name}".`);
+    }
 
     // 3. Write the subagent's parent task_runs row.
     const subagentTaskRunId = await this.writeSubagentTaskRun({
@@ -255,7 +406,27 @@ export class Conductor {
       def,
       task,
       allocatedUsd,
+      skills,
     });
+    if (!subagentTaskRunId) {
+      throw new Error(`Failed to persist subagent task run for "${def.name}".`);
+    }
+    let handoffId: string | null;
+    try {
+      handoffId = await this.writeAgentHandoff({
+        parentCtx,
+        def,
+        task,
+        childTaskRunId: subagentTaskRunId,
+        skills,
+      });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new Error(`Failed to persist agent handoff for "${def.name}": ${detail}`);
+    }
+    if (!handoffId) {
+      throw new Error(`Failed to persist agent handoff for "${def.name}".`);
+    }
 
     return {
       parentTaskRunId: subagentTaskRunId,
@@ -264,6 +435,7 @@ export class Conductor {
       parentEvidencePackId: spawnPackId,
       operatorRole: def.operatorRole,
       budgetSliceAllocated: allocatedUsd,
+      handoffId,
     };
   }
 
@@ -345,6 +517,67 @@ export class Conductor {
     }
   }
 
+  private async writeAgentHandoff(params: {
+    parentCtx: ParentContext;
+    def: SubagentDefinition;
+    task: string;
+    childTaskRunId: string;
+    skills: SkillMatch[];
+  }): Promise<string | null> {
+    const { agentHandoffs } = await import('@pilot/db/schema');
+    const [row] = await this.db
+      .insert(agentHandoffs)
+      .values({
+        workspaceId: params.parentCtx.workspaceId,
+        taskId: params.parentCtx.taskId,
+        parentTaskRunId: params.parentCtx.parentTaskRunId,
+        childTaskRunId: params.childTaskRunId,
+        fromAgent: params.parentCtx.operatorRole,
+        toAgent: params.def.name,
+        handoffKind: 'subagent_spawn',
+        status: 'running',
+        skillInvocations: skillAuditPayload(params.skills),
+        input: {
+          task: params.task,
+          operatorRole: params.def.operatorRole,
+          execution: params.def.execution,
+          maxRiskClass: params.def.maxRiskClass,
+          allowedTools: params.def.toolScope.allowedTools,
+        },
+      })
+      .returning({ id: agentHandoffs.id });
+    return row?.id ?? null;
+  }
+
+  private async completeHandoff(
+    handoffId: string | null,
+    result: SubagentRunResult,
+  ): Promise<void> {
+    if (!handoffId) return;
+    try {
+      const { agentHandoffs } = await import('@pilot/db/schema');
+      const { eq } = await import('drizzle-orm');
+      await this.db
+        .update(agentHandoffs)
+        .set({
+          status: result.verdict,
+          output: {
+            summary: result.summary,
+            costUsd: result.costUsd,
+            tokensIn: result.tokensIn,
+            tokensOut: result.tokensOut,
+            iterationsUsed: result.iterationsUsed,
+            error: result.error ?? null,
+          },
+          completedAt: new Date(),
+        })
+        .where(eq(agentHandoffs.id, handoffId));
+    } catch {
+      // Handoff completion is observability; child execution result remains
+      // authoritative in task_runs/evidence_packs.
+    }
+  }
+
   private async writeSubagentTaskRun(params: {
     taskId: string;
     parentTaskRunId: string | null;
@@ -353,6 +586,7 @@ export class Conductor {
     def: SubagentDefinition;
     task: string;
     allocatedUsd: number;
+    skills: SkillMatch[];
   }): Promise<string> {
     try {
       const { taskRuns } = await import('@pilot/db/schema');
@@ -376,6 +610,7 @@ export class Conductor {
           operatorRole: params.def.operatorRole,
           budgetSliceAllocated: params.allocatedUsd.toFixed(4),
           budgetSliceUsed: '0.0000',
+          skillInvocations: skillAuditPayload(params.skills),
         })
         .returning({ id: taskRuns.id });
       return row?.id ?? '';
@@ -414,10 +649,26 @@ export interface ParentContext {
   policyVersion: string;
   /** USD available to the conductor for delegations this iteration. */
   remainingBudgetUsd: number;
+  /** Workspace execution mode inherited by child runs for tool filtering. */
+  mode?: string;
 }
 
 export interface SpawnRequest {
   name: string;
   task: string;
   budgetWeight?: number;
+}
+
+function skillAuditPayload(matches: SkillMatch[]): SkillInvocationAudit[] {
+  return matches.map((match) => ({
+    name: match.skill.name,
+    version: match.skill.version,
+    activationReason: match.reason,
+    score: match.score,
+    riskProfile: match.skill.riskProfile,
+    permissionRequirements: match.skill.permissionRequirements,
+    evalStatus: match.skill.evalStatus,
+    declaredTools: match.skill.tools,
+    sourcePath: match.skill.sourcePath,
+  }));
 }

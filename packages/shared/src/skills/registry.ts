@@ -138,6 +138,11 @@ export function loadSkillFile(filePath: string): SkillDefinition {
     description: str(parsed.description, 'description', filePath),
     version: typeof parsed.version === 'string' ? parsed.version : undefined,
     tools: Array.isArray(parsed.tools) ? (parsed.tools as string[]) : [],
+    riskProfile: typeof parsed.risk_profile === 'string' ? parsed.risk_profile : undefined,
+    permissionRequirements: Array.isArray(parsed.permission_requirements)
+      ? (parsed.permission_requirements as string[])
+      : [],
+    evalStatus: typeof parsed.eval_status === 'string' ? parsed.eval_status : undefined,
     model: typeof parsed.model === 'string' ? parsed.model : undefined,
     activation: parsed.activation as SkillActivation | undefined,
     body: body.trim(),

@@ -7,6 +7,7 @@ import { type MemoryService } from '@pilot/memory';
 import { type HelmClient } from '@pilot/helm-client';
 import { type OAuthFlowManager, type RefreshNotifier } from '@pilot/connectors';
 import { type SubagentRegistry } from '@pilot/shared/subagents';
+import { type SkillRegistry } from '@pilot/shared/skills';
 import { type McpServerRegistry } from '@pilot/shared/mcp';
 import { TrustBoundary } from './trust.js';
 import { AgentLoop } from './agent-loop.js';
@@ -41,6 +42,12 @@ export interface OrchestratorConfig {
    * When absent the main orchestrator path is unchanged.
    */
   subagentRegistry?: SubagentRegistry;
+  /**
+   * Gate 3 — runtime skill registry loaded from packs/skills and user
+   * overrides. When present, Conductor validates and activates skills for
+   * subagent runs.
+   */
+  skillRegistry?: SkillRegistry;
   /**
    * Phase 13 (Track B) — OAuth flow manager. When present the background
    * refresh worker is registered; connector tokens get proactively renewed
@@ -113,6 +120,7 @@ export class Orchestrator {
         config.policy,
         config.llm,
         config.helmClient,
+        config.skillRegistry,
         config.mcpRegistry,
       );
       this.tools.setConductor(this.conductor);
@@ -202,6 +210,7 @@ export class Orchestrator {
       operatorRole: runtime.systemPrompt ? 'operator' : 'conductor',
       policyVersion: 'founder-ops-v1',
       remainingBudgetUsd: runtime.policy.budget.perTaskMax,
+      mode: runtime.mode,
     };
     this.tools.setParentContext(parentCtx);
     try {
