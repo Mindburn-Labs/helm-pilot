@@ -42,7 +42,9 @@ function createBrowserDb(selectResults: unknown[][] = []) {
               return [{ id: sessionId, workspaceId, status: 'active' }];
             }
             if (table === browserSessionGrants) {
-              return [{ id: grantId, workspaceId, sessionId, scope: 'read_extract', status: 'active' }];
+              return [
+                { id: grantId, workspaceId, sessionId, scope: 'read_extract', status: 'active' },
+              ];
             }
             if (table === browserActions) {
               return [
@@ -216,7 +218,7 @@ describe('browserSessionRoutes', () => {
     const body = await expectJson<{
       browserAction: { id: string; evidencePackId: string };
       observation: { id: string; domHash: string; evidencePackId: string };
-      governance: { decisionId: string };
+      governance: { decisionId: string; helmDocumentVersionPins: Record<string, string> };
       evidenceItemId: string;
     }>(res, 201);
 
@@ -234,6 +236,9 @@ describe('browserSessionRoutes', () => {
     expect(body.evidenceItemId).toBe('evidence-item-1');
     expect(body.observation.domHash).toMatch(/^sha256:/u);
     expect(body.governance.decisionId).toBe('dec-browser');
+    expect(body.governance.helmDocumentVersionPins).toEqual({
+      browserReadPolicy: 'founder-ops-v1',
+    });
     expect(inserts.find((insert) => insert.table === browserActions)?.value).toMatchObject({
       workspaceId,
       sessionId,
@@ -242,7 +247,11 @@ describe('browserSessionRoutes', () => {
       actionType: 'read_extract',
       policyDecisionId: 'dec-browser',
       policyVersion: 'founder-ops-v1',
+      helmDocumentVersionPins: { browserReadPolicy: 'founder-ops-v1' },
       evidencePackId,
+      metadata: {
+        helmDocumentVersionPins: { browserReadPolicy: 'founder-ops-v1' },
+      },
     });
     expect(inserts.find((insert) => insert.table === browserObservations)?.value).toMatchObject({
       workspaceId,
@@ -260,6 +269,7 @@ describe('browserSessionRoutes', () => {
         authorization: '[REDACTED]',
         helmDecisionId: 'dec-browser',
         helmPolicyVersion: 'founder-ops-v1',
+        helmDocumentVersionPins: { browserReadPolicy: 'founder-ops-v1' },
         credentialBoundary: 'read_only_no_cookie_or_password_export',
       },
     });
@@ -273,10 +283,16 @@ describe('browserSessionRoutes', () => {
       redactionState: 'redacted',
       contentHash: expect.stringMatching(/^sha256:/u),
       replayRef: `browser:${sessionId}:0`,
+      metadata: {
+        helmDocumentVersionPins: { browserReadPolicy: 'founder-ops-v1' },
+      },
     });
     expect(inserts.find((insert) => insert.table === auditLog)?.value).toMatchObject({
       action: 'BROWSER_OBSERVATION_CAPTURED',
       verdict: 'allow',
+      metadata: {
+        helmDocumentVersionPins: { browserReadPolicy: 'founder-ops-v1' },
+      },
     });
   });
 

@@ -197,6 +197,13 @@
       "when": 1778022000000,
       "tag": "0026_tool_broker_policy_pins",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1778025600000,
+      "tag": "0027_browser_computer_policy_pins",
+      "breakpoints": true
     }
   ]
 }

@@ -85,6 +85,10 @@ export const browserActions = pgTable(
     status: text('status').notNull().default('completed'),
     policyDecisionId: text('policy_decision_id'),
     policyVersion: text('policy_version'),
+    helmDocumentVersionPins: jsonb('helm_document_version_pins')
+      .$type<Record<string, string>>()
+      .notNull()
+      .default({}),
     evidencePackId: uuid('evidence_pack_id').references(() => evidencePacks.id, {
       onDelete: 'set null',
     }),

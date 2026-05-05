@@ -88,6 +88,7 @@ export interface SafeComputerUseResult {
     status: OperatorComputerUseResult['status'];
     decisionId: string;
     policyVersion: string;
+    helmDocumentVersionPins: Record<string, string>;
     evidencePackId?: string;
   };
   evidenceIds: string[];
@@ -161,6 +162,7 @@ export async function executeSafeComputerUse(
       status: completion.status,
       helmDecisionId: governance.receipt.decisionId,
       helmPolicyVersion: governance.receipt.policyVersion,
+      helmDocumentVersionPins: actionBase.helmDocumentVersionPins,
       exitCode: completion.exitCode ?? null,
       durationMs: completion.durationMs ?? null,
       executionBoundary: 'safe_local_or_sandbox_only_no_unrestricted_desktop',
@@ -206,6 +208,7 @@ export async function executeSafeComputerUse(
       status: governance.status,
       decisionId: governance.receipt.decisionId,
       policyVersion: governance.receipt.policyVersion,
+      helmDocumentVersionPins: actionBase.helmDocumentVersionPins,
       evidencePackId: governance.evidencePackId,
     },
     evidenceIds,
@@ -225,6 +228,7 @@ async function buildActionBase(req: OperatorComputerUse, governance: OperatorCom
   const root = await allowedRoot();
   const devServerUrl =
     req.operation === 'dev_server_status' ? (req.devServerUrl ?? req.targetUrl) : undefined;
+  const helmDocumentVersionPins = computerHelmDocumentVersionPins(governance.receipt.policyVersion);
 
   return {
     workspaceId: req.workspaceId,
@@ -241,10 +245,12 @@ async function buildActionBase(req: OperatorComputerUse, governance: OperatorCom
     devServerUrl: devServerUrl ?? null,
     policyDecisionId: governance.receipt.decisionId,
     policyVersion: governance.receipt.policyVersion,
+    helmDocumentVersionPins,
     evidencePackId: governance.evidencePackId ?? null,
     metadata: {
       helmDecisionId: governance.receipt.decisionId,
       helmPolicyVersion: governance.receipt.policyVersion,
+      helmDocumentVersionPins,
       allowedRoot: root,
       restrictedPathPolicy: 'deny_env_git_ssh_credentials_outside_root',
       executionBoundary: 'safe_local_or_sandbox_only_no_unrestricted_desktop',
@@ -634,4 +640,8 @@ function redactAndLimit(text: string, limit = MAX_CAPTURE_BYTES): string {
 
 function hashText(value: string): string {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+}
+
+function computerHelmDocumentVersionPins(policyVersion: string): Record<string, string> {
+  return { computerUsePolicy: policyVersion };
 }

@@ -803,6 +803,10 @@ describe('ToolRegistry', () => {
         status: 'running',
         policyDecisionId: 'dec-1',
         policyVersion: 'founder-ops-v1',
+        helmDocumentVersionPins: { computerUsePolicy: 'founder-ops-v1' },
+        metadata: {
+          helmDocumentVersionPins: { computerUsePolicy: 'founder-ops-v1' },
+        },
       });
       expect(updatedComputerActions[0]).toMatchObject({
         status: 'completed',
@@ -819,6 +823,9 @@ describe('ToolRegistry', () => {
         sourceType: 'computer_operator',
         redactionState: 'redacted',
         replayRef: 'computer:00000000-0000-4000-8000-000000000010:0',
+        metadata: {
+          helmDocumentVersionPins: { computerUsePolicy: 'founder-ops-v1' },
+        },
       });
       expect(result).toMatchObject({
         computerAction: { id: '00000000-0000-4000-8000-000000000010' },
@@ -832,6 +839,7 @@ describe('ToolRegistry', () => {
           status: 'approved_for_execution',
           decisionId: 'dec-1',
           policyVersion: 'founder-ops-v1',
+          helmDocumentVersionPins: { computerUsePolicy: 'founder-ops-v1' },
           evidencePackId,
         },
         evidenceIds: [
@@ -1082,11 +1090,11 @@ describe('ToolRegistry', () => {
                     ? {
                         id: 'evidence-item-1',
                       }
-                  : {
-                      id: 'obs-1',
-                      domHash: (value as { domHash?: string }).domHash,
-                      evidencePackId: (value as { evidencePackId?: string }).evidencePackId,
-                    },
+                    : {
+                        id: 'obs-1',
+                        domHash: (value as { domHash?: string }).domHash,
+                        evidencePackId: (value as { evidencePackId?: string }).evidencePackId,
+                      },
               ]),
             };
           }),
@@ -1142,6 +1150,7 @@ describe('ToolRegistry', () => {
         governance: {
           decisionId: 'dec-browser',
           policyVersion: 'founder-ops-v1',
+          helmDocumentVersionPins: { browserReadPolicy: 'founder-ops-v1' },
         },
         evidenceItemId: 'evidence-item-1',
         capability: getCapabilityRecord('browser_execution'),
@@ -1153,6 +1162,7 @@ describe('ToolRegistry', () => {
         actionType: 'read_extract',
         origin: 'https://www.ycombinator.com',
         policyDecisionId: 'dec-browser',
+        helmDocumentVersionPins: { browserReadPolicy: 'founder-ops-v1' },
       });
       expect(inserted[1]).toMatchObject({
         workspaceId,
@@ -1169,6 +1179,7 @@ describe('ToolRegistry', () => {
           authorization: '[REDACTED]',
           helmDecisionId: 'dec-browser',
           helmPolicyVersion: 'founder-ops-v1',
+          helmDocumentVersionPins: { browserReadPolicy: 'founder-ops-v1' },
           credentialBoundary: 'read_only_no_cookie_or_password_export',
         },
       });
@@ -1183,6 +1194,9 @@ describe('ToolRegistry', () => {
         redactionState: 'redacted',
         contentHash: expect.stringMatching(/^sha256:/u),
         replayRef: `browser:${sessionId}:0`,
+        metadata: {
+          helmDocumentVersionPins: { browserReadPolicy: 'founder-ops-v1' },
+        },
       });
     });
   });

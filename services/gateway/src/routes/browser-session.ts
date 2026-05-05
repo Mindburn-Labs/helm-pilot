@@ -116,7 +116,10 @@ export function browserSessionRoutes(deps: GatewayDeps) {
     if (grantOrigins.length === 0) {
       return c.json({ error: 'at least one grant allowedOrigin is required' }, 400);
     }
-    if (sessionOrigins.length > 0 && !grantOrigins.every((origin) => sessionOrigins.includes(origin))) {
+    if (
+      sessionOrigins.length > 0 &&
+      !grantOrigins.every((origin) => sessionOrigins.includes(origin))
+    ) {
       return c.json({ error: 'grant origin exceeds session allowedOrigins' }, 403);
     }
 
@@ -230,6 +233,9 @@ export function browserSessionRoutes(deps: GatewayDeps) {
 
     const redacted = redactBrowserText(parsed.data.domSnapshot ?? '');
     const redactions = Array.from(new Set([...parsed.data.redactions, ...redacted.redactions]));
+    const helmDocumentVersionPins = browserHelmDocumentVersionPins(
+      evaluation.receipt.policyVersion,
+    );
     const [browserAction] = await deps.db
       .insert(browserActions)
       .values({
@@ -245,11 +251,13 @@ export function browserSessionRoutes(deps: GatewayDeps) {
         status: 'completed',
         policyDecisionId: evaluation.receipt.decisionId,
         policyVersion: evaluation.receipt.policyVersion,
+        helmDocumentVersionPins,
         evidencePackId: evaluation.evidencePackId ?? null,
         completedAt: new Date(),
         metadata: {
           helmDecisionId: evaluation.receipt.decisionId,
           helmPolicyVersion: evaluation.receipt.policyVersion,
+          helmDocumentVersionPins,
           credentialBoundary: 'read_only_no_cookie_or_password_export',
         },
       })
@@ -284,6 +292,7 @@ export function browserSessionRoutes(deps: GatewayDeps) {
           ...redactRecord(parsed.data.metadata),
           helmDecisionId: evaluation.receipt.decisionId,
           helmPolicyVersion: evaluation.receipt.policyVersion,
+          helmDocumentVersionPins,
           credentialBoundary: 'read_only_no_cookie_or_password_export',
         },
       })
@@ -319,6 +328,7 @@ export function browserSessionRoutes(deps: GatewayDeps) {
         origin: url.origin,
         helmDecisionId: evaluation.receipt.decisionId,
         helmPolicyVersion: evaluation.receipt.policyVersion,
+        helmDocumentVersionPins,
         credentialBoundary: 'read_only_no_cookie_or_password_export',
         redactions,
       },
@@ -337,6 +347,7 @@ export function browserSessionRoutes(deps: GatewayDeps) {
         origin: url.origin,
         helmDecisionId: evaluation.receipt.decisionId,
         helmPolicyVersion: evaluation.receipt.policyVersion,
+        helmDocumentVersionPins,
         evidencePackId: evaluation.evidencePackId ?? null,
         evidenceItemId,
         redactions,
@@ -351,6 +362,7 @@ export function browserSessionRoutes(deps: GatewayDeps) {
           status: evaluation.status,
           decisionId: evaluation.receipt.decisionId,
           policyVersion: evaluation.receipt.policyVersion,
+          helmDocumentVersionPins,
           evidencePackId: evaluation.evidencePackId,
         },
         evidenceItemId,
@@ -472,7 +484,8 @@ async function loadActiveBrowserGrant(
       ),
     )
     .limit(1);
-  if (!session) return Response.json({ error: 'active browser session not found' }, { status: 404 });
+  if (!session)
+    return Response.json({ error: 'active browser session not found' }, { status: 404 });
 
   const [grant] = await deps.db
     .select()
@@ -513,11 +526,17 @@ function normalizeOrigins(origins: string[]) {
 }
 
 function asStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
 }
 
 function hashText(text: string) {
   return `sha256:${createHash('sha256').update(text).digest('hex')}`;
+}
+
+function browserHelmDocumentVersionPins(policyVersion: string): Record<string, string> {
+  return { browserReadPolicy: policyVersion };
 }
 
 const SENSITIVE_TEXT_PATTERNS: Array<[RegExp, string]> = [

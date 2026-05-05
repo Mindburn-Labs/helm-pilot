@@ -3,6 +3,7 @@ import {
   a2aMessages,
   a2aThreads,
   agentHandoffs,
+  browserActions,
   browserObservations,
   browserSessionGrants,
   browserSessions,
@@ -57,6 +58,7 @@ describe('Gate 6 browser operation schema', () => {
     expect(browserSessions.allowedOrigins.name).toBe('allowed_origins');
     expect(browserSessionGrants.sessionId.name).toBe('session_id');
     expect(browserSessionGrants.scope.name).toBe('scope');
+    expect(browserActions.helmDocumentVersionPins.name).toBe('helm_document_version_pins');
     expect(browserObservations.actionId.name).toBe('action_id');
     expect(browserObservations.evidencePackId.name).toBe('evidence_pack_id');
     expect(browserObservations.redactedDomSnapshot.name).toBe('redacted_dom_snapshot');
@@ -71,6 +73,7 @@ describe('Gate 7 computer operation schema', () => {
     expect(computerActions.actionType.name).toBe('action_type');
     expect(computerActions.command.name).toBe('command');
     expect(computerActions.fileDiff.name).toBe('file_diff');
+    expect(computerActions.helmDocumentVersionPins.name).toBe('helm_document_version_pins');
     expect(computerActions.evidencePackId.name).toBe('evidence_pack_id');
     expect(computerActions.replayIndex.name).toBe('replay_index');
   });
