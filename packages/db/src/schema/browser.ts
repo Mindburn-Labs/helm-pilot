@@ -23,6 +23,15 @@ export const browserSessions = pgTable(
     profileLabel: text('profile_label'),
     allowedOrigins: jsonb('allowed_origins').$type<string[]>().notNull().default([]),
     status: text('status').notNull().default('active'),
+    policyDecisionId: text('policy_decision_id'),
+    policyVersion: text('policy_version'),
+    helmDocumentVersionPins: jsonb('helm_document_version_pins')
+      .$type<Record<string, string>>()
+      .notNull()
+      .default({}),
+    evidencePackId: uuid('evidence_pack_id').references(() => evidencePacks.id, {
+      onDelete: 'set null',
+    }),
     metadata: jsonb('metadata').notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -31,6 +40,8 @@ export const browserSessions = pgTable(
   (table) => [
     index('browser_sessions_workspace_status_idx').on(table.workspaceId, table.status),
     index('browser_sessions_user_idx').on(table.userId),
+    index('browser_sessions_policy_decision_idx').on(table.policyDecisionId),
+    index('browser_sessions_evidence_pack_idx').on(table.evidencePackId),
   ],
 );
 
@@ -52,6 +63,15 @@ export const browserSessionGrants = pgTable(
     scope: text('scope').notNull().default('read_extract'),
     allowedOrigins: jsonb('allowed_origins').$type<string[]>().notNull().default([]),
     status: text('status').notNull().default('active'),
+    policyDecisionId: text('policy_decision_id'),
+    policyVersion: text('policy_version'),
+    helmDocumentVersionPins: jsonb('helm_document_version_pins')
+      .$type<Record<string, string>>()
+      .notNull()
+      .default({}),
+    evidencePackId: uuid('evidence_pack_id').references(() => evidencePacks.id, {
+      onDelete: 'set null',
+    }),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
@@ -60,6 +80,8 @@ export const browserSessionGrants = pgTable(
     index('browser_grants_workspace_status_idx').on(table.workspaceId, table.status),
     index('browser_grants_session_idx').on(table.sessionId),
     index('browser_grants_task_idx').on(table.taskId),
+    index('browser_grants_policy_decision_idx').on(table.policyDecisionId),
+    index('browser_grants_evidence_pack_idx').on(table.evidencePackId),
   ],
 );
 

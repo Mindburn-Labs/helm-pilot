@@ -15,6 +15,12 @@ import {
   CreateBrowserSessionInput,
 } from '@pilot/shared/schemas';
 import { getCapabilityRecord } from '@pilot/shared/capabilities';
+import {
+  HelmDeniedError,
+  HelmEscalationError,
+  HelmUnreachableError,
+  type EvaluateResult,
+} from '@pilot/helm-client';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId, requireWorkspaceRole, workspaceIdMismatch } from '../lib/workspace.js';
 
@@ -49,6 +55,21 @@ export function browserSessionRoutes(deps: GatewayDeps) {
       return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
     }
 
+    const governed = await evaluateBrowserAccessAction(deps, {
+      workspaceId: parsed.data.workspaceId,
+      principal: `workspace:${parsed.data.workspaceId}/operator:browser-session`,
+      action: 'BROWSER_SESSION_CREATE',
+      resource: `${parsed.data.browser}:${parsed.data.name}`,
+      context: {
+        surface: 'browser_session',
+        browser: parsed.data.browser,
+        profileLabel: parsed.data.profileLabel,
+        allowedOrigins: normalizeOrigins(parsed.data.allowedOrigins),
+      },
+    });
+    if (governed instanceof Response) return governed;
+    const governanceMetadata = browserAccessGovernanceMetadata('session_create', governed);
+
     const [session] = await deps.db
       .insert(browserSessions)
       .values({
@@ -58,9 +79,14 @@ export function browserSessionRoutes(deps: GatewayDeps) {
         browser: parsed.data.browser,
         profileLabel: parsed.data.profileLabel,
         allowedOrigins: normalizeOrigins(parsed.data.allowedOrigins),
+        policyDecisionId: governed.receipt.decisionId,
+        policyVersion: governed.receipt.policyVersion,
+        helmDocumentVersionPins: governanceMetadata.policyPin.documentVersionPins,
+        evidencePackId: governed.evidencePackId ?? null,
         metadata: {
           ...redactRecord(parsed.data.metadata),
           credentialBoundary: 'session_use_only_no_cookie_or_password_export',
+          governance: governanceMetadata,
         },
       })
       .returning({
@@ -79,6 +105,7 @@ export function browserSessionRoutes(deps: GatewayDeps) {
         browser: parsed.data.browser,
         allowedOrigins: normalizeOrigins(parsed.data.allowedOrigins),
         credentialBoundary: 'no_raw_credentials',
+        governance: governanceMetadata,
       },
     });
 
@@ -123,6 +150,27 @@ export function browserSessionRoutes(deps: GatewayDeps) {
       return c.json({ error: 'grant origin exceeds session allowedOrigins' }, 403);
     }
 
+    const governed = await evaluateBrowserAccessAction(deps, {
+      workspaceId: parsed.data.workspaceId,
+      principal: `workspace:${parsed.data.workspaceId}/operator:browser-session`,
+      action: 'BROWSER_SESSION_GRANT',
+      resource: `${sessionId}:${parsed.data.scope}`,
+      context: {
+        surface: 'browser_session',
+        sessionId,
+        taskId: parsed.data.taskId,
+        ventureId: parsed.data.ventureId,
+        missionId: parsed.data.missionId,
+        grantedToType: parsed.data.grantedToType,
+        grantedToId: parsed.data.grantedToId,
+        scope: parsed.data.scope,
+        allowedOrigins: grantOrigins,
+        expiresAt: parsed.data.expiresAt,
+      },
+    });
+    if (governed instanceof Response) return governed;
+    const governanceMetadata = browserAccessGovernanceMetadata('session_grant', governed);
+
     const [grant] = await deps.db
       .insert(browserSessionGrants)
       .values({
@@ -135,6 +183,10 @@ export function browserSessionRoutes(deps: GatewayDeps) {
         grantedToId: parsed.data.grantedToId,
         scope: parsed.data.scope,
         allowedOrigins: grantOrigins,
+        policyDecisionId: governed.receipt.decisionId,
+        policyVersion: governed.receipt.policyVersion,
+        helmDocumentVersionPins: governanceMetadata.policyPin.documentVersionPins,
+        evidencePackId: governed.evidencePackId ?? null,
         expiresAt: parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : null,
       })
       .returning({
@@ -155,6 +207,7 @@ export function browserSessionRoutes(deps: GatewayDeps) {
         sessionId,
         scope: parsed.data.scope,
         allowedOrigins: grantOrigins,
+        governance: governanceMetadata,
       },
     });
 
@@ -537,6 +590,71 @@ function hashText(text: string) {
 
 function browserHelmDocumentVersionPins(policyVersion: string): Record<string, string> {
   return { browserReadPolicy: policyVersion };
+}
+
+async function evaluateBrowserAccessAction(
+  deps: GatewayDeps,
+  input: {
+    workspaceId: string;
+    principal: string;
+    action: 'BROWSER_SESSION_CREATE' | 'BROWSER_SESSION_GRANT';
+    resource: string;
+    context: Record<string, unknown>;
+  },
+): Promise<EvaluateResult | Response> {
+  if (!deps.helmClient) {
+    return Response.json(
+      { error: 'HELM governance client is required for browser session access changes' },
+      { status: 503 },
+    );
+  }
+
+  try {
+    return await deps.helmClient.evaluate({
+      principal: input.principal,
+      action: input.action,
+      resource: input.resource,
+      effectLevel: 'E3',
+      sessionId: `${input.action}:${input.workspaceId}`,
+      context: {
+        ...input.context,
+        workspaceId: input.workspaceId,
+        source: 'gateway.browser-session',
+      },
+    });
+  } catch (err) {
+    if (err instanceof HelmDeniedError) {
+      return Response.json({ error: err.reason, receipt: err.receipt }, { status: 403 });
+    }
+    if (err instanceof HelmEscalationError) {
+      return Response.json({ error: err.reason, receipt: err.receipt }, { status: 409 });
+    }
+    if (err instanceof HelmUnreachableError) {
+      return Response.json({ error: err.message }, { status: 503 });
+    }
+    throw err;
+  }
+}
+
+function browserAccessGovernanceMetadata(
+  accessAction: 'session_create' | 'session_grant',
+  governed: EvaluateResult,
+) {
+  return {
+    surface: 'browser_session_access',
+    action: accessAction,
+    policyDecisionId: governed.receipt.decisionId,
+    policyVersion: governed.receipt.policyVersion,
+    evidencePackId: governed.evidencePackId ?? null,
+    policyPin: {
+      policyDecisionId: governed.receipt.decisionId,
+      policyVersion: governed.receipt.policyVersion,
+      decisionRequired: true,
+      documentVersionPins: {
+        browserOperationPolicy: governed.receipt.policyVersion,
+      },
+    },
+  };
 }
 
 const SENSITIVE_TEXT_PATTERNS: Array<[RegExp, string]> = [
