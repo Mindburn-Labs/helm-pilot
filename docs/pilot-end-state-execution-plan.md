@@ -13,6 +13,7 @@ This is the control artifact for moving Pilot from a governed agent/task prototy
 - Decision Court now splits `heuristic_preview`, `governed_llm_court`, and `unavailable`; governed mode requires HELM-governed model-call receipts and no longer silently falls back to fake adversarial output.
 - `operator.computer_use` now supports narrow HELM-governed local safe actions for allowlisted terminal commands, project-scoped file reads/writes, and local dev-server status checks with durable `computer_actions` evidence rows. It remains `prototype`, not `production_ready`, because sandbox provider execution, unrestricted desktop automation, and the Safe Computer/Sandbox Action Eval are not complete.
 - `/api/command-center` now aggregates real workspace-scoped durable rows for tasks, task runs, actions, tool executions, HELM receipts, approvals, audit events, browser observations, computer actions, agent handoffs, artifacts, an authorization snapshot, and capability truth. The web `/command-center` surface renders that state without route-local demo data.
+- Startup lifecycle templates now compile founder goals into governed lifecycle DAG drafts with required agents, skills, tools, evidence, HELM policy classes, escalation conditions, and acceptance criteria. This remains `prototype`, not `production_ready`, because the DAG is not persisted or executed through mission runtime and Full Startup Launch Eval has not passed.
 - `score_opportunity` now returns a deterministic evidence-backed scorecard and writes Tool Broker records for autonomous calls, but PMF Discovery Eval has not promoted it to `production_ready`.
 - Skill registry code exists under `packages/shared/src/skills`, and Gate 3 wires it into gateway/orchestrator/conductor with audited skill metadata on subagent spawns. It is still not `production_ready` because skills are not fully Tool Broker callable and have not passed the Skill Invocation Governance Eval.
 - Subagent spawn rows are partially represented through `task_runs.parent_task_run_id` and spawn evidence packs, but root lineage, spawn action anchoring, and proof DAG queries are not complete.
@@ -39,7 +40,7 @@ This is the control artifact for moving Pilot from a governed agent/task prototy
 | `approval_resume`            | `blocked`     | Foundation Agent | Approval Resume Isolation Regression                           |
 | `evidence_ledger`            | `prototype`   | Foundation Agent | HELM Governance Eval and Recovery Eval                         |
 | `command_center`             | `prototype`   | UI Agent         | Command Center Real-State UX Eval                              |
-| `startup_lifecycle`          | `blocked`     | Runtime Agent    | Full Startup Launch Eval                                       |
+| `startup_lifecycle`          | `prototype`   | Runtime Agent    | Full Startup Launch Eval                                       |
 | `founder_off_grid`           | `blocked`     | Eval Agent       | Founder-Off-Grid Eval                                          |
 | `polsia_outperformance`      | `blocked`     | Docs Agent       | Polsia Outperformance Proof and production autonomy eval suite |
 
@@ -56,7 +57,7 @@ No row may move to `production_ready` without passing eval metadata in the regis
 - Gate 6, Browser Operation: read-only logged-in browser sessions, active-tab grants, browser actions, screenshots, DOM hashes, redaction, replay, receipts. Status: merged in PR #18, prototype until eval-backed.
 - Gate 7, Computer/Sandbox Operation: governed safe terminal/file/dev-server actions with evidence and deny rules. Status: merged in PR #19, prototype until eval-backed.
 - Gate 8, Command Center UI: real task/action/evidence/receipt/browser/computer/artifact/audit/approval state, agent lanes, evidence drawer, browser/computer replay rows, permission graph snapshot, escalation queue, and capability matrix. Status: current PR, prototype until eval-backed.
-- Gate 9, Startup Lifecycle Engine: mission templates/compiler for founder lifecycle workflows with evidence and escalation conditions.
+- Gate 9, Startup Lifecycle Engine: mission templates/compiler for founder lifecycle workflows with required agents, skills, tools, evidence, policy classes, escalation conditions, and acceptance criteria. Status: current PR, prototype until eval-backed.
 - Gate 10, Eval Suite and Production Promotion: persisted eval runs, evidence packs, blocker creation, and registry promotion rules.
 
 ## PR Sequence
