@@ -346,12 +346,12 @@ const capabilityRecords = validateCapabilityRecords([
     name: 'Evidence ledger',
     state: 'prototype',
     summary:
-      'A canonical evidence_items schema exists and core HELM receipt, agent-loop receipt, subagent spawn, Tool Broker, browser observation, computer action, connector lifecycle, workspace-scoped pipeline/ingestion jobs, artifact creation, startup lifecycle, and eval writers append to it, but coverage is not yet complete for every meaningful action.',
+      'A canonical evidence_items schema exists and core HELM receipt, agent-loop receipt, subagent spawn, Tool Broker, browser observation, computer action, connector lifecycle, workspace-scoped pipeline/ingestion jobs, artifact creation, startup lifecycle, and eval writers append to it. Tool Broker now fails closed before elevated tool execution without HELM policy metadata and fails elevated completions closed if evidence persistence fails, but evidence coverage is still not complete for every meaningful action.',
     owner: 'Foundation Agent',
     blockers: [
       'Non-workspace scheduled ingestion jobs and non-broker legacy writers do not yet append evidence_items for every meaningful action',
       'Browser/computer replay contract has not passed Browser/Computer Replay Eval and is not production-ready',
-      'No mandatory evidence persistence before medium/high/restricted action execution',
+      'Non-broker legacy execution paths still need elevated-action receipt/evidence fail-closed guards',
     ],
     evidence: [
       'packages/db/src/schema/evidence.ts defines evidence_items with workspace, venture, mission, task, task_run, action, tool_execution, evidence_pack, browser_observation, computer_action, artifact, and audit_event links',
@@ -360,6 +360,7 @@ const capabilityRecords = validateCapabilityRecords([
       'packages/db/src/evidence-ledger.ts exposes appendEvidenceItem for DB-owned evidence indexing',
       'Gateway HELM receipt persistence, agent-loop governance mirroring, conductor SUBAGENT_SPAWN packs, browser read/extract, and safe computer actions append evidence_items rows',
       'Tool Broker completed and failed executions append tool_broker evidence_items rows linked to action_id and tool_execution_id',
+      'Tool Broker refuses medium, high, and restricted tool manifests before action persistence or execution unless HELM policy decision metadata is present, and marks elevated tool executions failed if evidence_items persistence fails before completion',
       'Connector refresh background worker success and failure paths append sanitized evidence_items rows without token material',
       'Workspace-scoped YC, Startup School, private YC, knowledge ingestion, and opportunity-cluster pipeline workers append redacted pipeline_worker evidence_items rows for success and failure',
       'YC scraper ingestion finalizers append redacted yc_scraper_ingestion evidence_items rows for parsed and failed workspace-scoped ingestion records without session, token, or raw error material',

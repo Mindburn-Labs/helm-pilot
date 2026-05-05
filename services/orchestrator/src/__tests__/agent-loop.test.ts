@@ -203,13 +203,33 @@ describe('AgentLoop', () => {
       listTools: vi.fn(() => [{ name: 'subagent.spawn', description: 'Spawn' }]),
       listToolsForMode: vi.fn(() => [{ name: 'subagent.spawn', description: 'Spawn' }]),
     } as any;
-    const loop = new AgentLoop(db, mockTrust);
+    const helmClient = {
+      evaluate: vi.fn(async () => ({
+        receipt: {
+          decisionId: 'dec-subagent-1',
+          verdict: 'ALLOW',
+          policyVersion: 'founder-ops-v1',
+          receivedAt: new Date(),
+          action: 'TOOL_USE',
+          resource: 'subagent.spawn',
+          principal: 'workspace:ws-1/operator:agent',
+        },
+      })),
+    } as any;
+    const loop = new AgentLoop(db, mockTrust, helmClient);
     loop.setLlm(llm);
     loop.setTools(tools);
 
     const result = await loop.execute(baseParams());
 
     expect(result.status).toBe('completed');
+    expect(helmClient.evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'TOOL_USE',
+        resource: 'subagent.spawn',
+        effectLevel: 'E3',
+      }),
+    );
     expect(rows[0]).toEqual(expect.objectContaining({ actionTool: 'subagent.spawn' }));
     expect(db.update).toHaveBeenCalledWith('taskRuns');
   });

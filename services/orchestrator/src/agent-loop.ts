@@ -662,6 +662,22 @@ export class AgentLoop {
     );
   }
 
+  private localToolGovernanceReceipt(
+    params: AgentRunParams,
+    action: Pick<ActionRecord, 'tool' | 'input'>,
+  ): HelmReceipt {
+    return {
+      decisionId: `local:${computeActionHash(action)}`,
+      verdict: 'ALLOW',
+      policyVersion: this.localPolicyVersion(),
+      receivedAt: new Date(),
+      action: 'TOOL_USE',
+      resource: action.tool,
+      principal: `workspace:${params.workspaceId}/operator:${params.operatorId ?? 'agent'}`,
+      reason: 'local_dev_no_helm_client',
+    };
+  }
+
   private async verifyResumeApproval(
     params: AgentRunParams,
     action: ActionRecord,
@@ -790,12 +806,14 @@ export class AgentLoop {
     if (!this.helmClient) {
       const requireHelm =
         process.env['NODE_ENV'] === 'production' && process.env['HELM_FAIL_CLOSED'] !== '0';
-      return requireHelm
-        ? {
-            verdict: 'deny',
-            reason: 'HELM governance client is required for production tool execution',
-          }
-        : { verdict: 'allow' };
+      if (requireHelm) {
+        return {
+          verdict: 'deny',
+          reason: 'HELM governance client is required for production tool execution',
+        };
+      }
+      this.lastToolGovernance = this.localToolGovernanceReceipt(params, action);
+      return { verdict: 'allow' };
     }
 
     try {

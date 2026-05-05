@@ -33,6 +33,7 @@ export class ToolBroker {
       typeof getManifest === 'function'
         ? (getManifest.call(registry, toolName) ?? defaultToolManifest(toolName))
         : defaultToolManifest(toolName);
+    assertElevatedPolicyContext(manifest, toolName, context);
     const sanitizedInput = toJsonValue(input);
     const inputHash = hashJson({ tool: toolName, input: sanitizedInput });
     const idempotencyKey = buildIdempotencyKey(context, toolName, inputHash);
@@ -102,28 +103,7 @@ export class ToolBroker {
       ...collectEvidenceIds(sanitizedOutput),
     ]);
 
-    await this.db
-      .update(toolExecutions)
-      .set({
-        status,
-        outputHash,
-        sanitizedOutput,
-        evidenceIds,
-        error,
-        completedAt: new Date(),
-      })
-      .where(eq(toolExecutions.id, execution.id));
-
-    await this.db
-      .update(actions)
-      .set({
-        status,
-        outputHash,
-        completedAt: new Date(),
-      })
-      .where(eq(actions.id, action.id));
-
-    const evidenceItemId = await appendEvidenceItem(this.db, {
+    const evidenceInput = {
       workspaceId: context.workspaceId,
       ventureId: context.ventureId ?? null,
       missionId: context.missionId ?? null,
@@ -161,7 +141,59 @@ export class ToolBroker {
         policyVersion: context.policyVersion ?? null,
         credentialBoundary: 'sanitized_input_output_only',
       },
-    });
+    } satisfies Parameters<typeof appendEvidenceItem>[1];
+
+    let evidenceItemId: string | null = null;
+    if (isElevatedManifest(manifest)) {
+      try {
+        evidenceItemId = await appendEvidenceItem(this.db, evidenceInput);
+      } catch (evidenceError) {
+        await this.markElevatedEvidencePersistenceFailure({
+          actionId: action.id,
+          toolExecutionId: execution.id,
+          toolName,
+          context,
+          manifest,
+          outputHash,
+          sanitizedOutput,
+          error: evidenceError,
+        });
+        throw new Error(
+          `Tool Broker blocked elevated ${toolName} completion: ${stringifyError(evidenceError)}`,
+        );
+      }
+    }
+
+    const persistedEvidenceIds = uniqueStrings([
+      ...evidenceIds,
+      ...(evidenceItemId ? [evidenceItemId] : []),
+    ]);
+
+    await this.db
+      .update(toolExecutions)
+      .set({
+        status,
+        outputHash,
+        sanitizedOutput,
+        evidenceIds: persistedEvidenceIds,
+        error,
+        completedAt: new Date(),
+      })
+      .where(eq(toolExecutions.id, execution.id));
+
+    await this.db
+      .update(actions)
+      .set({
+        status,
+        outputHash,
+        completedAt: new Date(),
+      })
+      .where(eq(actions.id, action.id));
+
+    if (!evidenceItemId) {
+      evidenceItemId = await appendEvidenceItem(this.db, evidenceInput);
+    }
+    const finalEvidenceItemId = evidenceItemId;
 
     await this.db.insert(auditLog).values({
       workspaceId: context.workspaceId,
@@ -179,8 +211,8 @@ export class ToolBroker {
         inputHash,
         outputHash,
         riskClass: manifest.riskClass,
-        evidenceItemId,
-        evidenceIds,
+        evidenceItemId: finalEvidenceItemId,
+        evidenceIds: persistedEvidenceIds,
         policyDecisionId: context.policyDecisionId ?? null,
         policyVersion: context.policyVersion ?? null,
       },
@@ -193,8 +225,64 @@ export class ToolBroker {
       inputHash,
       outputHash,
       status,
-      evidenceItemId,
+      evidenceItemId: finalEvidenceItemId,
     };
+  }
+
+  private async markElevatedEvidencePersistenceFailure(params: {
+    actionId: string;
+    toolExecutionId: string;
+    toolName: string;
+    context: ToolExecutionContext;
+    manifest: ToolManifest;
+    outputHash: string;
+    sanitizedOutput: unknown;
+    error: unknown;
+  }) {
+    const reason = `evidence persistence failed for elevated tool execution: ${stringifyError(
+      params.error,
+    )}`;
+    await this.db
+      .update(toolExecutions)
+      .set({
+        status: 'failed',
+        outputHash: params.outputHash,
+        sanitizedOutput: params.sanitizedOutput,
+        evidenceIds: params.context.evidenceIds ?? [],
+        error: reason,
+        completedAt: new Date(),
+      })
+      .where(eq(toolExecutions.id, params.toolExecutionId));
+
+    await this.db
+      .update(actions)
+      .set({
+        status: 'failed',
+        outputHash: params.outputHash,
+        completedAt: new Date(),
+      })
+      .where(eq(actions.id, params.actionId));
+
+    await this.db.insert(auditLog).values({
+      workspaceId: params.context.workspaceId,
+      action: 'TOOL_EXECUTION',
+      actor: params.context.operatorId ? `operator:${params.context.operatorId}` : 'agent',
+      target: params.toolName,
+      verdict: 'error',
+      reason,
+      metadata: {
+        broker: 'tool_broker_v1',
+        actionId: params.actionId,
+        toolExecutionId: params.toolExecutionId,
+        toolKey: params.toolName,
+        riskClass: params.manifest.riskClass,
+        effectLevel: params.manifest.effectLevel,
+        evidenceRequired: true,
+        evidencePersistenceRequired: 'fail_closed_for_elevated_actions',
+        policyDecisionId: params.context.policyDecisionId ?? null,
+        policyVersion: params.context.policyVersion ?? null,
+      },
+    });
   }
 }
 
@@ -243,6 +331,30 @@ function effectLevelToRiskClass(effectLevel: ToolManifest['effectLevel']) {
   if (effectLevel === 'E3') return 'high';
   if (effectLevel === 'E2') return 'medium';
   return 'low';
+}
+
+function assertElevatedPolicyContext(
+  manifest: ToolManifest,
+  toolName: string,
+  context: ToolExecutionContext,
+): void {
+  if (!isElevatedManifest(manifest)) return;
+  if (context.policyDecisionId && context.policyVersion) return;
+
+  throw new Error(
+    `Tool Broker refused elevated tool ${toolName}: HELM policy decision metadata is required before execution`,
+  );
+}
+
+function isElevatedManifest(manifest: ToolManifest): boolean {
+  return (
+    manifest.riskClass === 'medium' ||
+    manifest.riskClass === 'high' ||
+    manifest.riskClass === 'restricted' ||
+    manifest.effectLevel === 'E2' ||
+    manifest.effectLevel === 'E3' ||
+    manifest.effectLevel === 'E4'
+  );
 }
 
 function inferRequiredEvidence(toolName: string): string[] {
