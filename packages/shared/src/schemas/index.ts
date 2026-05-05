@@ -98,3 +98,10 @@ export {
   ManagedTelegramStateSchema,
   ManagedTelegramReplyInput,
 } from './managed-telegram.js';
+
+export {
+  type CommandCenterResponse,
+  type CommandCenterRuntimeTruth,
+  CommandCenterResponseSchema,
+  CommandCenterRuntimeTruthSchema,
+} from './command-center.js';
