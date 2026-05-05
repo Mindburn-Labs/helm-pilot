@@ -364,10 +364,17 @@ async function evaluateLaunchAction(
     context: Record<string, unknown>;
   },
 ) {
+  const effectLevel = launchActionEffectLevel(input.action);
   if (!deps.helmClient) {
-    if (process.env['NODE_ENV'] === 'production' && process.env['HELM_FAIL_CLOSED'] !== '0') {
+    const requireHelm =
+      process.env['NODE_ENV'] === 'production' && process.env['HELM_FAIL_CLOSED'] !== '0';
+    if (requireHelm || isElevatedLaunchEffectLevel(effectLevel)) {
       return Response.json(
-        { error: 'HELM governance client is required for production launch actions' },
+        {
+          error: isElevatedLaunchEffectLevel(effectLevel)
+            ? 'HELM governance client is required for elevated launch actions'
+            : 'HELM governance client is required for production launch actions',
+        },
         { status: 503 },
       );
     }
@@ -379,6 +386,7 @@ async function evaluateLaunchAction(
       principal: `workspace:${input.workspaceId}/operator:launch`,
       action: input.action,
       resource: input.resource,
+      effectLevel,
       context: { ...input.context, workspaceId: input.workspaceId },
     });
   } catch (err) {
@@ -393,4 +401,14 @@ async function evaluateLaunchAction(
     }
     throw err;
   }
+}
+
+function launchActionEffectLevel(action: string): 'E1' | 'E2' | 'E3' | 'E4' {
+  if (action === 'DEPLOY' || action === 'DEPLOY_ROLLBACK') return 'E3';
+  if (action === 'DEPLOY_HEALTH_CHECK') return 'E2';
+  return 'E1';
+}
+
+function isElevatedLaunchEffectLevel(effectLevel: string): boolean {
+  return effectLevel === 'E2' || effectLevel === 'E3' || effectLevel === 'E4';
 }
