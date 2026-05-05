@@ -435,6 +435,260 @@ describe('startupLifecycleRoutes', () => {
     );
   });
 
+  it('executes bounded ready mission nodes in dependency order without production promotion', async () => {
+    const deps = createMockDeps();
+    const missionId = '00000000-0000-4000-8000-000000000060';
+    const ventureId = '00000000-0000-4000-8000-000000000061';
+    const nodeId = '00000000-0000-4000-8000-000000000062';
+    const taskId = '00000000-0000-4000-8000-000000000063';
+    const ideationNodeId = '00000000-0000-4000-8000-000000000064';
+    const ideationTaskId = '00000000-0000-4000-8000-000000000065';
+    const founderNode = {
+      id: nodeId,
+      workspaceId,
+      missionId,
+      nodeKey: 'founder_onboarding',
+      stage: 'founder_onboarding',
+      title: 'Founder DNA and access charter',
+      objective: 'Draft founder DNA and access boundaries.',
+      status: 'ready',
+      sortOrder: 0,
+      requiredEvidence: ['founder goal intake'],
+      acceptanceCriteria: ['Founder DNA draft exists'],
+      helmPolicyClasses: ['access', 'audit'],
+    };
+    const ideationNode = {
+      id: ideationNodeId,
+      workspaceId,
+      missionId,
+      nodeKey: 'ideation',
+      stage: 'ideation',
+      title: 'Venture hypothesis generation',
+      objective: 'Generate venture hypotheses.',
+      status: 'ready',
+      sortOrder: 1,
+      requiredEvidence: ['idea scoring evidence'],
+      acceptanceCriteria: ['At least one venture hypothesis exists'],
+      helmPolicyClasses: ['data_handling', 'audit'],
+    };
+    const selectResults = [
+      [
+        {
+          id: missionId,
+          workspaceId,
+          ventureId,
+          title: 'Launch EvidenceOS',
+          status: 'scheduled_not_executing',
+          startedAt: null,
+        },
+      ],
+      [founderNode],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000066',
+          workspaceId,
+          missionId,
+          nodeId,
+          taskId,
+        },
+      ],
+      [
+        {
+          id: taskId,
+          workspaceId,
+          operatorId: null,
+          title: '[Lifecycle] Founder DNA and access charter',
+          description: 'Draft founder DNA and access boundaries.',
+          status: 'pending',
+        },
+      ],
+      [
+        { ...founderNode, status: 'completed' },
+        { ...ideationNode, status: 'pending' },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000067',
+          workspaceId,
+          missionId,
+          edgeKey: 'founder_onboarding->ideation',
+          fromNodeKey: 'founder_onboarding',
+          toNodeKey: 'ideation',
+          reason: 'Ideation depends on founder onboarding',
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000068',
+          workspaceId,
+          missionId,
+          nodeId: ideationNodeId,
+          taskId: ideationTaskId,
+        },
+      ],
+      [ideationNode],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000069',
+          workspaceId,
+          missionId,
+          nodeId: ideationNodeId,
+          taskId: ideationTaskId,
+        },
+      ],
+      [
+        {
+          id: ideationTaskId,
+          workspaceId,
+          operatorId: null,
+          title: '[Lifecycle] Venture hypothesis generation',
+          description: 'Generate venture hypotheses.',
+          status: 'pending',
+        },
+      ],
+      [
+        { ...founderNode, status: 'completed' },
+        { ...ideationNode, status: 'completed' },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000067',
+          workspaceId,
+          missionId,
+          edgeKey: 'founder_onboarding->ideation',
+          fromNodeKey: 'founder_onboarding',
+          toNodeKey: 'ideation',
+          reason: 'Ideation depends on founder onboarding',
+        },
+      ],
+      [],
+      [],
+    ];
+    let selectCall = 0;
+    const originalSelect = deps.db.select;
+    deps.db.select = vi.fn(() => {
+      deps.db._setResult(selectResults[selectCall] ?? []);
+      selectCall += 1;
+      return originalSelect();
+    }) as typeof deps.db.select;
+
+    const { fetch } = testApp(startupLifecycleRoutes, deps);
+    const res = await fetch(
+      'POST',
+      `/missions/${missionId}/execute-ready`,
+      { maxNodes: 2, iterationBudget: 2 },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      missionId: string;
+      executorVersion: string;
+      productionReady: boolean;
+      executionStarted: boolean;
+      missionStatus: string;
+      executedNodes: Array<{
+        nodeId: string;
+        nodeKey: string;
+        status: string;
+        missionStatus: string;
+        advancedReadyNodes: Array<{ nodeId: string; taskId?: string }>;
+      }>;
+      remainingReadyNodeIds: string[];
+      blockers: string[];
+    }>(res, 200);
+
+    expect(body.missionId).toBe(missionId);
+    expect(body.executorVersion).toBe('mission-executor.v1');
+    expect(body.productionReady).toBe(false);
+    expect(body.executionStarted).toBe(true);
+    expect(body.missionStatus).toBe('completed');
+    expect(body.executedNodes).toEqual([
+      expect.objectContaining({
+        nodeId,
+        nodeKey: 'founder_onboarding',
+        status: 'completed',
+        missionStatus: 'scheduled_not_executing',
+        advancedReadyNodes: [
+          expect.objectContaining({ nodeId: ideationNodeId, taskId: ideationTaskId }),
+        ],
+      }),
+      expect.objectContaining({
+        nodeId: ideationNodeId,
+        nodeKey: 'ideation',
+        status: 'completed',
+        missionStatus: 'completed',
+        advancedReadyNodes: [],
+      }),
+    ]);
+    expect(body.remainingReadyNodeIds).toEqual([]);
+    expect(body.blockers.join(' ')).toContain('not founder-off-grid autonomous execution');
+    expect(deps.orchestrator.runTask).toHaveBeenCalledTimes(2);
+    expect(deps.orchestrator.runTask).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        taskId,
+        workspaceId,
+        ventureId,
+        missionId,
+        iterationBudget: 2,
+      }),
+    );
+    expect(deps.orchestrator.runTask).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        taskId: ideationTaskId,
+        workspaceId,
+        ventureId,
+        missionId,
+        iterationBudget: 2,
+      }),
+    );
+  });
+
+  it('reports no-op mission step execution when no nodes are ready', async () => {
+    const deps = createMockDeps();
+    const missionId = '00000000-0000-4000-8000-000000000070';
+    const selectResults = [
+      [
+        {
+          id: missionId,
+          workspaceId,
+          ventureId: null,
+          title: 'Launch EvidenceOS',
+          status: 'scheduled_not_executing',
+          startedAt: null,
+        },
+      ],
+      [],
+      [],
+    ];
+    let selectCall = 0;
+    const originalSelect = deps.db.select;
+    deps.db.select = vi.fn(() => {
+      deps.db._setResult(selectResults[selectCall] ?? []);
+      selectCall += 1;
+      return originalSelect();
+    }) as typeof deps.db.select;
+
+    const { fetch } = testApp(startupLifecycleRoutes, deps);
+    const res = await fetch('POST', `/missions/${missionId}/execute-ready`, {}, wsHeader);
+    const body = await expectJson<{
+      productionReady: boolean;
+      executionStarted: boolean;
+      missionStatus: string;
+      executedNodes: unknown[];
+      remainingReadyNodeIds: string[];
+      blockers: string[];
+    }>(res, 200);
+
+    expect(body.productionReady).toBe(false);
+    expect(body.executionStarted).toBe(false);
+    expect(body.missionStatus).toBe('blocked');
+    expect(body.executedNodes).toEqual([]);
+    expect(body.remainingReadyNodeIds).toEqual([]);
+    expect(body.blockers.join(' ')).toContain('No ready mission node was executed');
+    expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
+  });
+
   it('refuses to execute mission nodes that have not been scheduled ready', async () => {
     const deps = createMockDeps();
     const missionId = '00000000-0000-4000-8000-000000000040';
