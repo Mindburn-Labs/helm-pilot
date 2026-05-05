@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Hono } from 'hono';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import { appendEvidenceItem } from '@pilot/db';
 import {
   auditLog,
@@ -14,6 +14,7 @@ import {
   CreateBrowserSessionGrantInput,
   CreateBrowserSessionInput,
 } from '@pilot/shared/schemas';
+import { getCapabilityRecord } from '@pilot/shared/capabilities';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId, requireWorkspaceRole, workspaceIdMismatch } from '../lib/workspace.js';
 
@@ -378,6 +379,68 @@ export function browserSessionRoutes(deps: GatewayDeps) {
       .limit(100);
 
     return c.json({ observations });
+  });
+
+  app.get('/:sessionId/replay', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'replay browser observations');
+    if (roleDenied) return roleDenied;
+    const sessionId = c.req.param('sessionId');
+    const capability = getCapabilityRecord('browser_execution');
+    if (!capability) return c.json({ error: 'capability registry incomplete' }, 500);
+
+    const observations = await deps.db
+      .select()
+      .from(browserObservations)
+      .where(
+        and(
+          eq(browserObservations.workspaceId, workspaceId),
+          eq(browserObservations.sessionId, sessionId),
+        ),
+      )
+      .orderBy(
+        asc(browserObservations.replayIndex),
+        asc(browserObservations.observedAt),
+        asc(browserObservations.id),
+      )
+      .limit(500);
+
+    return c.json({
+      replay: {
+        kind: 'browser_observation_sequence',
+        workspaceId,
+        sessionId,
+        orderedBy: ['replayIndex', 'observedAt', 'id'],
+        capability: {
+          key: capability.key,
+          state: capability.state,
+          productionReady: capability.state === 'production_ready',
+        },
+        redactionContract: 'redacted_dom_snapshot_only_no_cookie_password_or_token_export',
+        observations: observations.map((observation) => ({
+          id: observation.id,
+          browserActionId: observation.browserActionId,
+          grantId: observation.grantId,
+          taskId: observation.taskId,
+          actionId: observation.actionId,
+          evidencePackId: observation.evidencePackId,
+          replayIndex: observation.replayIndex,
+          observedAt: observation.observedAt,
+          url: observation.url,
+          origin: observation.origin,
+          title: observation.title,
+          objective: observation.objective,
+          domHash: observation.domHash,
+          screenshotHash: observation.screenshotHash,
+          screenshotRef: observation.screenshotRef,
+          redactedDomSnapshot: observation.redactedDomSnapshot,
+          extractedData: observation.extractedData,
+          redactions: observation.redactions,
+          metadata: redactRecord(observation.metadata as Record<string, unknown> | undefined),
+        })),
+      },
+    });
   });
 
   return app;

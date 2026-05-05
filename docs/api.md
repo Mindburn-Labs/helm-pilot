@@ -466,9 +466,21 @@ Return one capability state, blockers, evidence notes, owner, and required eval 
 
 Return the Gate 8 command-center aggregate for the authenticated workspace. Requires at least the workspace `partner` role. The response includes capability truth, real durable task/task-run/action/tool-execution/receipt/approval/audit/browser/computer/handoff/artifact rows, and a runtime-truth statement that keeps mission autonomy blocked until eval-backed promotion.
 
+### GET /api/command-center/replay?ref=...
+
+Resolve a workspace-scoped replay reference to linked `evidence_items`, browser observations, and computer actions. Requires at least the workspace `partner` role and does not promote any replay capability to `production_ready`.
+
+### GET /api/command-center/computer-actions/replay
+
+Return an ordered safe-computer action replay sequence for the authenticated workspace. Optional query: `?taskId=...`. Requires at least the workspace `partner` role. Output is bounded to redacted stdout/stderr/file-diff previews and redacted metadata.
+
 ### GET /api/command-center/proof-dag/:taskRunId
 
 Return a workspace-scoped proof DAG for a parent or subagent task run. Requires at least the workspace `partner` role. The response includes related task_run lineage rows, agent handoffs, evidence packs, capability truth, and blockers. It is an inspection route only; it does not promote `subagent_lineage` or `command_center` to `production_ready`.
+
+### GET /api/browser-sessions/:sessionId/replay
+
+Return an ordered browser read/extract observation replay sequence for one browser session in the authenticated workspace. Requires at least the workspace `partner` role. Output uses redacted DOM snapshots and extracted data only; it must not expose cookies, passwords, tokens, or browser profile exports.
 
 ### GET /api/startup-lifecycle/templates
 

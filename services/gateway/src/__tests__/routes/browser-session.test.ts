@@ -301,4 +301,68 @@ describe('browserSessionRoutes', () => {
 
     expect(body.error).toContain('HELM client is required');
   });
+
+  it('returns a workspace-scoped browser replay sequence without production promotion', async () => {
+    const { db } = createBrowserDb([
+      [
+        {
+          id: 'obs-1',
+          workspaceId,
+          sessionId,
+          grantId,
+          browserActionId: 'browser-action-1',
+          taskId,
+          actionId: 'tool-action-1',
+          evidencePackId,
+          replayIndex: 0,
+          observedAt: new Date('2026-05-05T10:00:00Z'),
+          url: 'https://www.ycombinator.com/account',
+          origin: 'https://www.ycombinator.com',
+          title: 'YC Account',
+          objective: 'Read profile status',
+          domHash: 'sha256:dom',
+          screenshotHash: 'sha256:screenshot',
+          screenshotRef: 'storage://screenshots/obs-1.png',
+          redactedDomSnapshot: 'token=[REDACTED]',
+          extractedData: { company: 'Pilot', cookie: '[REDACTED]' },
+          redactions: ['token'],
+          metadata: { token: 'do-not-return', note: 'safe' },
+        },
+      ],
+    ]);
+    const deps = createMockDeps({ db: db as never });
+    const { fetch } = testApp(browserSessionRoutes, deps);
+
+    const res = await fetch('GET', `/${sessionId}/replay`, undefined, wsHeader);
+    const body = await expectJson<{
+      replay: {
+        kind: string;
+        orderedBy: string[];
+        capability: { key: string; state: string; productionReady: boolean };
+        redactionContract: string;
+        observations: Array<{
+          id: string;
+          replayIndex: number;
+          redactedDomSnapshot: string;
+          metadata: Record<string, unknown>;
+        }>;
+      };
+    }>(res, 200);
+
+    expect(body.replay.kind).toBe('browser_observation_sequence');
+    expect(body.replay.orderedBy).toEqual(['replayIndex', 'observedAt', 'id']);
+    expect(body.replay.capability).toEqual({
+      key: 'browser_execution',
+      state: 'prototype',
+      productionReady: false,
+    });
+    expect(body.replay.redactionContract).toContain('no_cookie_password_or_token_export');
+    expect(body.replay.observations[0]).toMatchObject({
+      id: 'obs-1',
+      replayIndex: 0,
+      redactedDomSnapshot: 'token=[REDACTED]',
+      metadata: { token: '[REDACTED]', note: 'safe' },
+    });
+    expect(JSON.stringify(body)).not.toContain('do-not-return');
+  });
 });

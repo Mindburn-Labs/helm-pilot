@@ -101,9 +101,11 @@ export {
 
 export {
   type CommandCenterProofDagResponse,
+  type CommandCenterReplayResponse,
   type CommandCenterResponse,
   type CommandCenterRuntimeTruth,
   CommandCenterProofDagResponseSchema,
+  CommandCenterReplayResponseSchema,
   CommandCenterResponseSchema,
   CommandCenterRuntimeTruthSchema,
 } from './command-center.js';
