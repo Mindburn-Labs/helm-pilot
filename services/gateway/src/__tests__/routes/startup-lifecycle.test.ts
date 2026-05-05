@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { startupLifecycleRoutes } from '../../routes/startup-lifecycle.js';
 import { createMockDeps, expectJson, testApp } from '../helpers.js';
 
@@ -168,5 +168,106 @@ describe('startupLifecycleRoutes', () => {
     expect(body.persisted.taskCount).toBe(body.persisted.nodeCount);
     expect(body.mission.blockers.join(' ')).toContain('not executing through the runtime');
     expect(body.mission.blockers.join(' ')).not.toContain('not persisted');
+  });
+
+  it('schedules ready mission nodes without dispatching autonomous execution', async () => {
+    const deps = createMockDeps();
+    const missionId = '00000000-0000-4000-8000-000000000020';
+    const founderNodeId = '00000000-0000-4000-8000-000000000021';
+    const ideationNodeId = '00000000-0000-4000-8000-000000000022';
+    const operationsNodeId = '00000000-0000-4000-8000-000000000026';
+    const founderTaskId = '00000000-0000-4000-8000-000000000023';
+    const selectResults = [
+      [{ id: missionId, workspaceId, status: 'persisted_not_executing' }],
+      [
+        {
+          id: founderNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'founder_onboarding',
+          stage: 'founder_onboarding',
+          title: 'Founder DNA and access charter',
+          status: 'pending',
+        },
+        {
+          id: ideationNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'ideation',
+          stage: 'ideation',
+          title: 'Venture hypothesis generation',
+          status: 'pending',
+        },
+        {
+          id: operationsNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'operations_recovery',
+          stage: 'operations_recovery',
+          title: 'Operations, monitoring, and recovery',
+          status: 'pending',
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000024',
+          workspaceId,
+          missionId,
+          edgeKey: 'founder_onboarding->ideation',
+          fromNodeKey: 'founder_onboarding',
+          toNodeKey: 'ideation',
+          reason: 'Ideation depends on founder onboarding',
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000025',
+          workspaceId,
+          missionId,
+          nodeId: founderNodeId,
+          taskId: founderTaskId,
+        },
+      ],
+    ];
+    let selectCall = 0;
+    const originalSelect = deps.db.select;
+    deps.db.select = vi.fn(() => {
+      deps.db._setResult(selectResults[selectCall] ?? []);
+      selectCall += 1;
+      return originalSelect();
+    }) as typeof deps.db.select;
+
+    const { fetch } = testApp(startupLifecycleRoutes, deps);
+    const res = await fetch('POST', `/missions/${missionId}/schedule`, { maxNodes: 1 }, wsHeader);
+    const body = await expectJson<{
+      status: string;
+      productionReady: boolean;
+      readyNodes: Array<{ nodeKey: string; taskId?: string; waitingOn: string[] }>;
+      blockedNodes: Array<{ nodeKey: string; waitingOn: string[] }>;
+      queuedTaskIds: string[];
+      executionStarted: boolean;
+      blockers: string[];
+    }>(res, 200);
+
+    expect(body.status).toBe('scheduled_not_executing');
+    expect(body.productionReady).toBe(false);
+    expect(body.readyNodes).toEqual([
+      expect.objectContaining({
+        nodeKey: 'founder_onboarding',
+        taskId: founderTaskId,
+        waitingOn: [],
+      }),
+    ]);
+    expect(body.blockedNodes).toEqual([
+      expect.objectContaining({ nodeKey: 'ideation', waitingOn: ['founder_onboarding'] }),
+      expect.objectContaining({
+        nodeKey: 'operations_recovery',
+        waitingOn: ['scheduler_batch_limit'],
+      }),
+    ]);
+    expect(body.queuedTaskIds).toEqual([founderTaskId]);
+    expect(body.executionStarted).toBe(false);
+    expect(body.blockers.join(' ')).toContain('does not dispatch autonomous execution');
+    expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
   });
 });
