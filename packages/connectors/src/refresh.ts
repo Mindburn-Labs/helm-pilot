@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
 import type PgBoss from 'pg-boss';
 import { and, eq, lt, sql } from 'drizzle-orm';
+import { appendEvidenceItem } from '@pilot/db';
 import type { Db } from '@pilot/db/client';
 import { createLogger } from '@pilot/shared/logger';
 import type { OAuthFlowManager } from './oauth.js';
@@ -153,6 +155,15 @@ async function refreshOneGrant(
     return;
   }
 
+  const [existing] = await deps.db
+    .select({
+      refreshAttempts: connectorGrants.refreshAttempts,
+      workspaceId: connectorGrants.workspaceId,
+    })
+    .from(connectorGrants)
+    .where(eq(connectorGrants.id, grantId))
+    .limit(1);
+
   const access = await deps.oauth.refreshToken(grantId, connectorId);
 
   if (access) {
@@ -165,20 +176,20 @@ async function refreshOneGrant(
         needsReauth: false,
       })
       .where(eq(connectorGrants.id, grantId));
+    await appendRefreshEvidence(deps, {
+      workspaceId: existing?.workspaceId,
+      grantId,
+      connectorId,
+      status: 'succeeded',
+      attempts: 0,
+      permanent: false,
+      summary: 'Connector token refresh succeeded without raw token evidence.',
+    });
     log.info({ grantId, connectorId }, 'Grant refreshed');
     return;
   }
 
   // Failure: bump attempts + classify.
-  const [existing] = await deps.db
-    .select({
-      refreshAttempts: connectorGrants.refreshAttempts,
-      workspaceId: connectorGrants.workspaceId,
-    })
-    .from(connectorGrants)
-    .where(eq(connectorGrants.id, grantId))
-    .limit(1);
-
   const attempts = (existing?.refreshAttempts ?? 0) + 1;
   const permanent = attempts >= PERMANENT_AFTER_ATTEMPTS;
   const errorMsg = permanent
@@ -193,6 +204,16 @@ async function refreshOneGrant(
       needsReauth: permanent,
     })
     .where(eq(connectorGrants.id, grantId));
+
+  await appendRefreshEvidence(deps, {
+    workspaceId: existing?.workspaceId,
+    grantId,
+    connectorId,
+    status: 'failed',
+    attempts,
+    permanent,
+    summary: errorMsg,
+  });
 
   if (permanent && existing?.workspaceId && deps.notifier) {
     // Fetch connector name for the notification copy.
@@ -211,6 +232,64 @@ async function refreshOneGrant(
   }
 
   log.warn({ grantId, connectorId, attempts, permanent }, errorMsg);
+}
+
+async function appendRefreshEvidence(
+  deps: RefreshDeps,
+  input: {
+    workspaceId?: string | null;
+    grantId: string;
+    connectorId: string;
+    status: 'succeeded' | 'failed';
+    attempts: number;
+    permanent: boolean;
+    summary: string;
+  },
+): Promise<void> {
+  if (!input.workspaceId) return;
+
+  const metadata = {
+    grantId: input.grantId,
+    connectorId: input.connectorId,
+    status: input.status,
+    attempts: input.attempts,
+    permanent: input.permanent,
+    productionReady: false,
+    credentialBoundary: 'no_raw_tokens_in_evidence',
+  };
+
+  await appendEvidenceItem(deps.db, {
+    workspaceId: input.workspaceId,
+    evidenceType:
+      input.status === 'succeeded' ? 'connector_refresh_succeeded' : 'connector_refresh_failed',
+    sourceType: 'connector_refresh_worker',
+    title: `Connector refresh ${input.status}: ${input.connectorId}`,
+    summary: input.summary,
+    redactionState: 'redacted',
+    sensitivity: 'sensitive',
+    contentHash: hashJson(metadata),
+    replayRef: `connector-refresh:${input.grantId}:${input.status}:${input.attempts}`,
+    metadata,
+  });
+}
+
+function hashJson(value: unknown): string {
+  return `sha256:${createHash('sha256').update(stableJson(value)).digest('hex')}`;
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(sortJson(value));
+}
+
+function sortJson(value: unknown): unknown {
+  if (value == null || typeof value !== 'object') return value;
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(sortJson);
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, child]) => [key, sortJson(child)]),
+  );
 }
 
 /**
