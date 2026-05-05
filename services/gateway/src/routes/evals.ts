@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { appendEvidenceItem } from '@pilot/db';
 import {
   capabilityPromotions,
   evalEvidenceLinks,
@@ -168,6 +169,53 @@ async function persistEvalRun(
     ? []
     : [input.failureReason ?? input.summary ?? `${input.evalId} did not pass`];
 
+  const evidenceItemIds: string[] = [];
+  evidenceItemIds.push(
+    await appendEvidenceItem(deps.db, {
+      workspaceId,
+      evidenceType: 'eval_run',
+      sourceType: 'eval_harness',
+      title: `Eval ${input.evalId}: ${input.status}`,
+      summary: input.summary ?? input.failureReason ?? scenario?.name ?? input.evalId,
+      redactionState: 'redacted',
+      sensitivity: 'internal',
+      replayRef: input.runRef ?? `eval:${created.id}`,
+      observedAt: completedAt ? new Date(completedAt) : (created.createdAt ?? new Date()),
+      metadata: {
+        evalRunId: created.id,
+        evalId: input.evalId,
+        status: input.status,
+        capabilityKey: created.capabilityKey ?? input.capabilityKey ?? defaultCapabilityKey ?? null,
+        evidenceRefs: input.evidenceRefs,
+        auditReceiptRefs: input.auditReceiptRefs,
+        executionMode: extraResponse['executionMode'] ?? null,
+      },
+    }),
+  );
+
+  for (const [index, evidenceRef] of input.evidenceRefs.entries()) {
+    evidenceItemIds.push(
+      await appendEvidenceItem(deps.db, {
+        workspaceId,
+        evidenceType: 'eval_evidence_ref',
+        sourceType: 'eval_harness',
+        title: `Eval evidence: ${input.evalId}`,
+        summary: evidenceRef,
+        redactionState: 'redacted',
+        sensitivity: 'internal',
+        replayRef: evidenceRef,
+        observedAt: completedAt ? new Date(completedAt) : (created.createdAt ?? new Date()),
+        metadata: {
+          evalRunId: created.id,
+          evalId: input.evalId,
+          capabilityKey: created.capabilityKey ?? input.capabilityKey ?? defaultCapabilityKey ?? null,
+          evidenceRef,
+          auditReceiptRef: input.auditReceiptRefs[index] ?? null,
+        },
+      }),
+    );
+  }
+
   let result: unknown;
   let blockerTask: unknown;
   const promotions = [];
@@ -199,6 +247,31 @@ async function persistEvalRun(
       })
       .returning();
     result = createdResult;
+    if (createdResult) {
+      evidenceItemIds.push(
+        await appendEvidenceItem(deps.db, {
+          workspaceId,
+          evidenceType: 'eval_result',
+          sourceType: 'eval_harness',
+          title: `Eval result ${input.evalId}: ${passed ? 'passed' : 'failed'}`,
+          summary: input.summary ?? input.failureReason ?? null,
+          redactionState: 'redacted',
+          sensitivity: 'internal',
+          replayRef: `eval-result:${createdResult.id}`,
+          observedAt: created.completedAt ?? createdResult.createdAt ?? new Date(),
+          metadata: {
+            evalRunId: created.id,
+            evalResultId: createdResult.id,
+            evalId: input.evalId,
+            status: input.status,
+            passed,
+            blockers,
+            capabilityKey:
+              created.capabilityKey ?? input.capabilityKey ?? defaultCapabilityKey ?? null,
+          },
+        }),
+      );
+    }
   }
 
   if (input.status === 'failed') {
@@ -249,6 +322,7 @@ async function persistEvalRun(
       blockerTask,
       promotionChecks,
       promotions,
+      evidenceItemIds,
       productionReadyRegistryMutation: false,
       ...extraResponse,
     },
