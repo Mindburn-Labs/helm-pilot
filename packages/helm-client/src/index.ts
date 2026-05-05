@@ -1,4 +1,4 @@
-export { HelmClient } from './client.js';
+export { HELM_ADMIN_ENDPOINT_ACTION_CATALOG, HelmClient } from './client.js';
 export { HelmLlmProvider } from './provider.js';
 export {
   HelmDeniedError,

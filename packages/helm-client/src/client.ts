@@ -29,6 +29,79 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_BASE_BACKOFF_MS = 100;
 
+export const HELM_ADMIN_ENDPOINT_ACTION_CATALOG = {
+  exportSoc2: {
+    endpoint: 'GET /api/v1/evidence/soc2',
+    mode: 'read_only_inspection',
+    action: 'HELM_ADMIN_EXPORT_SOC2',
+    effectLevel: 'E1',
+    receiptRequired: false,
+  },
+  getMerkleRoot: {
+    endpoint: 'GET /api/v1/merkle/root',
+    mode: 'read_only_inspection',
+    action: 'HELM_ADMIN_MERKLE_ROOT_READ',
+    effectLevel: 'E1',
+    receiptRequired: false,
+  },
+  getBudgetStatus: {
+    endpoint: 'GET /api/v1/budget/status',
+    mode: 'read_only_inspection',
+    action: 'HELM_ADMIN_BUDGET_STATUS_READ',
+    effectLevel: 'E1',
+    receiptRequired: false,
+  },
+  createObligation: {
+    endpoint: 'POST /api/v1/obligation/create',
+    mode: 'governed_write',
+    action: 'HELM_OBLIGATION_CREATE',
+    effectLevel: 'E2',
+    receiptRequired: true,
+  },
+  boundaryCheck: {
+    endpoint: 'GET /api/v1/boundary/check',
+    mode: 'read_only_inspection',
+    action: 'HELM_ADMIN_BOUNDARY_CHECK_READ',
+    effectLevel: 'E1',
+    receiptRequired: false,
+  },
+  listMemory: {
+    endpoint: 'GET /api/v1/memory/list',
+    mode: 'read_only_inspection',
+    action: 'HELM_ADMIN_MEMORY_LIST',
+    effectLevel: 'E1',
+    receiptRequired: false,
+  },
+  promoteMemory: {
+    endpoint: 'POST /api/v1/memory/promote',
+    mode: 'governed_write',
+    action: 'HELM_MEMORY_PROMOTE',
+    effectLevel: 'E3',
+    receiptRequired: true,
+  },
+  getContextBundles: {
+    endpoint: 'GET /api/v1/context/bundles',
+    mode: 'read_only_inspection',
+    action: 'HELM_ADMIN_CONTEXT_BUNDLES_READ',
+    effectLevel: 'E1',
+    receiptRequired: false,
+  },
+  getEconomicCharges: {
+    endpoint: 'GET /api/v1/economic/charges',
+    mode: 'read_only_inspection',
+    action: 'HELM_ADMIN_ECONOMIC_CHARGES_READ',
+    effectLevel: 'E1',
+    receiptRequired: false,
+  },
+  getEconomicAllocations: {
+    endpoint: 'GET /api/v1/economic/allocations',
+    mode: 'read_only_inspection',
+    action: 'HELM_ADMIN_ECONOMIC_ALLOCATIONS_READ',
+    effectLevel: 'E1',
+    receiptRequired: false,
+  },
+} as const;
+
 /**
  * Thin TypeScript client for helm-oss v0.3.0+.
  *
@@ -355,9 +428,9 @@ export class HelmClient {
   // ─── Phase 14 Track F — helm-oss endpoint integration ───
   //
   // Thin wrappers around helm-oss HTTP endpoints. All use governedFetch
-  // for retries + failClosed semantics + 403 handling. No receipt
-  // emission on these (they're read-only inspection endpoints), except
-  // createObligation which does write helm-oss-side state.
+  // for retries + failClosed semantics + 403 handling. Read-only inspection
+  // endpoints are explicitly classified in HELM_ADMIN_ENDPOINT_ACTION_CATALOG
+  // as E1/no-receipt; write endpoints must pass evaluate() before POST.
 
   /** Export a SOC2 compliance bundle for a workspace. */
   async exportSoc2(workspaceId: string): Promise<Soc2BundleResult> {
@@ -382,6 +455,14 @@ export class HelmClient {
 
   /** Register a post-decision obligation (e.g. retain PHI access log for 2190 days). */
   async createObligation(req: ObligationRequest): Promise<ObligationResult> {
+    const classification = HELM_ADMIN_ENDPOINT_ACTION_CATALOG.createObligation;
+    await this.evaluateAdminEndpointWrite({
+      classification,
+      workspaceId: req.workspaceId,
+      resource: `${req.workspaceId}:${req.decisionId}:${req.obligation}`,
+      args: req as unknown as Record<string, unknown>,
+      source: '@pilot/helm-client.createObligation',
+    });
     const url = `${this.cfg.baseUrl}/api/v1/obligation/create`;
     const response = await this.governedFetch(url, {
       method: 'POST',
@@ -409,6 +490,14 @@ export class HelmClient {
 
   /** Promote a workspace-scoped page into shared HELM memory. */
   async promoteMemory(workspaceId: string, pageId: string): Promise<MemoryPromoteResult> {
+    const classification = HELM_ADMIN_ENDPOINT_ACTION_CATALOG.promoteMemory;
+    await this.evaluateAdminEndpointWrite({
+      classification,
+      workspaceId,
+      resource: `${workspaceId}:${pageId}`,
+      args: { workspaceId, pageId },
+      source: '@pilot/helm-client.promoteMemory',
+    });
     const url = `${this.cfg.baseUrl}/api/v1/memory/promote`;
     const response = await this.governedFetch(url, {
       method: 'POST',
@@ -449,6 +538,33 @@ export class HelmClient {
   }
 
   // ─── internals ───
+
+  private async evaluateAdminEndpointWrite(input: {
+    classification:
+      | typeof HELM_ADMIN_ENDPOINT_ACTION_CATALOG.createObligation
+      | typeof HELM_ADMIN_ENDPOINT_ACTION_CATALOG.promoteMemory;
+    workspaceId: string;
+    resource: string;
+    args: Record<string, unknown>;
+    source: string;
+  }): Promise<EvaluateResult> {
+    const { classification } = input;
+    return await this.evaluate({
+      principal: this.cfg.defaultPrincipal ?? `workspace:${input.workspaceId}/helm-admin`,
+      action: classification.action,
+      resource: input.resource,
+      effectLevel: classification.effectLevel,
+      sessionId: `${classification.action}:${input.workspaceId}`,
+      args: input.args,
+      context: {
+        ...input.args,
+        workspaceId: input.workspaceId,
+        endpoint: classification.endpoint,
+        endpointMode: classification.mode,
+        source: input.source,
+      },
+    });
+  }
 
   private async governedFetch(url: string, init: RequestInit): Promise<Response> {
     let lastErr: unknown;

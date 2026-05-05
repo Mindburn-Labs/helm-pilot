@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  HELM_ADMIN_ENDPOINT_ACTION_CATALOG,
   HelmClient,
   HelmDeniedError,
   HelmEscalationError,
@@ -585,6 +586,124 @@ describe('HelmClient.evaluateOperatorBrowserRead', () => {
       url: 'https://www.ycombinator.com/account',
     });
     expect(body.context.source).toBe('@pilot/helm-client.evaluateOperatorBrowserRead');
+  });
+});
+
+describe('HelmClient HELM admin endpoint action catalog', () => {
+  it('classifies read-only inspection endpoints separately from governed writes', () => {
+    expect(HELM_ADMIN_ENDPOINT_ACTION_CATALOG.getBudgetStatus).toMatchObject({
+      mode: 'read_only_inspection',
+      effectLevel: 'E1',
+      receiptRequired: false,
+    });
+    expect(HELM_ADMIN_ENDPOINT_ACTION_CATALOG.createObligation).toMatchObject({
+      mode: 'governed_write',
+      action: 'HELM_OBLIGATION_CREATE',
+      effectLevel: 'E2',
+      receiptRequired: true,
+    });
+    expect(HELM_ADMIN_ENDPOINT_ACTION_CATALOG.promoteMemory).toMatchObject({
+      mode: 'governed_write',
+      action: 'HELM_MEMORY_PROMOTE',
+      effectLevel: 'E3',
+      receiptRequired: true,
+    });
+  });
+
+  it('allows classified read-only admin inspection without a receipt sink', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      makeResponse({
+        status: 200,
+        body: { enforcer: 'helm', status: 'active' },
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = new HelmClient({
+      baseUrl: 'http://helm:8080',
+      fetchImpl: fetchMock,
+      receiptPersistence: 'required_for_elevated',
+    });
+
+    const result = await client.getBudgetStatus();
+
+    expect(result.status).toBe('active');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://helm:8080/api/v1/budget/status',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('governs obligation creation before mutating HELM-side state', async () => {
+    const onReceipt = vi.fn();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        makeResponse({
+          status: 200,
+          body: {
+            allow: true,
+            verdict: 'ALLOW',
+            receipt_id: 'rcpt-obligation-gate',
+            decision_id: 'dec-obligation-gate',
+            decision_hash: 'sha256:obligation-gate',
+            policy_ref: 'founder-ops-v1',
+            evidence_pack_id: 'pack-obligation-gate',
+          },
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeResponse({
+          status: 200,
+          body: { obligationId: 'obl-1', registeredAt: '2026-05-05T00:00:00.000Z' },
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    const client = new HelmClient({
+      baseUrl: 'http://helm:8080',
+      fetchImpl: fetchMock,
+      receiptPersistence: 'required_for_elevated',
+      onReceipt,
+    });
+
+    const result = await client.createObligation({
+      workspaceId: 'ws-1',
+      decisionId: 'dec-1',
+      obligation: 'retain-access-log',
+      retentionDays: 365,
+    });
+
+    expect(result.obligationId).toBe('obl-1');
+    expect(onReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({ decisionId: 'dec-obligation-gate' }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [evaluateUrl, evaluateInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(evaluateUrl).toBe('http://helm:8080/api/v1/evaluate');
+    const evaluateBody = JSON.parse(evaluateInit.body as string);
+    expect(evaluateBody.tool).toBe('HELM_OBLIGATION_CREATE');
+    expect(evaluateBody.effect_level).toBe('E2');
+    expect(evaluateBody.context).toMatchObject({
+      workspaceId: 'ws-1',
+      endpoint: 'POST /api/v1/obligation/create',
+      endpointMode: 'governed_write',
+      source: '@pilot/helm-client.createObligation',
+    });
+    expect(fetchMock.mock.calls[1]![0]).toBe('http://helm:8080/api/v1/obligation/create');
+  });
+
+  it('fails closed before memory promotion when elevated receipts have no sink', async () => {
+    const fetchMock = vi.fn();
+    const client = new HelmClient({
+      baseUrl: 'http://helm:8080',
+      fetchImpl: fetchMock,
+      receiptPersistence: 'required_for_elevated',
+    });
+
+    await expect(client.promoteMemory('ws-1', 'page-1')).rejects.toBeInstanceOf(
+      HelmUnreachableError,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

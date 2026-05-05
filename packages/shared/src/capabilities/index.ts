@@ -108,7 +108,7 @@ const capabilityRecords = validateCapabilityRecords([
     blockers: [
       'HELM Governance Eval has not promoted the capability to production_ready',
       'Policy and document version pinning is not attached to every meaningful action',
-      'Non-evaluate HELM admin inspection and obligation helper endpoints still need explicit action-catalog classification',
+      'End-to-end HELM Governance Eval must prove helper receipt persistence failures block execution',
     ],
     evidence: [
       'Gate 2A adds required_for_elevated receipt persistence to @pilot/helm-client evaluate()',
@@ -119,6 +119,7 @@ const capabilityRecords = validateCapabilityRecords([
       'Managed Telegram claim, webhook, send, token rotation, and disable actions require HELM governance and pass explicit effect levels into evaluation',
       'Operator computer-use and browser-read helper tests prove those elevated helpers inherit generic evaluate() receipt-sink fail-closed behavior',
       'HelmClient.chatCompletion classifies LLM_INFERENCE as receipt-required under required_for_elevated and checks for a receipt sink before model calls',
+      'HELM admin helper endpoints now have an explicit action catalog: read-only inspection is E1/no-receipt, createObligation is E2 governed write, and promoteMemory is E3 governed write',
     ],
     evalRequirement: 'HELM Governance Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,
