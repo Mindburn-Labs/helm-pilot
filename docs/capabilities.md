@@ -10,7 +10,7 @@ This Gate 0 status document is intentionally conservative. Pilot must not claim 
 
 | Capability                   | State         | Production eval gate                                           | Primary blocker                                                                                                        |
 | ---------------------------- | ------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `mission_runtime`            | `blocked`     | Full Startup Launch Eval and Multi-Agent Parallel Build Eval   | No mission node execution dispatcher over scheduled mission nodes                                                      |
+| `mission_runtime`            | `blocked`     | Full Startup Launch Eval and Multi-Agent Parallel Build Eval   | Mission node execution is narrow one-node dispatch, not an autonomous DAG executor                                     |
 | `helm_receipts`              | `implemented` | HELM Governance Eval                                           | HELM Governance Eval has not promoted the capability to production_ready                                               |
 | `workspace_rbac`             | `implemented` | HELM Governance Eval and Security RBAC Regression Suite        | HELM Governance Eval has not promoted the capability to production_ready                                               |
 | `operator_scoping`           | `implemented` | Cross-Workspace Operator Rejection Regression                  | Cross-workspace operator rejection regression has not promoted the capability                                          |

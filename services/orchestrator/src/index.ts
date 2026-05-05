@@ -153,6 +153,8 @@ export class Orchestrator {
   async runTask(params: {
     taskId: string;
     workspaceId: string;
+    ventureId?: string;
+    missionId?: string;
     operatorId?: string;
     context: string;
     iterationBudget?: number;
@@ -187,6 +189,8 @@ export class Orchestrator {
   async runConduct(params: {
     taskId: string;
     workspaceId: string;
+    ventureId?: string;
+    missionId?: string;
     operatorId?: string;
     context: string;
     iterationBudget?: number;
@@ -229,6 +233,8 @@ export class Orchestrator {
   async resumeTask(params: {
     taskId: string;
     workspaceId: string;
+    ventureId?: string;
+    missionId?: string;
     operatorId?: string;
     context: string;
     iterationBudget?: number;

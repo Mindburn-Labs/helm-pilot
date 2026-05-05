@@ -80,17 +80,19 @@ const capabilityRecords = validateCapabilityRecords([
     name: 'Mission runtime',
     state: 'blocked',
     summary:
-      'Pilot now has durable venture, goal, mission, DAG, task, action, and tool ledgers plus a scheduler that marks ready mission nodes, but scheduled nodes are not yet dispatched, checkpointed, recovered, and evaluated as the runtime backbone.',
+      'Pilot now has durable venture, goal, mission, DAG, task, action, and tool ledgers plus scheduler and narrow mission-node task dispatch, but execution is not yet automatically chained, checkpointed, recovered, rolled back, and evaluated as the runtime backbone.',
     owner: 'Foundation Agent',
     blockers: [
-      'No mission node execution dispatcher over scheduled mission nodes',
+      'Mission node execution is narrow one-node dispatch, not an autonomous DAG executor',
       'No mission-level checkpoint, recovery, and rollback executor',
+      'No automatic next-node scheduler/dispatcher after node completion',
       'Current task APIs must remain compatible until mission-backed equivalents pass regression gates',
     ],
     evidence: [
       'Gate 5 adds durable actions and tool executions with missionId fields',
       'Gate 9 adds durable ventures, goals, missions, mission_nodes, mission_edges, and mission_tasks plus /api/startup-lifecycle/persist',
       'Gateway exposes /api/startup-lifecycle/missions/:missionId/schedule to identify dependency-ready nodes and queued task rows without dispatching execution',
+      'Gateway exposes /api/startup-lifecycle/missions/:missionId/nodes/:nodeId/execute for partner-scoped execution of a scheduled ready node through orchestrator.runTask with missionId context',
     ],
     evalRequirement: 'Full Startup Launch Eval and Multi-Agent Parallel Build Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,

@@ -270,4 +270,234 @@ describe('startupLifecycleRoutes', () => {
     expect(body.blockers.join(' ')).toContain('does not dispatch autonomous execution');
     expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
   });
+
+  it('executes a ready mission node through the governed task runtime without production promotion', async () => {
+    const deps = createMockDeps();
+    const missionId = '00000000-0000-4000-8000-000000000030';
+    const ventureId = '00000000-0000-4000-8000-000000000031';
+    const nodeId = '00000000-0000-4000-8000-000000000032';
+    const taskId = '00000000-0000-4000-8000-000000000033';
+    const operatorId = '00000000-0000-4000-8000-000000000034';
+    const selectResults = [
+      [
+        {
+          id: missionId,
+          workspaceId,
+          ventureId,
+          title: 'Launch EvidenceOS',
+          status: 'scheduled_not_executing',
+          startedAt: null,
+        },
+      ],
+      [
+        {
+          id: nodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'founder_onboarding',
+          stage: 'founder_onboarding',
+          title: 'Founder DNA and access charter',
+          objective: 'Draft founder DNA and access boundaries.',
+          status: 'ready',
+          requiredEvidence: ['founder goal intake'],
+          acceptanceCriteria: ['Founder DNA draft exists'],
+          helmPolicyClasses: ['access', 'audit'],
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000035',
+          workspaceId,
+          missionId,
+          nodeId,
+          taskId,
+        },
+      ],
+      [
+        {
+          id: taskId,
+          workspaceId,
+          operatorId,
+          title: '[Lifecycle] Founder DNA and access charter',
+          description: 'Draft founder DNA and access boundaries.',
+          status: 'pending',
+        },
+      ],
+    ];
+    let selectCall = 0;
+    const originalSelect = deps.db.select;
+    deps.db.select = vi.fn(() => {
+      deps.db._setResult(selectResults[selectCall] ?? []);
+      selectCall += 1;
+      return originalSelect();
+    }) as typeof deps.db.select;
+
+    const { fetch } = testApp(startupLifecycleRoutes, deps);
+    const res = await fetch(
+      'POST',
+      `/missions/${missionId}/nodes/${nodeId}/execute`,
+      { iterationBudget: 3 },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      missionId: string;
+      nodeId: string;
+      taskId: string;
+      productionReady: boolean;
+      executionStarted: boolean;
+      status: string;
+      run: { status: string; iterationsUsed: number; iterationBudget: number; actionCount: number };
+      blockers: string[];
+    }>(res, 200);
+
+    expect(body.missionId).toBe(missionId);
+    expect(body.nodeId).toBe(nodeId);
+    expect(body.taskId).toBe(taskId);
+    expect(body.productionReady).toBe(false);
+    expect(body.executionStarted).toBe(true);
+    expect(body.status).toBe('completed');
+    expect(body.run).toMatchObject({
+      status: 'completed',
+      iterationsUsed: 1,
+      iterationBudget: 50,
+      actionCount: 0,
+    });
+    expect(body.blockers.join(' ')).toContain('has not passed Full Startup Launch Eval');
+    expect(deps.orchestrator.runTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId,
+        workspaceId,
+        ventureId,
+        missionId,
+        operatorId,
+        iterationBudget: 3,
+      }),
+    );
+  });
+
+  it('refuses to execute mission nodes that have not been scheduled ready', async () => {
+    const deps = createMockDeps();
+    const missionId = '00000000-0000-4000-8000-000000000040';
+    const nodeId = '00000000-0000-4000-8000-000000000041';
+    const selectResults = [
+      [
+        {
+          id: missionId,
+          workspaceId,
+          ventureId: null,
+          title: 'Launch EvidenceOS',
+          status: 'persisted_not_executing',
+          startedAt: null,
+        },
+      ],
+      [
+        {
+          id: nodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'ideation',
+          stage: 'ideation',
+          title: 'Venture hypothesis generation',
+          objective: 'Generate venture hypotheses.',
+          status: 'pending',
+          requiredEvidence: ['idea scoring evidence'],
+          acceptanceCriteria: ['At least one venture hypothesis exists'],
+          helmPolicyClasses: ['data_handling', 'audit'],
+        },
+      ],
+    ];
+    let selectCall = 0;
+    const originalSelect = deps.db.select;
+    deps.db.select = vi.fn(() => {
+      deps.db._setResult(selectResults[selectCall] ?? []);
+      selectCall += 1;
+      return originalSelect();
+    }) as typeof deps.db.select;
+
+    const { fetch } = testApp(startupLifecycleRoutes, deps);
+    const res = await fetch('POST', `/missions/${missionId}/nodes/${nodeId}/execute`, {}, wsHeader);
+    const body = await expectJson<{ error: string; nodeStatus: string; requiredStatus: string }>(
+      res,
+      409,
+    );
+
+    expect(body.error).toContain('not ready');
+    expect(body.nodeStatus).toBe('pending');
+    expect(body.requiredStatus).toBe('ready');
+    expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
+  });
+
+  it('marks mission node and task failed when execution throws', async () => {
+    const deps = createMockDeps();
+    const missionId = '00000000-0000-4000-8000-000000000050';
+    const nodeId = '00000000-0000-4000-8000-000000000051';
+    const taskId = '00000000-0000-4000-8000-000000000052';
+    const selectResults = [
+      [
+        {
+          id: missionId,
+          workspaceId,
+          ventureId: null,
+          title: 'Launch EvidenceOS',
+          status: 'scheduled_not_executing',
+          startedAt: null,
+        },
+      ],
+      [
+        {
+          id: nodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'founder_onboarding',
+          stage: 'founder_onboarding',
+          title: 'Founder DNA and access charter',
+          objective: 'Draft founder DNA and access boundaries.',
+          status: 'ready',
+          requiredEvidence: ['founder goal intake'],
+          acceptanceCriteria: ['Founder DNA draft exists'],
+          helmPolicyClasses: ['access', 'audit'],
+        },
+      ],
+      [{ id: '00000000-0000-4000-8000-000000000053', workspaceId, missionId, nodeId, taskId }],
+      [
+        {
+          id: taskId,
+          workspaceId,
+          operatorId: null,
+          title: '[Lifecycle] Founder DNA and access charter',
+          description: 'Draft founder DNA and access boundaries.',
+          status: 'pending',
+        },
+      ],
+    ];
+    let selectCall = 0;
+    const originalSelect = deps.db.select;
+    deps.db.select = vi.fn(() => {
+      deps.db._setResult(selectResults[selectCall] ?? []);
+      selectCall += 1;
+      return originalSelect();
+    }) as typeof deps.db.select;
+    const updates: Array<Record<string, unknown>> = [];
+    deps.db.update = vi.fn(() => ({
+      set: vi.fn((payload: Record<string, unknown>) => {
+        updates.push(payload);
+        return { where: vi.fn(async () => []) };
+      }),
+    })) as unknown as typeof deps.db.update;
+    deps.orchestrator.runTask = vi.fn(async () => {
+      throw new Error('HELM unavailable');
+    }) as typeof deps.orchestrator.runTask;
+
+    const { fetch } = testApp(startupLifecycleRoutes, deps);
+    const res = await fetch('POST', `/missions/${missionId}/nodes/${nodeId}/execute`, {}, wsHeader);
+    const body = await expectJson<{ error: string; detail: string; productionReady: boolean }>(
+      res,
+      502,
+    );
+
+    expect(body.error).toContain('execution failed');
+    expect(body.detail).toContain('HELM unavailable');
+    expect(body.productionReady).toBe(false);
+    expect(updates.filter((payload) => payload.status === 'failed')).toHaveLength(2);
+  });
 });
