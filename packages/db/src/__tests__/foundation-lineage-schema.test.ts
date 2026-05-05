@@ -13,7 +13,13 @@ import {
   evalRuns,
   evalSteps,
   evaluations,
+  goals,
+  missionEdges,
+  missionNodes,
+  missions,
+  missionTasks,
   taskRuns,
+  ventures,
 } from '../schema/index.js';
 
 describe('Gate 1 foundation schema', () => {
@@ -80,5 +86,20 @@ describe('Gate 10 production eval schema', () => {
     expect(evalEvidenceLinks.evidenceRef.name).toBe('evidence_ref');
     expect(capabilityPromotions.capabilityKey.name).toBe('capability_key');
     expect(capabilityPromotions.promotedState.name).toBe('promoted_state');
+  });
+});
+
+describe('Gate 9 durable mission runtime schema', () => {
+  it('exports venture, goal, mission, DAG, and mission task tables', () => {
+    expect(ventures.workspaceId.name).toBe('workspace_id');
+    expect(ventures.dnaDocumentId.name).toBe('dna_document_id');
+    expect(goals.ventureId.name).toBe('venture_id');
+    expect(goals.autonomyMode.name).toBe('autonomy_mode');
+    expect(missions.missionKey.name).toBe('mission_key');
+    expect(missions.productionReady.name).toBe('production_ready');
+    expect(missionNodes.nodeKey.name).toBe('node_key');
+    expect(missionNodes.requiredAgents.name).toBe('required_agents');
+    expect(missionEdges.fromNodeKey.name).toBe('from_node_key');
+    expect(missionTasks.taskId.name).toBe('task_id');
   });
 });

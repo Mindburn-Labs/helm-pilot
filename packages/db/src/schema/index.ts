@@ -5,6 +5,7 @@ export * from './intel.js';
 export * from './opportunity.js';
 export * from './operator.js';
 export * from './tasking.js';
+export * from './mission.js';
 export * from './artifact.js';
 export * from './connector.js';
 export * from './application.js';

@@ -58,6 +58,11 @@ export const CompileStartupLifecycleInputSchema = z.object({
   autonomyMode: StartupLifecycleAutonomyModeSchema.default('review'),
 });
 
+export const PersistStartupLifecycleInputSchema = CompileStartupLifecycleInputSchema.extend({
+  ventureName: z.string().min(1).max(160).optional(),
+  createNodeTasks: z.boolean().default(true),
+});
+
 export const CompiledStartupLifecycleMissionSchema = z.object({
   workspaceId: z.string().uuid(),
   generatedAt: z.string().datetime(),
@@ -79,11 +84,34 @@ export const CompiledStartupLifecycleMissionSchema = z.object({
   }),
 });
 
+export const PersistedStartupLifecycleMissionSchema = z.object({
+  workspaceId: z.string().uuid(),
+  generatedAt: z.string().datetime(),
+  compilerVersion: z.literal('startup-lifecycle.v1'),
+  capabilityState: CapabilityStateSchema,
+  productionReady: z.literal(false),
+  persisted: z.object({
+    ventureId: z.string().uuid(),
+    goalId: z.string().uuid(),
+    missionId: z.string().uuid(),
+    nodeCount: z.number().int().nonnegative(),
+    edgeCount: z.number().int().nonnegative(),
+    taskCount: z.number().int().nonnegative(),
+  }),
+  mission: CompiledStartupLifecycleMissionSchema.shape.mission.extend({
+    status: z.literal('persisted_not_executing'),
+  }),
+});
+
 export type StartupLifecycleStage = z.infer<typeof StartupLifecycleStageSchema>;
 export type StartupLifecycleNode = z.infer<typeof StartupLifecycleNodeSchema>;
 export type StartupLifecycleEdge = z.infer<typeof StartupLifecycleEdgeSchema>;
 export type CompileStartupLifecycleInput = z.infer<typeof CompileStartupLifecycleInputSchema>;
+export type PersistStartupLifecycleInput = z.infer<typeof PersistStartupLifecycleInputSchema>;
 export type CompiledStartupLifecycleMission = z.infer<typeof CompiledStartupLifecycleMissionSchema>;
+export type PersistedStartupLifecycleMission = z.infer<
+  typeof PersistedStartupLifecycleMissionSchema
+>;
 
 const startupLifecycleTemplates: readonly StartupLifecycleNode[] = [
   {
