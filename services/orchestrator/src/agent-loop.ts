@@ -1363,6 +1363,8 @@ function toolArgs(input: unknown): Record<string, unknown> {
 }
 
 function inferEffectLevel(tool: string): string {
+  if (tool === 'operator.computer_use') return 'E3';
+  if (tool === 'operator.browser_read') return 'E2';
   if (
     tool.includes('deploy') ||
     tool.includes('rollback') ||

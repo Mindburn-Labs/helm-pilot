@@ -168,6 +168,8 @@ export function defaultToolManifest(toolName: string): ToolManifest {
 }
 
 function inferEffectLevel(toolName: string): ToolManifest['effectLevel'] {
+  if (toolName === 'operator.computer_use') return 'E3';
+  if (toolName === 'operator.browser_read') return 'E2';
   if (
     toolName.includes('delete') ||
     toolName.includes('stripe') ||
@@ -201,6 +203,8 @@ function effectLevelToRiskClass(effectLevel: ToolManifest['effectLevel']) {
 
 function inferRequiredEvidence(toolName: string): string[] {
   if (toolName === 'finish') return ['run_summary'];
+  if (toolName === 'operator.computer_use') return ['computer_action', 'helm_receipt'];
+  if (toolName === 'operator.browser_read') return ['browser_observation', 'helm_receipt'];
   if (toolName === 'score_opportunity') return ['opportunity_score', 'citations'];
   if (toolName.includes('scrapling') || toolName.includes('fetch')) return ['source_snapshot'];
   if (toolName.includes('deploy') || toolName.includes('rollback')) return ['deployment_log'];
@@ -209,6 +213,9 @@ function inferRequiredEvidence(toolName: string): string[] {
 }
 
 function inferOutputSensitivity(toolName: string): ToolManifest['outputSensitivity'] {
+  if (toolName === 'operator.computer_use' || toolName === 'operator.browser_read') {
+    return 'sensitive';
+  }
   if (toolName.includes('connector') || toolName.includes('email') || toolName.includes('mcp.')) {
     return 'sensitive';
   }

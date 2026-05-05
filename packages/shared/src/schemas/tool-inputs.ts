@@ -1,17 +1,21 @@
 import { z } from 'zod';
 
 const UrlString = z.string().url().max(2048);
-const OriginString = z.string().url().max(2048).refine(
-  (value) => {
-    try {
-      const url = new URL(value);
-      return url.origin === value.replace(/\/$/u, '');
-    } catch {
-      return false;
-    }
-  },
-  { message: 'must be a URL origin such as https://example.com' },
-);
+const OriginString = z
+  .string()
+  .url()
+  .max(2048)
+  .refine(
+    (value) => {
+      try {
+        const url = new URL(value);
+        return url.origin === value.replace(/\/$/u, '');
+      } catch {
+        return false;
+      }
+    },
+    { message: 'must be a URL origin such as https://example.com' },
+  );
 
 export const ScraplingFetchInput = z.object({
   url: UrlString,
@@ -26,17 +30,46 @@ export const ScraplingFetchInput = z.object({
 
 export type ScraplingFetch = z.infer<typeof ScraplingFetchInput>;
 
-export const OperatorComputerUseInput = z.object({
+const ComputerUseBaseInput = z.object({
   workspaceId: z.string().uuid(),
   taskId: z.string().uuid().optional(),
   operatorId: z.string().uuid().optional(),
   objective: z.string().min(1).max(2000),
-  targetUrl: UrlString.optional(),
-  environment: z.enum(['browser', 'desktop']).default('browser'),
+  environment: z.enum(['local', 'sandbox']).default('local'),
   maxSteps: z.number().int().min(1).max(50).default(12),
   approvalCheckpoint: z.string().max(500).optional(),
   evidencePackId: z.string().uuid().optional(),
+  actionId: z.string().uuid().optional(),
+  policyDecisionId: z.string().max(300).optional(),
+  policyVersion: z.string().max(300).optional(),
 });
+
+export const OperatorComputerUseInput = z.discriminatedUnion('operation', [
+  ComputerUseBaseInput.extend({
+    operation: z.literal('terminal_command'),
+    cwd: z.string().min(1).max(2000).default('.'),
+    command: z.string().min(1).max(120),
+    args: z.array(z.string().max(500)).max(30).default([]),
+    timeoutMs: z.number().int().min(100).max(30_000).default(10_000),
+  }),
+  ComputerUseBaseInput.extend({
+    operation: z.literal('file_read'),
+    path: z.string().min(1).max(2000),
+    maxBytes: z.number().int().min(1).max(200_000).default(64_000),
+  }),
+  ComputerUseBaseInput.extend({
+    operation: z.literal('file_write'),
+    path: z.string().min(1).max(2000),
+    content: z.string().max(200_000),
+    expectedCurrentHash: z.string().max(200).optional(),
+  }),
+  ComputerUseBaseInput.extend({
+    operation: z.literal('dev_server_status'),
+    targetUrl: UrlString.optional(),
+    devServerUrl: UrlString.optional(),
+    timeoutMs: z.number().int().min(100).max(15_000).default(5_000),
+  }),
+]);
 
 export type OperatorComputerUse = z.infer<typeof OperatorComputerUseInput>;
 

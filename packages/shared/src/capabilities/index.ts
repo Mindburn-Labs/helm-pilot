@@ -253,16 +253,19 @@ const capabilityRecords = validateCapabilityRecords([
   {
     key: 'computer_use',
     name: 'Computer and sandbox use',
-    state: 'stub',
+    state: 'prototype',
     summary:
-      'operator.computer_use is not yet a real governed terminal, file, IDE, app, or desktop execution substrate with evidence.',
+      'operator.computer_use now supports narrow HELM-governed local safe actions for allowlisted terminal commands, project-scoped file reads/writes, and local dev-server status checks with replayable evidence rows.',
     owner: 'Computer Agent',
     blockers: [
-      'Current computer-use path does not perform safe end-to-end action execution',
-      'No command/file evidence persistence contract',
-      'No local daemon or sandbox authorization model',
+      'Safe Computer/Sandbox Action Eval has not promoted the capability to production_ready',
+      'Sandbox provider execution remains unavailable unless a future provider bridge is wired',
+      'No unrestricted desktop, IDE, browser clicking, external posting, payment, or destructive computer operation is allowed',
     ],
-    evidence: ['Gate 7 starts with safe sandbox/local-dev command and file scope'],
+    evidence: [
+      'Gate 7 adds computer_actions evidence rows for terminal_command, file_read, file_write, and dev_server_status operations',
+      'operator.computer_use requires Tool Broker action lineage, HELM OPERATOR_COMPUTER_USE approval, restricted path deny rules, and command allowlisting before execution',
+    ],
     evalRequirement: 'Safe Computer/Sandbox Action Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,
   },

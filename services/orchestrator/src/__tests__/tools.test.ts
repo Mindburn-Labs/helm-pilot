@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { computerActions } from '@pilot/db/schema';
 import { getCapabilityRecord } from '@pilot/shared/capabilities';
 import { ToolRegistry, type Tool } from '../tools.js';
 
@@ -21,6 +22,38 @@ function createRegistryWithDb(db: unknown, opts: { memory?: unknown; helmClient?
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     helmClient: opts.helmClient as any,
   });
+}
+
+function createComputerActionDb() {
+  const insertedComputerActions: unknown[] = [];
+  const updatedComputerActions: unknown[] = [];
+  const db = {
+    insert: vi.fn((table: unknown) => ({
+      values: vi.fn((value: unknown) => {
+        if (table === computerActions) {
+          insertedComputerActions.push(value);
+          return {
+            returning: vi.fn(async () => [
+              {
+                id: '00000000-0000-4000-8000-000000000010',
+                replayIndex: 0,
+                evidencePackId:
+                  (value as { evidencePackId?: string | null }).evidencePackId ?? null,
+              },
+            ]),
+          };
+        }
+        return { returning: vi.fn(async () => []) };
+      }),
+    })),
+    update: vi.fn((table: unknown) => ({
+      set: vi.fn((value: unknown) => {
+        if (table === computerActions) updatedComputerActions.push(value);
+        return { where: vi.fn(async () => []) };
+      }),
+    })),
+  };
+  return { db, insertedComputerActions, updatedComputerActions };
 }
 
 describe('ToolRegistry', () => {
@@ -424,11 +457,19 @@ describe('ToolRegistry', () => {
   });
 
   describe('built-in: operator.computer_use', () => {
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const taskId = '00000000-0000-4000-8000-000000000002';
+    const operatorId = '00000000-0000-4000-8000-000000000003';
+    const actionId = '00000000-0000-4000-8000-000000000004';
+    const evidencePackId = '00000000-0000-4000-8000-000000000005';
+
     it('fails closed when helm-client is not wired', async () => {
       const registry = createRegistry();
       const result = await registry.execute('operator.computer_use', {
-        workspaceId: '00000000-0000-4000-8000-000000000001',
-        objective: 'Open the YC directory',
+        workspaceId,
+        operation: 'terminal_command',
+        objective: 'Check repository path',
+        command: 'pwd',
       });
 
       expect(result).toEqual({
@@ -438,35 +479,283 @@ describe('ToolRegistry', () => {
       });
     });
 
-    it('uses the helm-client adapter when wired', async () => {
+    it('requires Tool Broker action lineage before real execution', async () => {
       const helmClient = {
         evaluateOperatorComputerUse: vi.fn(async () => ({
           status: 'approved_for_execution',
-          receipt: { decisionId: 'dec-1' },
+          receipt: {
+            decisionId: 'dec-1',
+            policyVersion: 'founder-ops-v1',
+            verdict: 'ALLOW',
+            receivedAt: new Date(),
+            action: 'OPERATOR_COMPUTER_USE',
+            resource: 'pwd',
+            principal: `workspace:${workspaceId}/operator:agent`,
+          },
         })),
       };
       const registry = createRegistry({ helmClient });
 
       const result = await registry.execute('operator.computer_use', {
-        workspaceId: '00000000-0000-4000-8000-000000000001',
-        taskId: '00000000-0000-4000-8000-000000000002',
-        objective: 'Open the YC directory',
-        targetUrl: 'https://www.ycombinator.com/companies',
+        workspaceId,
+        operation: 'terminal_command',
+        objective: 'Check repository path',
+        command: 'pwd',
       });
+
+      expect(helmClient.evaluateOperatorComputerUse).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        error:
+          'operator.computer_use requires Tool Broker action context; refusing direct execution without durable action lineage',
+        capability: getCapabilityRecord('computer_use'),
+      });
+    });
+
+    it('uses HELM, executes an allowlisted local command, and persists evidence', async () => {
+      const { db, insertedComputerActions, updatedComputerActions } = createComputerActionDb();
+      const helmClient = {
+        evaluateOperatorComputerUse: vi.fn(async () => ({
+          status: 'approved_for_execution',
+          evidencePackId,
+          receipt: {
+            decisionId: 'dec-1',
+            policyVersion: 'founder-ops-v1',
+            verdict: 'ALLOW',
+            receivedAt: new Date(),
+            action: 'OPERATOR_COMPUTER_USE',
+            resource: 'pwd',
+            principal: `workspace:${workspaceId}/operator:${operatorId}`,
+          },
+          request: {
+            workspaceId,
+            objective: 'Check repository path',
+            environment: 'local',
+            operation: 'terminal_command',
+            maxSteps: 12,
+          },
+        })),
+      };
+      const registry = createRegistryWithDb(db, { helmClient });
+
+      const result = await registry.execute(
+        'operator.computer_use',
+        {
+          operation: 'terminal_command',
+          objective: 'Check repository path',
+          command: 'pwd',
+          cwd: '.',
+        },
+        { workspaceId, taskId, operatorId, actionId },
+      );
 
       expect(helmClient.evaluateOperatorComputerUse).toHaveBeenCalledWith(
         expect.objectContaining({
-          principal: 'workspace:00000000-0000-4000-8000-000000000001/operator:agent',
-          objective: 'Open the YC directory',
-          environment: 'browser',
+          principal: `workspace:${workspaceId}/operator:${operatorId}`,
+          objective: 'Check repository path',
+          environment: 'local',
+          operation: 'terminal_command',
+          command: 'pwd',
           maxSteps: 12,
         }),
       );
-      expect(result).toEqual({
-        status: 'approved_for_execution',
-        receipt: { decisionId: 'dec-1' },
+      expect(insertedComputerActions[0]).toMatchObject({
+        workspaceId,
+        taskId,
+        toolActionId: actionId,
+        operatorId,
+        actionType: 'terminal_command',
+        status: 'running',
+        policyDecisionId: 'dec-1',
+        policyVersion: 'founder-ops-v1',
+      });
+      expect(updatedComputerActions[0]).toMatchObject({
+        status: 'completed',
+        exitCode: 0,
+        outputHash: expect.stringMatching(/^sha256:/u),
+      });
+      expect(result).toMatchObject({
+        computerAction: { id: '00000000-0000-4000-8000-000000000010' },
+        execution: {
+          operation: 'terminal_command',
+          environment: 'local',
+          status: 'completed',
+          command: 'pwd',
+        },
+        governance: {
+          status: 'approved_for_execution',
+          decisionId: 'dec-1',
+          policyVersion: 'founder-ops-v1',
+          evidencePackId,
+        },
+        evidenceIds: ['00000000-0000-4000-8000-000000000010', evidencePackId],
         capability: getCapabilityRecord('computer_use'),
       });
+    });
+
+    it('persists denied evidence for destructive commands after HELM approval', async () => {
+      const { db, insertedComputerActions, updatedComputerActions } = createComputerActionDb();
+      const helmClient = {
+        evaluateOperatorComputerUse: vi.fn(async () => ({
+          status: 'approved_for_execution',
+          evidencePackId,
+          receipt: {
+            decisionId: 'dec-2',
+            policyVersion: 'founder-ops-v1',
+            verdict: 'ALLOW',
+            receivedAt: new Date(),
+            action: 'OPERATOR_COMPUTER_USE',
+            resource: 'rm',
+            principal: `workspace:${workspaceId}/operator:${operatorId}`,
+          },
+          request: {
+            workspaceId,
+            objective: 'Try destructive command',
+            environment: 'local',
+            operation: 'terminal_command',
+            maxSteps: 12,
+          },
+        })),
+      };
+      const registry = createRegistryWithDb(db, { helmClient });
+
+      const result = await registry.execute(
+        'operator.computer_use',
+        {
+          operation: 'terminal_command',
+          objective: 'Try destructive command',
+          command: 'rm',
+          args: ['-rf', '.'],
+        },
+        { workspaceId, taskId, operatorId, actionId },
+      );
+
+      expect(helmClient.evaluateOperatorComputerUse).toHaveBeenCalled();
+      expect(insertedComputerActions).toHaveLength(1);
+      expect(updatedComputerActions[0]).toMatchObject({
+        status: 'denied',
+        stderr: 'terminal_command denied destructive executable: rm',
+      });
+      expect(result).toMatchObject({
+        error: 'terminal_command denied destructive executable: rm',
+        execution: { status: 'denied' },
+        capability: getCapabilityRecord('computer_use'),
+      });
+    });
+
+    it('denies restricted file paths and records the attempt', async () => {
+      const { db, updatedComputerActions } = createComputerActionDb();
+      const helmClient = {
+        evaluateOperatorComputerUse: vi.fn(async () => ({
+          status: 'approved_for_execution',
+          evidencePackId,
+          receipt: {
+            decisionId: 'dec-3',
+            policyVersion: 'founder-ops-v1',
+            verdict: 'ALLOW',
+            receivedAt: new Date(),
+            action: 'OPERATOR_COMPUTER_USE',
+            resource: '.env',
+            principal: `workspace:${workspaceId}/operator:${operatorId}`,
+          },
+          request: {
+            workspaceId,
+            objective: 'Read env',
+            environment: 'local',
+            operation: 'file_read',
+            maxSteps: 12,
+          },
+        })),
+      };
+      const registry = createRegistryWithDb(db, { helmClient });
+
+      const result = await registry.execute(
+        'operator.computer_use',
+        {
+          operation: 'file_read',
+          objective: 'Read env',
+          path: '.env',
+        },
+        { workspaceId, taskId, operatorId, actionId },
+      );
+
+      expect(updatedComputerActions[0]).toMatchObject({
+        status: 'denied',
+        stderr: expect.stringContaining('restricted environment-file boundary'),
+      });
+      expect(result).toMatchObject({
+        error: expect.stringContaining('restricted environment-file boundary'),
+        capability: getCapabilityRecord('computer_use'),
+      });
+    });
+
+    it('denies restricted path arguments for otherwise allowlisted commands', async () => {
+      const { db, updatedComputerActions } = createComputerActionDb();
+      const helmClient = {
+        evaluateOperatorComputerUse: vi.fn(async () => ({
+          status: 'approved_for_execution',
+          evidencePackId,
+          receipt: {
+            decisionId: 'dec-4',
+            policyVersion: 'founder-ops-v1',
+            verdict: 'ALLOW',
+            receivedAt: new Date(),
+            action: 'OPERATOR_COMPUTER_USE',
+            resource: 'cat',
+            principal: `workspace:${workspaceId}/operator:${operatorId}`,
+          },
+          request: {
+            workspaceId,
+            objective: 'Read env through cat',
+            environment: 'local',
+            operation: 'terminal_command',
+            maxSteps: 12,
+          },
+        })),
+      };
+      const registry = createRegistryWithDb(db, { helmClient });
+
+      const result = await registry.execute(
+        'operator.computer_use',
+        {
+          operation: 'terminal_command',
+          objective: 'Read env through cat',
+          command: 'cat',
+          args: ['.env'],
+        },
+        { workspaceId, taskId, operatorId, actionId },
+      );
+
+      expect(updatedComputerActions[0]).toMatchObject({
+        status: 'denied',
+        stderr: expect.stringContaining('restricted environment-file boundary'),
+      });
+      expect(result).toMatchObject({
+        error: expect.stringContaining('restricted environment-file boundary'),
+        capability: getCapabilityRecord('computer_use'),
+      });
+    });
+
+    it('does not run or persist local action evidence when HELM approval fails', async () => {
+      const { db, insertedComputerActions } = createComputerActionDb();
+      const helmClient = {
+        evaluateOperatorComputerUse: vi.fn(async () => {
+          throw new Error('receipt persistence failed');
+        }),
+      };
+      const registry = createRegistryWithDb(db, { helmClient });
+
+      const result = await registry.execute(
+        'operator.computer_use',
+        {
+          operation: 'terminal_command',
+          objective: 'Check repository path',
+          command: 'pwd',
+        },
+        { workspaceId, taskId, operatorId, actionId },
+      );
+
+      expect(insertedComputerActions).toHaveLength(0);
+      expect(result).toEqual({ error: 'receipt persistence failed' });
     });
   });
 
@@ -483,6 +772,7 @@ describe('ToolRegistry', () => {
         sessionId,
         grantId,
         url: 'https://www.ycombinator.com/account',
+        domSnapshot: '<main>account</main>',
       });
 
       expect(result).toEqual({

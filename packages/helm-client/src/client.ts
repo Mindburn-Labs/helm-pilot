@@ -241,12 +241,12 @@ export class HelmClient {
   async evaluateOperatorComputerUse(
     req: OperatorComputerUseRequest,
   ): Promise<OperatorComputerUseResult> {
-    const environment = req.environment ?? 'browser';
+    const environment = req.environment ?? 'local';
     const maxSteps = req.maxSteps ?? 12;
     const result = await this.evaluate({
       principal: req.principal,
       action: 'OPERATOR_COMPUTER_USE',
-      resource: req.targetUrl ?? environment,
+      resource: req.targetUrl ?? req.path ?? req.command ?? `${environment}:${req.operation}`,
       effectLevel: 'E3',
       sessionId: req.taskId,
       args: {
@@ -254,14 +254,26 @@ export class HelmClient {
         objective: req.objective,
         targetUrl: req.targetUrl,
         environment,
+        operation: req.operation,
         maxSteps,
         approvalCheckpoint: req.approvalCheckpoint,
         evidencePackId: req.evidencePackId,
+        command: req.command,
+        args: req.args,
+        cwd: req.cwd,
+        path: req.path,
+        contentHash: req.contentHash,
+        expectedCurrentHash: req.expectedCurrentHash,
+        maxBytes: req.maxBytes,
+        timeoutMs: req.timeoutMs,
+        devServerUrl: req.devServerUrl,
       },
       context: {
         workspaceId: req.workspaceId,
         taskId: req.taskId,
         operatorId: req.operatorId,
+        operation: req.operation,
+        environment,
         source: '@pilot/helm-client.evaluateOperatorComputerUse',
       },
     });
@@ -274,10 +286,20 @@ export class HelmClient {
         objective: req.objective,
         targetUrl: req.targetUrl,
         environment,
+        operation: req.operation,
         maxSteps,
         taskId: req.taskId,
         operatorId: req.operatorId,
         approvalCheckpoint: req.approvalCheckpoint,
+        command: req.command,
+        args: req.args,
+        cwd: req.cwd,
+        path: req.path,
+        contentHash: req.contentHash,
+        expectedCurrentHash: req.expectedCurrentHash,
+        maxBytes: req.maxBytes,
+        timeoutMs: req.timeoutMs,
+        devServerUrl: req.devServerUrl,
       },
     };
   }

@@ -18,10 +18,9 @@ describe('capability registry', () => {
     }
   });
 
-  it('does not report stub, prototype, scaffolded, or blocked capabilities as production_ready', () => {
+  it('does not report non-production capabilities as production_ready', () => {
     const capabilities = getCapabilityRecords();
 
-    expect(capabilities.some((record) => record.state === 'stub')).toBe(true);
     expect(capabilities.some((record) => record.state === 'prototype')).toBe(true);
     expect(capabilities.some((record) => record.state === 'blocked')).toBe(true);
     expect(capabilities.every((record) => record.state !== 'production_ready')).toBe(true);
@@ -30,6 +29,7 @@ describe('capability registry', () => {
     expect(getCapabilityRecord('skill_registry_runtime')?.state).toBe('implemented');
     expect(getCapabilityRecord('opportunity_scoring')?.state).toBe('implemented');
     expect(getCapabilityRecord('browser_execution')?.state).toBe('prototype');
+    expect(getCapabilityRecord('computer_use')?.state).toBe('prototype');
   });
 
   it('requires eval metadata before a capability can become production_ready', () => {
