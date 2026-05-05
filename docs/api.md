@@ -484,7 +484,7 @@ Inspect a persisted lifecycle mission, identify dependency-ready pending nodes, 
 
 ### POST /api/startup-lifecycle/missions/:missionId/nodes/:nodeId/execute
 
-Execute one scheduled `ready` lifecycle node through the existing governed task runtime with mission context. Requires at least the workspace `partner` role. The route updates the mission node, task, and mission state and calls `orchestrator.runTask` with `missionId`/`ventureId` context, but it does not automatically chain the DAG, perform mission-level rollback/recovery, or promote mission runtime to `production_ready`.
+Execute one scheduled `ready` lifecycle node through the existing governed task runtime with mission context. Requires at least the workspace `partner` role. The route updates the mission node, task, and mission state, calls `orchestrator.runTask` with `missionId`/`ventureId` context, and marks newly unblocked dependency nodes as `ready`. It does not automatically execute the next node, perform mission-level rollback/recovery, or promote mission runtime to `production_ready`.
 
 ### GET /api/evals/production-suite
 
