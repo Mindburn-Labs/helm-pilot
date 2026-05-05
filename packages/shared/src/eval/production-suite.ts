@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   CapabilityKeySchema,
   CapabilityRecordSchema,
+  getCapabilityRecord,
   type CapabilityKey,
   type CapabilityRecord,
 } from '../capabilities/index.js';
@@ -109,6 +110,21 @@ export const RecordPilotEvalRunInputSchema = z
     }
   });
 
+export const ExecutePilotEvalInputSchema = z.object({
+  workspaceId: z.string().uuid().optional(),
+  evalId: PilotEvalIdSchema,
+  capabilityKey: CapabilityKeySchema.optional(),
+  evidenceRefs: z.array(z.string().min(1)).default([]),
+  auditReceiptRefs: z.array(z.string().min(1)).default([]),
+  evidenceCoverage: z.array(z.string().min(1)).default([]),
+  auditCoverage: z.array(z.string().min(1)).default([]),
+  runRef: z.string().min(1).optional(),
+  summary: z.string().min(1).optional(),
+  metadata: JsonRecordSchema.default({}),
+  completedAt: z.string().datetime().optional(),
+  steps: z.array(PilotEvalStepRecordSchema).default([]),
+});
+
 export const CapabilityPromotionCheckSchema = z.object({
   capability: CapabilityRecordSchema,
   canPromote: z.boolean(),
@@ -124,6 +140,7 @@ export type PilotEvalScenario = z.infer<typeof PilotEvalScenarioSchema>;
 export type PilotEvalRunRecord = z.infer<typeof PilotEvalRunRecordSchema>;
 export type PilotEvalStepRecord = z.infer<typeof PilotEvalStepRecordSchema>;
 export type RecordPilotEvalRunInput = z.infer<typeof RecordPilotEvalRunInputSchema>;
+export type ExecutePilotEvalInput = z.input<typeof ExecutePilotEvalInputSchema>;
 export type CapabilityPromotionCheck = z.infer<typeof CapabilityPromotionCheckSchema>;
 
 export const pilotProductionEvalSuite: readonly PilotEvalScenario[] = [
@@ -571,4 +588,82 @@ export function checkCapabilityPromotionReadiness(params: {
     auditReceiptRefs: matchingRun?.auditReceiptRefs ?? [],
     blockers,
   });
+}
+
+export function executePilotProductionEval(input: ExecutePilotEvalInput): {
+  run: RecordPilotEvalRunInput;
+  blockers: string[];
+  executionMode: 'control_plane_proof_check';
+} {
+  const parsed = ExecutePilotEvalInputSchema.parse(input);
+  const scenario = pilotProductionEvalSuite.find((item) => item.id === parsed.evalId);
+  const blockers: string[] = [];
+
+  if (!scenario) {
+    blockers.push(`No production eval scenario is registered for ${parsed.evalId}`);
+  }
+
+  const capabilityKey = parsed.capabilityKey ?? scenario?.capabilityKeys[0];
+  const capability = capabilityKey ? getCapabilityRecord(capabilityKey) : undefined;
+  if (!capabilityKey) {
+    blockers.push('No capability key could be selected for this eval');
+  } else if (!capability) {
+    blockers.push(`Capability ${capabilityKey} is not registered`);
+  } else if (capability.state === 'blocked' || capability.state === 'stub') {
+    blockers.push(`Capability ${capability.key} is ${capability.state}`);
+  }
+
+  if (parsed.evidenceRefs.length === 0) {
+    blockers.push('No evidence references were supplied by the eval executor');
+  }
+  if (parsed.auditReceiptRefs.length === 0) {
+    blockers.push('No audit receipt references were supplied by the eval executor');
+  }
+
+  const missingEvidenceCoverage =
+    scenario?.evidenceRequirements.filter(
+      (requirement) => !parsed.evidenceCoverage.includes(requirement),
+    ) ?? [];
+  if (missingEvidenceCoverage.length > 0) {
+    blockers.push(`Missing evidence coverage: ${missingEvidenceCoverage.join(', ')}`);
+  }
+
+  const missingAuditCoverage =
+    scenario?.auditRequirements.filter(
+      (requirement) => !parsed.auditCoverage.includes(requirement),
+    ) ?? [];
+  if (missingAuditCoverage.length > 0) {
+    blockers.push(`Missing audit coverage: ${missingAuditCoverage.join(', ')}`);
+  }
+
+  const status = blockers.length === 0 ? 'passed' : 'failed';
+  const completedAt = parsed.completedAt ?? new Date().toISOString();
+  const metadata = {
+    ...parsed.metadata,
+    executionMode: 'control_plane_proof_check',
+    scenarioId: parsed.evalId,
+    requiredEvidence: scenario?.evidenceRequirements ?? [],
+    requiredAudit: scenario?.auditRequirements ?? [],
+    evidenceCoverage: parsed.evidenceCoverage,
+    auditCoverage: parsed.auditCoverage,
+  };
+
+  return {
+    executionMode: 'control_plane_proof_check',
+    blockers,
+    run: {
+      workspaceId: parsed.workspaceId,
+      evalId: parsed.evalId,
+      status,
+      capabilityKey,
+      evidenceRefs: parsed.evidenceRefs,
+      auditReceiptRefs: parsed.auditReceiptRefs,
+      runRef: parsed.runRef,
+      failureReason: blockers.length > 0 ? blockers.join('; ') : undefined,
+      summary: parsed.summary,
+      metadata,
+      completedAt,
+      steps: parsed.steps,
+    },
+  };
 }
