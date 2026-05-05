@@ -112,6 +112,7 @@ export const PersistedStartupLifecycleMissionSchema = z.object({
   compilerVersion: z.literal('startup-lifecycle.v1'),
   capabilityState: CapabilityStateSchema,
   productionReady: z.literal(false),
+  evidenceItemIds: z.array(z.string().uuid()).default([]),
   persisted: z.object({
     ventureId: z.string().uuid(),
     goalId: z.string().uuid(),
@@ -143,6 +144,7 @@ export const ScheduledStartupMissionSchema = z.object({
   readyNodes: z.array(ScheduledStartupMissionNodeSchema),
   blockedNodes: z.array(ScheduledStartupMissionNodeSchema),
   queuedTaskIds: z.array(z.string().uuid()),
+  evidenceItemIds: z.array(z.string().uuid()).default([]),
   executionStarted: z.literal(false),
   blockers: z.array(z.string().min(1)),
 });
@@ -165,6 +167,7 @@ export const ExecutedStartupMissionNodeSchema = z.object({
     actionCount: z.number().int().nonnegative(),
   }),
   advancedReadyNodes: z.array(ScheduledStartupMissionNodeSchema),
+  evidenceItemIds: z.array(z.string().uuid()).default([]),
   blockers: z.array(z.string().min(1)),
 });
 
@@ -177,6 +180,7 @@ export const ExecutedStartupMissionSchema = z.object({
   missionStatus: z.enum(['completed', 'scheduled_not_executing', 'blocked', 'awaiting_approval']),
   executedNodes: z.array(ExecutedStartupMissionNodeSchema),
   remainingReadyNodeIds: z.array(z.string().uuid()),
+  evidenceItemIds: z.array(z.string().uuid()).default([]),
   blockers: z.array(z.string().min(1)),
 });
 

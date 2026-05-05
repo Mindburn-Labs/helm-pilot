@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
 import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
+import { appendEvidenceItem } from '@pilot/db';
 import {
   goals,
   missionEdges,
@@ -15,6 +17,7 @@ import {
   ExecutedStartupMissionNodeSchema,
   ExecuteStartupMissionInputSchema,
   ExecuteStartupMissionNodeInputSchema,
+  type ExecutedStartupMissionNode,
   PersistStartupLifecycleInputSchema,
   PersistedStartupLifecycleMissionSchema,
   ScheduledStartupMissionSchema,
@@ -242,8 +245,38 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
       }
     }
 
+    const evidenceItemId = await appendEvidenceItem(_deps.db, {
+      workspaceId,
+      ventureId: createdVenture.id,
+      missionId: createdMission.id,
+      evidenceType: 'startup_lifecycle_mission_persisted',
+      sourceType: 'gateway_startup_lifecycle',
+      title: `Startup lifecycle mission persisted: ${compiled.mission.title}`,
+      summary: compiled.mission.founderGoal,
+      redactionState: 'redacted',
+      sensitivity: 'internal',
+      contentHash: hashJson({
+        missionKey: compiled.mission.id,
+        founderGoal: compiled.mission.founderGoal,
+        nodeKeys: compiled.mission.nodes.map((node) => node.id),
+        edges: compiled.mission.edges,
+      }),
+      replayRef: `mission:${createdMission.id}:persisted`,
+      metadata: {
+        compilerVersion: compiled.compilerVersion,
+        autonomyMode: compiled.mission.autonomyMode,
+        capabilityState: compiled.capabilityState,
+        productionReady: false,
+        nodeCount: createdNodes.length,
+        edgeCount: compiled.mission.edges.length,
+        taskCount,
+        source: 'startup_lifecycle_persist',
+      },
+    });
+
     const response = PersistedStartupLifecycleMissionSchema.parse({
       ...compiled,
+      evidenceItemIds: [evidenceItemId],
       mission: {
         ...compiled.mission,
         status: 'persisted_not_executing',
@@ -350,6 +383,29 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
       .set({ status: 'scheduled_not_executing', updatedAt: new Date() })
       .where(and(eq(missions.id, mission.id), eq(missions.workspaceId, workspaceId)));
 
+    const evidenceItemId = await appendEvidenceItem(_deps.db, {
+      workspaceId,
+      ventureId: mission.ventureId ?? null,
+      missionId: mission.id,
+      evidenceType: 'startup_lifecycle_nodes_scheduled',
+      sourceType: 'gateway_startup_lifecycle',
+      title: `Startup lifecycle nodes scheduled: ${mission.title}`,
+      summary: `${ready.length} ready node(s), ${blocked.length} blocked node(s)`,
+      redactionState: 'redacted',
+      sensitivity: 'internal',
+      contentHash: hashJson({ ready, blocked }),
+      replayRef: `mission:${mission.id}:schedule`,
+      metadata: {
+        schedulerVersion: 'mission-scheduler.v1',
+        readyNodeKeys: ready.map((node) => node.nodeKey),
+        blockedNodeKeys: blocked.map((node) => node.nodeKey),
+        queuedTaskIds: ready
+          .map((node) => node.taskId)
+          .filter((taskId): taskId is string => Boolean(taskId)),
+        productionReady: false,
+      },
+    });
+
     const response = ScheduledStartupMissionSchema.parse({
       workspaceId,
       missionId: mission.id,
@@ -361,6 +417,7 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
       queuedTaskIds: ready
         .map((node) => node.taskId)
         .filter((taskId): taskId is string => Boolean(taskId)),
+      evidenceItemIds: [evidenceItemId],
       executionStarted: false,
       blockers: [
         'Mission scheduler identifies ready nodes and task rows but does not dispatch autonomous execution yet',
@@ -457,7 +514,7 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
       .limit(1);
     if (!mission) return c.json({ error: 'Mission not found' }, 404);
 
-    const executedNodes: Array<typeof ExecutedStartupMissionNodeSchema._type> = [];
+    const executedNodes: ExecutedStartupMissionNode[] = [];
     let missionStatus: 'completed' | 'scheduled_not_executing' | 'blocked' | 'awaiting_approval' =
       'scheduled_not_executing';
     for (let index = 0; index < parsed.data.maxNodes; index += 1) {
@@ -513,6 +570,7 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
               : 'blocked',
       executedNodes,
       remainingReadyNodeIds: remainingReadyNodes.map((node) => node.id),
+      evidenceItemIds: executedNodes.flatMap((node) => node.evidenceItemIds),
       blockers: missionExecutorBlockers(executedNodes.length, remainingReadyNodes.length),
     });
 
@@ -609,6 +667,33 @@ async function executeReadyMissionNode(
       .update(tasks)
       .set({ status: 'failed', updatedAt: failedAt, completedAt: failedAt })
       .where(and(eq(tasks.id, task.id), eq(tasks.workspaceId, workspaceId)));
+    const evidenceItemId = await appendEvidenceItem(deps.db, {
+      workspaceId,
+      ventureId: mission.ventureId ?? null,
+      missionId: mission.id,
+      taskId: task.id,
+      evidenceType: 'startup_lifecycle_node_failed',
+      sourceType: 'gateway_startup_lifecycle',
+      title: `Startup lifecycle node failed: ${node.title}`,
+      summary: err instanceof Error ? err.message : String(err),
+      redactionState: 'redacted',
+      sensitivity: 'internal',
+      contentHash: hashJson({
+        nodeId: node.id,
+        nodeKey: node.nodeKey,
+        taskId: task.id,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+      replayRef: `mission:${mission.id}:node:${node.id}:failure`,
+      metadata: {
+        executorVersion: 'mission-node-executor.v1',
+        nodeKey: node.nodeKey,
+        stage: node.stage,
+        nodeStatus: 'failed',
+        missionStatus: 'blocked',
+        productionReady: false,
+      },
+    });
     return {
       ok: false,
       status: 502,
@@ -616,6 +701,7 @@ async function executeReadyMissionNode(
         error: 'mission node execution failed',
         detail: err instanceof Error ? err.message : String(err),
         productionReady: false,
+        evidenceItemIds: [evidenceItemId],
       },
     };
   }
@@ -654,6 +740,42 @@ async function executeReadyMissionNode(
     })
     .where(and(eq(missions.id, mission.id), eq(missions.workspaceId, workspaceId)));
 
+  const evidenceItemId = await appendEvidenceItem(deps.db, {
+    workspaceId,
+    ventureId: mission.ventureId ?? null,
+    missionId: mission.id,
+    taskId: task.id,
+    evidenceType: 'startup_lifecycle_node_executed',
+    sourceType: 'gateway_startup_lifecycle',
+    title: `Startup lifecycle node executed: ${node.title}`,
+    summary: `${node.nodeKey} finished with ${nodeStatus}`,
+    redactionState: 'redacted',
+    sensitivity: 'internal',
+    contentHash: hashJson({
+      nodeId: node.id,
+      nodeKey: node.nodeKey,
+      taskId: task.id,
+      runStatus: run.status,
+      iterationsUsed: run.iterationsUsed,
+      actionCount: run.actions.length,
+      advancedReadyNodes: advancement.advancedReadyNodes.map((advanced) => advanced.nodeKey),
+    }),
+    replayRef: `mission:${mission.id}:node:${node.id}:execute`,
+    metadata: {
+      executorVersion: 'mission-node-executor.v1',
+      nodeKey: node.nodeKey,
+      stage: node.stage,
+      runStatus: run.status,
+      nodeStatus,
+      missionStatus: advancement.missionStatus,
+      iterationsUsed: run.iterationsUsed,
+      iterationBudget: run.iterationBudget,
+      actionCount: run.actions.length,
+      advancedReadyNodeKeys: advancement.advancedReadyNodes.map((advanced) => advanced.nodeKey),
+      productionReady: false,
+    },
+  });
+
   const response = ExecutedStartupMissionNodeSchema.parse({
     workspaceId,
     missionId: mission.id,
@@ -672,6 +794,7 @@ async function executeReadyMissionNode(
       actionCount: run.actions.length,
     },
     advancedReadyNodes: advancement.advancedReadyNodes,
+    evidenceItemIds: [evidenceItemId],
     blockers: missionNodeExecutionBlockers(run.status),
   });
 
@@ -849,4 +972,23 @@ function missionExecutorBlockers(executedCount: number, remainingReadyCount: num
     blockers.push('Additional ready nodes remain and require another explicit execution call');
   }
   return blockers;
+}
+
+function hashJson(value: unknown) {
+  return `sha256:${createHash('sha256').update(stableJson(value)).digest('hex')}`;
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(sortJson(value));
+}
+
+function sortJson(value: unknown): unknown {
+  if (value == null || typeof value !== 'object') return value;
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(sortJson);
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, child]) => [key, sortJson(child)]),
+  );
 }
