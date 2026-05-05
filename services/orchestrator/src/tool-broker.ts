@@ -1,0 +1,266 @@
+import { createHash } from 'node:crypto';
+import { actions, auditLog, toolExecutions } from '@pilot/db/schema';
+import { eq } from 'drizzle-orm';
+import { type Db } from '@pilot/db/client';
+import { type ToolExecutionContext, type ToolManifest, type ToolRegistry } from './tools.js';
+
+export interface BrokeredToolResult {
+  output: unknown;
+  actionId: string;
+  toolExecutionId: string;
+  inputHash: string;
+  outputHash: string;
+  status: 'completed' | 'failed';
+}
+
+type BrokerDb = Pick<Db, 'insert' | 'update'>;
+
+export class ToolBroker {
+  constructor(private readonly db: BrokerDb) {}
+
+  async execute(
+    registry: ToolRegistry,
+    toolName: string,
+    input: unknown,
+    context: ToolExecutionContext,
+  ): Promise<BrokeredToolResult> {
+    const getManifest = (
+      registry as { getToolManifest?: (name: string) => ToolManifest | undefined }
+    ).getToolManifest;
+    const manifest =
+      typeof getManifest === 'function'
+        ? (getManifest.call(registry, toolName) ?? defaultToolManifest(toolName))
+        : defaultToolManifest(toolName);
+    const sanitizedInput = toJsonValue(input);
+    const inputHash = hashJson({ tool: toolName, input: sanitizedInput });
+    const idempotencyKey = buildIdempotencyKey(context, toolName, inputHash);
+    const actorType = context.operatorId ? 'operator' : 'agent';
+
+    const [action] = await this.db
+      .insert(actions)
+      .values({
+        workspaceId: context.workspaceId,
+        ventureId: context.ventureId ?? null,
+        missionId: context.missionId ?? null,
+        taskId: context.taskId,
+        taskRunId: context.parentTaskRunId ?? null,
+        actorType,
+        actorId: context.operatorId ?? null,
+        actionKey: toolName,
+        actionType: 'tool',
+        riskClass: manifest.riskClass,
+        status: 'running',
+        inputHash,
+        policyDecisionId: context.policyDecisionId ?? null,
+        policyVersion: context.policyVersion ?? null,
+        metadata: {
+          broker: 'tool_broker_v1',
+          manifest,
+          actionHash: context.actionHash ?? null,
+          approvalId: context.approvalId ?? null,
+        },
+      })
+      .returning({ id: actions.id });
+
+    if (!action?.id) throw new Error(`Tool Broker could not persist action for ${toolName}`);
+
+    const [execution] = await this.db
+      .insert(toolExecutions)
+      .values({
+        workspaceId: context.workspaceId,
+        ventureId: context.ventureId ?? null,
+        missionId: context.missionId ?? null,
+        actionId: action.id,
+        taskRunId: context.parentTaskRunId ?? null,
+        toolKey: toolName,
+        inputHash,
+        sanitizedInput,
+        status: 'running',
+        idempotencyKey,
+        evidenceIds: context.evidenceIds ?? [],
+        policyDecisionId: context.policyDecisionId ?? null,
+        policyVersion: context.policyVersion ?? null,
+      })
+      .returning({ id: toolExecutions.id });
+
+    if (!execution?.id) {
+      throw new Error(`Tool Broker could not persist tool execution for ${toolName}`);
+    }
+
+    const output = await registry.execute(toolName, input, context);
+    const sanitizedOutput = toJsonValue(output);
+    const outputHash = hashJson({ tool: toolName, output: sanitizedOutput });
+    const status = isToolError(output) ? 'failed' : 'completed';
+    const error = status === 'failed' ? stringifyError(output) : null;
+
+    await this.db
+      .update(toolExecutions)
+      .set({
+        status,
+        outputHash,
+        sanitizedOutput,
+        error,
+        completedAt: new Date(),
+      })
+      .where(eq(toolExecutions.id, execution.id));
+
+    await this.db
+      .update(actions)
+      .set({
+        status,
+        outputHash,
+        completedAt: new Date(),
+      })
+      .where(eq(actions.id, action.id));
+
+    await this.db.insert(auditLog).values({
+      workspaceId: context.workspaceId,
+      action: 'TOOL_EXECUTION',
+      actor: actorType === 'operator' ? `operator:${context.operatorId}` : 'agent',
+      target: toolName,
+      verdict: status === 'completed' ? 'allow' : 'error',
+      reason: error,
+      metadata: {
+        broker: 'tool_broker_v1',
+        actionId: action.id,
+        toolExecutionId: execution.id,
+        toolKey: toolName,
+        idempotencyKey,
+        inputHash,
+        outputHash,
+        riskClass: manifest.riskClass,
+        policyDecisionId: context.policyDecisionId ?? null,
+        policyVersion: context.policyVersion ?? null,
+      },
+    });
+
+    return {
+      output,
+      actionId: action.id,
+      toolExecutionId: execution.id,
+      inputHash,
+      outputHash,
+      status,
+    };
+  }
+}
+
+export function defaultToolManifest(toolName: string): ToolManifest {
+  const effectLevel = inferEffectLevel(toolName);
+  return {
+    key: toolName,
+    version: 'inferred:v1',
+    riskClass: effectLevelToRiskClass(effectLevel),
+    effectLevel,
+    requiredEvidence: inferRequiredEvidence(toolName),
+    permissionRequirements: [`tool:${toolName}:execute`],
+    outputSensitivity: inferOutputSensitivity(toolName),
+  };
+}
+
+function inferEffectLevel(toolName: string): ToolManifest['effectLevel'] {
+  if (
+    toolName.includes('delete') ||
+    toolName.includes('stripe') ||
+    toolName.includes('payment') ||
+    toolName.includes('domain.purchase') ||
+    toolName.includes('company_formation')
+  ) {
+    return 'E4';
+  }
+  if (
+    toolName.includes('deploy') ||
+    toolName.includes('rollback') ||
+    toolName.includes('send') ||
+    toolName.includes('write') ||
+    toolName.includes('subagent.')
+  ) {
+    return 'E3';
+  }
+  if (toolName.includes('scrapling') || toolName.includes('mcp.') || toolName.includes('fetch')) {
+    return 'E2';
+  }
+  return 'E1';
+}
+
+function effectLevelToRiskClass(effectLevel: ToolManifest['effectLevel']) {
+  if (effectLevel === 'E4') return 'restricted';
+  if (effectLevel === 'E3') return 'high';
+  if (effectLevel === 'E2') return 'medium';
+  return 'low';
+}
+
+function inferRequiredEvidence(toolName: string): string[] {
+  if (toolName === 'finish') return ['run_summary'];
+  if (toolName === 'score_opportunity') return ['opportunity_score', 'citations'];
+  if (toolName.includes('scrapling') || toolName.includes('fetch')) return ['source_snapshot'];
+  if (toolName.includes('deploy') || toolName.includes('rollback')) return ['deployment_log'];
+  if (toolName.includes('subagent.')) return ['subagent_run_summary'];
+  return ['tool_result'];
+}
+
+function inferOutputSensitivity(toolName: string): ToolManifest['outputSensitivity'] {
+  if (toolName.includes('connector') || toolName.includes('email') || toolName.includes('mcp.')) {
+    return 'sensitive';
+  }
+  return 'internal';
+}
+
+function buildIdempotencyKey(context: ToolExecutionContext, toolName: string, inputHash: string) {
+  return [
+    'tool-broker-v1',
+    context.workspaceId,
+    context.taskId,
+    toolName,
+    context.actionHash ?? inputHash,
+    context.approvalId ?? 'direct',
+  ].join(':');
+}
+
+function toJsonValue(value: unknown) {
+  if (value === undefined) return null;
+  if (value instanceof Date) return value.toISOString();
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return String(value);
+  }
+}
+
+function hashJson(value: unknown) {
+  return `sha256:${createHash('sha256').update(stableJson(value)).digest('hex')}`;
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(sortJson(value));
+}
+
+function sortJson(value: unknown): unknown {
+  if (value == null || typeof value !== 'object') return value;
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(sortJson);
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, child]) => [key, sortJson(child)]),
+  );
+}
+
+function isToolError(output: unknown): boolean {
+  return (
+    typeof output === 'object' &&
+    output !== null &&
+    !Array.isArray(output) &&
+    typeof (output as Record<string, unknown>)['error'] === 'string'
+  );
+}
+
+function stringifyError(value: unknown) {
+  if (typeof value === 'string') return value;
+  if (value instanceof Error) return value.message;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}

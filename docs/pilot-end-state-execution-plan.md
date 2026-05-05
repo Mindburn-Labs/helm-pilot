@@ -12,7 +12,7 @@ This is the control artifact for moving Pilot from a governed agent/task prototy
 - README and roadmap already warn that Pilot is not production-ready as a fully autonomous startup OS.
 - Decision Court now splits `heuristic_preview`, `governed_llm_court`, and `unavailable`; governed mode requires HELM-governed model-call receipts and no longer silently falls back to fake adversarial output.
 - `operator.computer_use` currently stops at HELM preflight and does not execute a real browser/computer action, so it must remain `stub`.
-- `score_opportunity` currently enqueues/marks scoring rather than producing the required evidence-backed scorecard, so it must remain `stub`.
+- `score_opportunity` now returns a deterministic evidence-backed scorecard and writes Tool Broker records for autonomous calls, but PMF Discovery Eval has not promoted it to `production_ready`.
 - Skill registry code exists under `packages/shared/src/skills`, and Gate 3 wires it into gateway/orchestrator/conductor with audited skill metadata on subagent spawns. It is still not `production_ready` because skills are not fully Tool Broker callable and have not passed the Skill Invocation Governance Eval.
 - Subagent spawn rows are partially represented through `task_runs.parent_task_run_id` and spawn evidence packs, but root lineage, spawn action anchoring, and proof DAG queries are not complete.
 - A2A protocol files exist under `packages/shared/src/a2a` and gateway A2A routes exist, but durable A2A thread/message storage is not proven.
@@ -29,7 +29,7 @@ This is the control artifact for moving Pilot from a governed agent/task prototy
 | `operator_scoping`           | `implemented` | Governance Agent | Cross-workspace operator rejection regression                  |
 | `decision_court`             | `implemented` | Decision Agent   | Decision Court Governed Model Eval                             |
 | `skill_registry_runtime`     | `implemented` | Runtime Agent    | Skill Invocation Governance Eval                               |
-| `opportunity_scoring`        | `stub`        | Tooling Agent    | PMF Discovery Eval                                             |
+| `opportunity_scoring`        | `implemented` | Tooling Agent    | PMF Discovery Eval                                             |
 | `browser_metadata_connector` | `scaffolded`  | Browser Agent    | YC Logged-In Browser Extraction Eval                           |
 | `browser_execution`          | `blocked`     | Browser Agent    | YC Logged-In Browser Extraction Eval                           |
 | `computer_use`               | `stub`        | Computer Agent   | Safe Computer/Sandbox Action Eval                              |
@@ -98,7 +98,7 @@ No row may move to `production_ready` without passing eval metadata in the regis
 - Approval resume needs deterministic ordering and child-row exclusion.
 - Skills must move from runtime-loaded prompt packages to fully Tool Broker governed callable capabilities, then pass the Skill Invocation Governance Eval.
 - HELM receipts need a mandatory global sink and fail-closed persistence.
-- Opportunity scoring needs the full evidence-backed scorecard and `opportunity_scout` workflow wiring.
+- Opportunity scoring needs PMF Discovery Eval promotion and first-class Evidence Center artifact packs before production-ready claims.
 - A2A state must move from protocol/process-local assumptions to durable Postgres storage.
 - Workspace RBAC and operatorId scoping need centralized enforcement before broad delegated access.
 

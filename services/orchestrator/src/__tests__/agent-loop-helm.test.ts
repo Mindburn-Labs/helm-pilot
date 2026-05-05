@@ -8,10 +8,17 @@ vi.mock('@pilot/db/schema', () => ({
   approvals: 'approvals',
   operatorMemory: 'operatorMemory',
   evidencePacks: 'evidencePacks',
+  actions: 'actions',
+  toolExecutions: 'toolExecutions',
+  auditLog: 'auditLog',
 }));
 
 vi.mock('@pilot/shared/schemas', () => ({
   MAX_ITERATION_BUDGET: 200,
+}));
+
+vi.mock('drizzle-orm', () => ({
+  eq: vi.fn((left: unknown, right: unknown) => ({ left, right })),
 }));
 
 interface InsertCall {
@@ -32,8 +39,17 @@ function makeMockDb() {
         };
       }),
     })),
+    update: vi.fn((table: string) => ({
+      set: vi.fn((row: Record<string, unknown>) => ({
+        where: vi.fn(async () => {
+          inserts.push({ table: `${table}:update`, values: row });
+          return [];
+        }),
+      })),
+    })),
   } as unknown as {
     insert: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
     select: ReturnType<typeof vi.fn>;
   };
   return { db, inserts };
@@ -49,7 +65,9 @@ const mockTools = {
   listToolsForMode: vi.fn(() => [{ name: 'search', description: 'Search' }]),
 } as any;
 
-function governedLlm(options: { verdict?: 'ALLOW' | 'DENY' | 'ESCALATE'; decisionId?: string } = {}) {
+function governedLlm(
+  options: { verdict?: 'ALLOW' | 'DENY' | 'ESCALATE'; decisionId?: string } = {},
+) {
   const governance = {
     decisionId: options.decisionId ?? 'dec-governed-1',
     verdict: options.verdict ?? 'ALLOW',
@@ -59,13 +77,11 @@ function governedLlm(options: { verdict?: 'ALLOW' | 'DENY' | 'ESCALATE'; decisio
   };
   return {
     complete: vi.fn(),
-    completeWithUsage: vi
-      .fn()
-      .mockResolvedValueOnce({
-        content: '{"tool":"finish","input":{"summary":"done"}}',
-        usage: { tokensIn: 10, tokensOut: 5, model: 'anthropic/claude-sonnet-4' },
-        governance,
-      }),
+    completeWithUsage: vi.fn().mockResolvedValueOnce({
+      content: '{"tool":"finish","input":{"summary":"done"}}',
+      usage: { tokensIn: 10, tokensOut: 5, model: 'anthropic/claude-sonnet-4' },
+      governance,
+    }),
   };
 }
 
@@ -189,6 +205,20 @@ describe('AgentLoop — HELM governance persistence', () => {
       decisionId: 'dec-tool-1',
       action: 'TOOL_USE',
       resource: 'search',
+    });
+    expect(inserts.find((i) => i.table === 'actions')?.values).toMatchObject({
+      workspaceId: 'ws-1',
+      taskId: 'task-1',
+      actionKey: 'search',
+      policyDecisionId: 'dec-tool-1',
+      policyVersion: 'founder-ops-v1',
+    });
+    expect(inserts.find((i) => i.table === 'toolExecutions')?.values).toMatchObject({
+      workspaceId: 'ws-1',
+      taskRunId: null,
+      toolKey: 'search',
+      policyDecisionId: 'dec-tool-1',
+      policyVersion: 'founder-ops-v1',
     });
   });
 });

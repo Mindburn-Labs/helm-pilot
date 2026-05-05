@@ -38,6 +38,9 @@ describe('capabilityRoutes', () => {
       'implemented',
     );
     expect(
+      json.capabilities.find((capability) => capability.key === 'opportunity_scoring')?.state,
+    ).toBe('implemented');
+    expect(
       json.capabilities.find((capability) => capability.key === 'browser_execution')?.state,
     ).toBe('blocked');
   });

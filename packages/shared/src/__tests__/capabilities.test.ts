@@ -29,6 +29,7 @@ describe('capability registry', () => {
 
     expect(getCapabilityRecord('decision_court')?.state).toBe('implemented');
     expect(getCapabilityRecord('skill_registry_runtime')?.state).toBe('implemented');
+    expect(getCapabilityRecord('opportunity_scoring')?.state).toBe('implemented');
     expect(getCapabilityRecord('browser_execution')?.state).toBe('blocked');
   });
 
@@ -56,6 +57,7 @@ describe('capability registry', () => {
     expect(markdown).toContain('decision_court | implemented');
     expect(markdown).toContain('helm_receipts | implemented');
     expect(markdown).toContain('skill_registry_runtime | implemented');
+    expect(markdown).toContain('opportunity_scoring | implemented');
     expect(markdown).toContain('browser_execution | blocked');
   });
 

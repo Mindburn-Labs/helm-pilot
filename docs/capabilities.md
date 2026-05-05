@@ -16,7 +16,7 @@ This Gate 0 status document is intentionally conservative. Pilot must not claim 
 | `operator_scoping`           | `implemented` | Cross-Workspace Operator Rejection Regression                  | Cross-workspace operator rejection regression has not promoted the capability              |
 | `decision_court`             | `implemented` | Decision Court Governed Model Eval                             | Decision Court Governed Model Eval has not promoted the capability to production_ready     |
 | `skill_registry_runtime`     | `implemented` | Skill Invocation Governance Eval                               | Skill Invocation Governance Eval has not promoted the capability to production_ready       |
-| `opportunity_scoring`        | `stub`        | PMF Discovery Eval                                             | `score_opportunity` is not a complete evidence-backed implementation                       |
+| `opportunity_scoring`        | `implemented` | PMF Discovery Eval                                             | PMF Discovery Eval has not promoted the capability to production_ready                     |
 | `browser_metadata_connector` | `scaffolded`  | YC Logged-In Browser Extraction Eval                           | Browser metadata is not a governed read/extract execution path                             |
 | `browser_execution`          | `blocked`     | YC Logged-In Browser Extraction Eval                           | No governed logged-in browser read/extract session manager                                 |
 | `computer_use`               | `stub`        | Safe Computer/Sandbox Action Eval                              | `operator.computer_use` does not perform real safe end-to-end action execution             |

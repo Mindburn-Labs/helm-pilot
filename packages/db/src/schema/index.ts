@@ -17,3 +17,4 @@ export * from './compliance.js';
 export * from './telegram.js';
 export * from './a2a.js';
 export * from './agent.js';
+export * from './tooling.js';

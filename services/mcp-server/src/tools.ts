@@ -1,6 +1,7 @@
 import { type Db } from '@pilot/db/client';
 import { type MemoryService } from '@pilot/memory';
 import type { McpTool, McpToolCallResult } from '@pilot/shared/mcp';
+import { getCapabilityRecord } from '@pilot/shared/capabilities';
 
 // ─── Pilot-as-MCP-server tool surface (Phase 14 Track A) ───
 //
@@ -67,24 +68,20 @@ export const PILOT_MCP_TOOLS: ExposedTool[] = [
   {
     name: 'score_opportunity',
     description:
-      'Mark an opportunity for async scoring. Enqueues background job; does not block.',
+      'Score an opportunity through Pilot. This MCP surface is intentionally unavailable because autonomous scoring must run through the orchestrator Tool Broker.',
     inputSchema: {
       type: 'object',
       properties: { opportunityId: { type: 'string' } },
       required: ['opportunityId'],
     },
-    async handler(args, { db }) {
+    async handler(args) {
       const opportunityId = args['opportunityId'];
       if (typeof opportunityId !== 'string') return err('opportunityId required');
-      const { opportunities } = await import('@pilot/db/schema');
-      const { eq } = await import('drizzle-orm');
-      const [opp] = await db
-        .select()
-        .from(opportunities)
-        .where(eq(opportunities.id, opportunityId))
-        .limit(1);
-      if (!opp) return err('opportunity not found');
-      return text({ queued: true, opportunityId });
+      return text({
+        error: 'score_opportunity is only available through the governed orchestrator Tool Broker',
+        opportunityId,
+        capability: getCapabilityRecord('opportunity_scoring'),
+      });
     },
   },
 
@@ -105,8 +102,7 @@ export const PILOT_MCP_TOOLS: ExposedTool[] = [
       if (!memory) return err('memory service not available');
       const query = args['query'];
       if (typeof query !== 'string') return err('query required');
-      const workspaceId =
-        typeof args['workspaceId'] === 'string' ? args['workspaceId'] : undefined;
+      const workspaceId = typeof args['workspaceId'] === 'string' ? args['workspaceId'] : undefined;
       const limit = Math.max(1, Math.min(20, Number(args['limit'] ?? 5)));
       const results = await memory.search(query, { limit, workspaceId });
       return text(results);
@@ -124,9 +120,7 @@ export const PILOT_MCP_TOOLS: ExposedTool[] = [
     async handler(args, { db }) {
       const workspaceId = args['workspaceId'];
       if (typeof workspaceId !== 'string') return err('workspaceId required');
-      const { workspaces, workspaceMembers, tasks } = await import(
-        '@pilot/db/schema'
-      );
+      const { workspaces, workspaceMembers, tasks } = await import('@pilot/db/schema');
       const { eq, and, count } = await import('drizzle-orm');
       const [ws] = await db
         .select()
@@ -141,9 +135,7 @@ export const PILOT_MCP_TOOLS: ExposedTool[] = [
       const [taskResult] = await db
         .select({ count: count() })
         .from(tasks)
-        .where(
-          and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, 'pending')),
-        );
+        .where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.status, 'pending')));
       return text({
         id: ws.id,
         name: ws.name,
@@ -174,8 +166,7 @@ export const PILOT_MCP_TOOLS: ExposedTool[] = [
       if (typeof workspaceId !== 'string' || typeof title !== 'string') {
         return err('workspaceId and title required');
       }
-      const description =
-        typeof args['description'] === 'string' ? args['description'] : '';
+      const description = typeof args['description'] === 'string' ? args['description'] : '';
       const mode = typeof args['mode'] === 'string' ? args['mode'] : 'build';
       const priority = Number(args['priority'] ?? 0);
       const { tasks } = await import('@pilot/db/schema');
@@ -222,8 +213,7 @@ export const PILOT_MCP_TOOLS: ExposedTool[] = [
       ) {
         return err('workspaceId, type, name required');
       }
-      const description =
-        typeof args['description'] === 'string' ? args['description'] : '';
+      const description = typeof args['description'] === 'string' ? args['description'] : '';
       const content = typeof args['content'] === 'string' ? args['content'] : '';
       const { artifacts, artifactVersions } = await import('@pilot/db/schema');
       const storagePath = `inline://${name}`;

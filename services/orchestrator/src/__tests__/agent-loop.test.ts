@@ -10,6 +10,10 @@ vi.mock('@pilot/db/schema', () => ({
     actionHash: 'approvals.actionHash',
   },
   operatorMemory: 'operatorMemory',
+  evidencePacks: 'evidencePacks',
+  actions: 'actions',
+  toolExecutions: 'toolExecutions',
+  auditLog: 'auditLog',
 }));
 
 vi.mock('@pilot/shared/schemas', () => ({
@@ -24,8 +28,14 @@ vi.mock('drizzle-orm', () => ({
 const mockDb = {
   insert: vi.fn(() => ({
     values: vi.fn(() => ({
+      returning: vi.fn(async () => [{ id: 'row-1' }]),
       then: (r: any) => r([]),
       catch: vi.fn(),
+    })),
+  })),
+  update: vi.fn(() => ({
+    set: vi.fn(() => ({
+      where: vi.fn(async () => []),
     })),
   })),
   select: vi.fn(() => ({
@@ -214,9 +224,8 @@ describe('AgentLoop', () => {
 
     await loop.execute({ ...baseParams(), operatorId: 'op-1' });
 
-    // db.insert is called for: persistAction (taskRuns) + saveOperatorMemory (operatorMemory)
-    // Check that insert was called at least twice (once for action, once for memory)
-    expect(mockDb.insert).toHaveBeenCalledTimes(2);
+    // Broker/action rows and task_runs are also inserted; assert the memory
+    // write itself rather than an exact global insert count.
     expect(mockDb.insert).toHaveBeenCalledWith('operatorMemory');
   });
 

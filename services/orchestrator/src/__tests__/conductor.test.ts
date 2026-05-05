@@ -1,9 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { resolve } from 'node:path';
 import { Conductor, type ParentContext } from '../conductor.js';
 import { ToolRegistry } from '../tools.js';
 import type { PolicyConfig } from '@pilot/shared/schemas';
 import type { LlmProvider } from '@pilot/shared/llm';
-import { SubagentRegistry, type SubagentDefinition } from '@pilot/shared/subagents';
+import {
+  SubagentRegistry,
+  loadDefinitionFile,
+  type SubagentDefinition,
+} from '@pilot/shared/subagents';
 import { SkillRegistry, type SkillDefinition } from '@pilot/shared/skills';
 
 vi.mock('@pilot/db/schema', () => ({
@@ -12,6 +17,9 @@ vi.mock('@pilot/db/schema', () => ({
   agentHandoffs: 'agentHandoffs',
   approvals: 'approvals',
   operatorMemory: 'operatorMemory',
+  actions: 'actions',
+  toolExecutions: 'toolExecutions',
+  auditLog: 'auditLog',
 }));
 
 vi.mock('@pilot/shared/schemas', async () => {
@@ -84,6 +92,11 @@ function makeMockDb(options: { failInsertTable?: unknown } = {}) {
         })),
       })),
     })),
+    update: vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(async () => []),
+      })),
+    })),
   } as any;
 }
 
@@ -121,6 +134,18 @@ const baseCtx: ParentContext = {
   policyVersion: 'founder-ops-v1',
   remainingBudgetUsd: 5,
 };
+
+describe('opportunity_scout definition', () => {
+  it('can persist new candidates before scoring them', () => {
+    const def = loadDefinitionFile(
+      resolve(process.cwd(), '../../packs/subagents/opportunity_scout.md'),
+    );
+
+    expect(def.toolScope.allowedTools).toEqual(
+      expect.arrayContaining(['create_opportunity', 'score_opportunity']),
+    );
+  });
+});
 
 describe('Conductor.spawn', () => {
   beforeEach(() => vi.clearAllMocks());

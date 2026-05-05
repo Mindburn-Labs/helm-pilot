@@ -103,6 +103,236 @@ export async function scoreOpportunity(
   }
 }
 
+export interface OpportunityEvidenceScoreInput {
+  title: string;
+  description: string;
+  source: string;
+  sourceUrl?: string;
+  rawData: unknown;
+  aiFriendlyOk: boolean;
+  founderSignals: string[];
+  citations: Array<{ url?: string; title?: string; note?: string }>;
+}
+
+export interface OpportunityEvidenceScore {
+  overall: number;
+  dimensions: {
+    marketPain: number;
+    urgency: number;
+    icpClarity: number;
+    monetization: number;
+    channelAccessibility: number;
+    competition: number;
+    founderFit: number;
+    technicalFeasibility: number;
+    evidenceQuality: number;
+    confidence: number;
+  };
+  assumptions: string[];
+  citations: Array<{ url: string; title?: string; note?: string }>;
+  rationale: string;
+}
+
+export function scoreOpportunityEvidence(
+  input: OpportunityEvidenceScoreInput,
+): OpportunityEvidenceScore {
+  const text = `${input.title}\n${input.description}`.toLowerCase();
+  const citations = normalizeEvidenceCitations(input);
+  const marketPain = keywordScore(
+    text,
+    ['pain', 'problem', 'manual', 'expensive', 'slow', 'broken', 'friction', 'waste'],
+    35,
+    92,
+  );
+  const urgency = keywordScore(
+    text,
+    ['urgent', 'deadline', 'compliance', 'regulation', 'risk', 'now', 'critical', 'churn'],
+    30,
+    88,
+  );
+  const icpClarity = keywordScore(
+    text,
+    [
+      'for ',
+      'teams',
+      'founders',
+      'developers',
+      'operators',
+      'sales',
+      'finance',
+      'enterprise',
+      'smb',
+    ],
+    35,
+    90,
+  );
+  const monetization = keywordScore(
+    text,
+    ['budget', 'paid', 'pricing', 'subscription', 'revenue', 'cost', 'roi', 'workflow'],
+    28,
+    86,
+  );
+  const channelAccessibility = Math.max(
+    sourceSignal(input.source),
+    keywordScore(
+      text,
+      [
+        'community',
+        'yc',
+        'hacker news',
+        'product hunt',
+        'linkedin',
+        'reddit',
+        'newsletter',
+        'marketplace',
+      ],
+      25,
+      84,
+    ),
+  );
+  const competition =
+    100 -
+    keywordScore(text, ['crowded', 'incumbent', 'commodity', 'red ocean', 'saturated'], 8, 70);
+  const founderFit = Math.max(
+    input.aiFriendlyOk ? 72 : 45,
+    keywordOverlapScore(text, input.founderSignals, 35, 92),
+  );
+  const technicalFeasibility =
+    100 -
+    keywordScore(
+      text,
+      ['hardware', 'medical device', 'bank charter', 'deeptech', 'regulated', 'biometric'],
+      10,
+      72,
+    );
+  const evidenceQuality = Math.min(
+    100,
+    25 +
+      (input.sourceUrl ? 20 : 0) +
+      citations.length * 15 +
+      (hasRawEvidence(input.rawData) ? 15 : 0) +
+      Math.min(25, Math.floor(input.description.length / 80)),
+  );
+  const confidence = clampScore(
+    Math.round(evidenceQuality * 0.65 + citationConfidence(citations) * 0.35),
+  );
+  const dimensions = {
+    marketPain,
+    urgency,
+    icpClarity,
+    monetization,
+    channelAccessibility,
+    competition,
+    founderFit,
+    technicalFeasibility,
+    evidenceQuality,
+    confidence,
+  };
+  const overall = clampScore(
+    Math.round(
+      marketPain * 0.14 +
+        urgency * 0.1 +
+        icpClarity * 0.1 +
+        monetization * 0.11 +
+        channelAccessibility * 0.09 +
+        competition * 0.08 +
+        founderFit * 0.14 +
+        technicalFeasibility * 0.1 +
+        evidenceQuality * 0.08 +
+        confidence * 0.06,
+    ),
+  );
+  return {
+    overall,
+    dimensions,
+    assumptions: buildScoreAssumptions(input, dimensions),
+    citations,
+    rationale: `Evidence-backed score ${overall}/100: pain=${marketPain}, founder_fit=${founderFit}, evidence=${evidenceQuality}, confidence=${confidence}.`,
+  };
+}
+
+function normalizeEvidenceCitations(input: OpportunityEvidenceScoreInput) {
+  const explicit = input.citations
+    .filter((citation) => typeof citation.url === 'string' && citation.url.length > 0)
+    .map((citation) => ({
+      url: citation.url!,
+      ...(citation.title ? { title: citation.title } : {}),
+      ...(citation.note ? { note: citation.note } : {}),
+    }));
+  if (explicit.length > 0) return explicit.slice(0, 5);
+  return input.sourceUrl ? [{ url: input.sourceUrl, title: input.source }] : [];
+}
+
+function keywordScore(text: string, keywords: string[], base: number, max: number): number {
+  const hits = keywords.filter((keyword) => text.includes(keyword)).length;
+  return clampScore(base + hits * Math.ceil((max - base) / Math.max(1, keywords.length / 2)));
+}
+
+function keywordOverlapScore(text: string, signals: string[], base: number, max: number): number {
+  if (signals.length === 0) return base;
+  const normalized = signals.map((signal) => signal.toLowerCase()).filter(Boolean);
+  const hits = normalized.filter((signal) =>
+    signal
+      .split(/[^a-z0-9]+/u)
+      .filter((part) => part.length > 2)
+      .some((part) => text.includes(part)),
+  ).length;
+  return clampScore(base + hits * Math.ceil((max - base) / Math.max(1, normalized.length)));
+}
+
+function sourceSignal(source: string): number {
+  const normalized = source.toLowerCase();
+  if (normalized.includes('yc')) return 84;
+  if (normalized.includes('hn') || normalized.includes('hacker')) return 76;
+  if (normalized.includes('producthunt')) return 70;
+  if (normalized.includes('manual')) return 68;
+  if (normalized.includes('reddit')) return 58;
+  return 45;
+}
+
+function hasRawEvidence(rawData: unknown): boolean {
+  if (!rawData) return false;
+  if (Array.isArray(rawData)) return rawData.length > 0;
+  if (typeof rawData === 'object')
+    return Object.keys(rawData as Record<string, unknown>).length > 0;
+  return true;
+}
+
+function citationConfidence(citations: Array<{ url: string }>): number {
+  if (citations.length === 0) return 25;
+  return clampScore(45 + citations.length * 12);
+}
+
+function buildScoreAssumptions(
+  input: OpportunityEvidenceScoreInput,
+  dimensions: OpportunityEvidenceScore['dimensions'],
+): string[] {
+  const assumptions = [
+    'Scores are directional until validated with customer discovery evidence.',
+    'No external outreach or spend was performed by this scoring tool.',
+  ];
+  if (input.founderSignals.length === 0) {
+    assumptions.push(
+      'Founder fit used generic AI-friendly/default signals because no founder signals were supplied.',
+    );
+  }
+  if (dimensions.evidenceQuality < 55) {
+    assumptions.push(
+      'Evidence quality is weak; collect citations, customer quotes, or logged-in account data before committing.',
+    );
+  }
+  if (dimensions.competition < 55) {
+    assumptions.push(
+      'Competition risk is high; require differentiation evidence before prioritizing.',
+    );
+  }
+  return assumptions;
+}
+
+function clampScore(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
 export {
   OPPORTUNITY_SCORE_PROMPT_VERSION,
   buildOpportunityScorePrompt,
