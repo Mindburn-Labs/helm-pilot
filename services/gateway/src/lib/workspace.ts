@@ -1,4 +1,7 @@
 import { type Context } from 'hono';
+import { and, eq } from 'drizzle-orm';
+import { type Db } from '@pilot/db/client';
+import { operators } from '@pilot/db/schema';
 import { WorkspaceRoleSchema, type WorkspaceRole } from '@pilot/shared/schemas';
 
 const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = {
@@ -51,4 +54,28 @@ export function requireWorkspaceRole(
 export function workspaceIdMismatch(c: Context, candidate: unknown): boolean {
   const workspaceId = getWorkspaceId(c);
   return typeof candidate === 'string' && !!workspaceId && candidate !== workspaceId;
+}
+
+export async function workspaceOperatorBelongsToWorkspace(
+  db: Db,
+  workspaceId: string,
+  operatorId?: string | null,
+): Promise<boolean> {
+  if (!operatorId) return true;
+  const [operator] = await db
+    .select({ id: operators.id })
+    .from(operators)
+    .where(and(eq(operators.id, operatorId), eq(operators.workspaceId, workspaceId)))
+    .limit(1);
+  return Boolean(operator);
+}
+
+export async function requireWorkspaceOperator(
+  db: Db,
+  c: Context,
+  workspaceId: string,
+  operatorId?: string | null,
+): Promise<Response | null> {
+  if (await workspaceOperatorBelongsToWorkspace(db, workspaceId, operatorId)) return null;
+  return c.json({ error: 'operatorId does not belong to authenticated workspace' }, 403);
 }

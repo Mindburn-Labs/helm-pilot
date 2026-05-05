@@ -161,6 +161,7 @@ const capabilityRecords = validateCapabilityRecords([
     evidence: [
       'Gate 2B rejects foreign operator IDs in task creation and conductor runs',
       'Orchestrator resolveRuntime now filters operators by workspaceId and fails closed when no owned operator exists',
+      'Startup lifecycle mission-node execution now validates task operator ownership before mutating mission, node, or task state',
       'Regression tests cover gateway and runtime foreign operator rejection',
     ],
     evalRequirement: 'Cross-Workspace Operator Rejection Regression',

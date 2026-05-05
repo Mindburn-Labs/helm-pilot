@@ -1,9 +1,14 @@
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
 import { and, desc, eq } from 'drizzle-orm';
-import { operators, tasks, taskRuns } from '@pilot/db/schema';
+import { tasks, taskRuns } from '@pilot/db/schema';
 import { CreateTaskInput, TaskStatusSchema } from '@pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId, requireWorkspaceRole, workspaceIdMismatch } from '../lib/workspace.js';
+import {
+  getWorkspaceId,
+  requireWorkspaceOperator,
+  requireWorkspaceRole,
+  workspaceIdMismatch,
+} from '../lib/workspace.js';
 
 export function taskRoutes(deps: GatewayDeps) {
   const app = new Hono();
@@ -42,7 +47,7 @@ export function taskRoutes(deps: GatewayDeps) {
     }
 
     const body = parsed.data;
-    const operatorDenied = await requireWorkspaceOperator(deps, c, workspaceId, body.operatorId);
+    const operatorDenied = await requireWorkspaceOperator(deps.db, c, workspaceId, body.operatorId);
     if (operatorDenied) return operatorDenied;
 
     const [task] = await deps.db
@@ -168,24 +173,6 @@ export function taskRoutes(deps: GatewayDeps) {
   });
 
   return app;
-}
-
-async function requireWorkspaceOperator(
-  deps: GatewayDeps,
-  c: Context,
-  workspaceId: string,
-  operatorId?: string,
-): Promise<Response | null> {
-  if (!operatorId) return null;
-  const [operator] = await deps.db
-    .select({ id: operators.id })
-    .from(operators)
-    .where(and(eq(operators.id, operatorId), eq(operators.workspaceId, workspaceId)))
-    .limit(1);
-  if (!operator) {
-    return c.json({ error: 'operatorId does not belong to authenticated workspace' }, 403);
-  }
-  return null;
 }
 
 async function executeTaskRun(
