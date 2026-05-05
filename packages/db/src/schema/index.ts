@@ -22,3 +22,4 @@ export * from './tooling.js';
 export * from './browser.js';
 export * from './computer.js';
 export * from './eval.js';
+export * from './evidence.js';

@@ -8,6 +8,7 @@ import {
   browserSessions,
   capabilityPromotions,
   computerActions,
+  evidenceItems,
   evalEvidenceLinks,
   evalResults,
   evalRuns,
@@ -86,6 +87,24 @@ describe('Gate 10 production eval schema', () => {
     expect(evalEvidenceLinks.evidenceRef.name).toBe('evidence_ref');
     expect(capabilityPromotions.capabilityKey.name).toBe('capability_key');
     expect(capabilityPromotions.promotedState.name).toBe('promoted_state');
+  });
+});
+
+describe('Evidence ledger schema', () => {
+  it('exports canonical evidence item links across runtime surfaces', () => {
+    expect(evidenceItems.workspaceId.name).toBe('workspace_id');
+    expect(evidenceItems.ventureId.name).toBe('venture_id');
+    expect(evidenceItems.missionId.name).toBe('mission_id');
+    expect(evidenceItems.taskRunId.name).toBe('task_run_id');
+    expect(evidenceItems.actionId.name).toBe('action_id');
+    expect(evidenceItems.toolExecutionId.name).toBe('tool_execution_id');
+    expect(evidenceItems.evidencePackId.name).toBe('evidence_pack_id');
+    expect(evidenceItems.browserObservationId.name).toBe('browser_observation_id');
+    expect(evidenceItems.computerActionId.name).toBe('computer_action_id');
+    expect(evidenceItems.artifactId.name).toBe('artifact_id');
+    expect(evidenceItems.auditEventId.name).toBe('audit_event_id');
+    expect(evidenceItems.redactionState.name).toBe('redaction_state');
+    expect(evidenceItems.replayRef.name).toBe('replay_ref');
   });
 });
 
