@@ -18,7 +18,7 @@ This is the control artifact for moving Pilot from a governed agent/task prototy
 - `score_opportunity` now returns a deterministic evidence-backed scorecard and writes Tool Broker records for autonomous calls, but PMF Discovery Eval has not promoted it to `production_ready`.
 - Skill registry code exists under `packages/shared/src/skills`, and Gate 3 wires it into gateway/orchestrator/conductor with audited skill metadata on subagent spawns. It is still not `production_ready` because skills are not fully Tool Broker callable and have not passed the Skill Invocation Governance Eval.
 - Subagent spawn rows are partially represented through `task_runs.parent_task_run_id` and spawn evidence packs, but root lineage, spawn action anchoring, and proof DAG queries are not complete.
-- A2A protocol files exist under `packages/shared/src/a2a` and gateway A2A routes exist, but durable A2A thread/message storage is not proven.
+- A2A protocol files exist under `packages/shared/src/a2a`; gateway A2A routes persist workspace-scoped `a2a_threads` and ordered `a2a_messages`, and `tasks/get` reconstructs state from the database. This is `implemented`, not `production_ready`, because the Multi-Agent Parallel Build Eval has not promoted it and broader mission/action/evidence handoff recovery is incomplete.
 - Evidence packs and approvals exist, but evidence is not a first-class action/tool/browser/computer/artifact ledger.
 - The command-center UI is a `prototype`: it is backed by durable state, but mission runtime is still blocked and no Command Center Real-State UX Eval has promoted the surface to `production_ready`.
 
@@ -36,7 +36,7 @@ This is the control artifact for moving Pilot from a governed agent/task prototy
 | `browser_metadata_connector` | `implemented` | Browser Agent    | YC Logged-In Browser Extraction Eval                           |
 | `browser_execution`          | `prototype`   | Browser Agent    | YC Logged-In Browser Extraction Eval                           |
 | `computer_use`               | `prototype`   | Computer Agent   | Safe Computer/Sandbox Action Eval                              |
-| `a2a_durable_state`          | `blocked`     | Foundation Agent | Multi-Agent Parallel Build Eval                                |
+| `a2a_durable_state`          | `implemented` | Foundation Agent | Multi-Agent Parallel Build Eval                                |
 | `subagent_lineage`           | `blocked`     | Runtime Agent    | Proof DAG Lineage Regression                                   |
 | `approval_resume`            | `blocked`     | Foundation Agent | Approval Resume Isolation Regression                           |
 | `evidence_ledger`            | `prototype`   | Foundation Agent | HELM Governance Eval and Recovery Eval                         |
@@ -102,7 +102,7 @@ No row may move to `production_ready` without passing eval metadata in the regis
 - Skills must move from runtime-loaded prompt packages to fully Tool Broker governed callable capabilities, then pass the Skill Invocation Governance Eval.
 - HELM receipts have mandatory elevated-action sink enforcement, but still need HELM Governance Eval promotion before production-ready claims.
 - Opportunity scoring needs PMF Discovery Eval promotion and first-class Evidence Center artifact packs before production-ready claims.
-- A2A state must move from protocol/process-local assumptions to durable Postgres storage.
+- A2A gateway task state is durable in Postgres, but multi-agent mission handoff recovery still needs eval coverage before production-ready claims.
 - Mission runtime has durable venture, goal, mission, node, edge, task, and mission-task rows, but still needs executable scheduling, checkpoint, recovery, and replay semantics.
 - Workspace RBAC and operatorId scoping need centralized enforcement before broad delegated access.
 
