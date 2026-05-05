@@ -80,15 +80,16 @@ const capabilityRecords = validateCapabilityRecords([
     name: 'Mission runtime',
     state: 'blocked',
     summary:
-      'Pilot is still task/operator oriented; durable venture, goal, mission, action, checkpoint, and rollback state is not the runtime backbone yet.',
+      'Pilot now has durable venture, goal, mission, DAG, task, action, and tool ledgers, but persisted mission nodes are not yet scheduled, checkpointed, recovered, and evaluated as the runtime backbone.',
     owner: 'Foundation Agent',
     blockers: [
-      'No durable venture/goal/mission/action runtime model',
-      'No mission DAG compiler with checkpoints and recovery',
+      'No executable mission scheduler over persisted mission nodes and edges',
+      'No mission-level checkpoint, recovery, and rollback executor',
       'Current task APIs must remain compatible until mission-backed equivalents pass regression gates',
     ],
     evidence: [
-      'Gate 1 must add mission/action lineage before command-center UI can represent real autonomy',
+      'Gate 5 adds durable actions and tool executions with missionId fields',
+      'Gate 9 adds durable ventures, goals, missions, mission_nodes, mission_edges, and mission_tasks plus /api/startup-lifecycle/persist',
     ],
     evalRequirement: 'Full Startup Launch Eval and Multi-Agent Parallel Build Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,
@@ -357,10 +358,10 @@ const capabilityRecords = validateCapabilityRecords([
     name: 'Startup lifecycle engine',
     state: 'prototype',
     summary:
-      'Pilot can compile a founder goal into a governed startup lifecycle DAG draft across onboarding, PMF, build, launch, growth, sales, formation, fundraising, and operations, but it does not execute that DAG as durable mission runtime yet.',
+      'Pilot can compile and persist a founder goal into durable venture, goal, mission, node, edge, and task rows across onboarding, PMF, build, launch, growth, sales, formation, fundraising, and operations, but it does not execute that mission DAG autonomously yet.',
     owner: 'Runtime Agent',
     blockers: [
-      'Lifecycle DAG is compiled but not persisted as venture/mission/action runtime state',
+      'Lifecycle DAG is persisted as venture/goal/mission/node/edge/task state, but nodes are not yet dispatched as an executable runtime workflow',
       'Nodes are not yet executable through the mission runtime and Tool Broker as a single startup launch workflow',
       'Legal/financial/external communication escalation contracts are compiled but not enforced by a running lifecycle engine',
       'No end-to-end startup launch eval passing against the lifecycle engine',
@@ -368,6 +369,7 @@ const capabilityRecords = validateCapabilityRecords([
     evidence: [
       'Gate 9 adds startup lifecycle templates with agents, skills, tools, evidence, HELM policy classes, escalation conditions, and acceptance criteria',
       'Gateway exposes /api/startup-lifecycle/compile for partner-scoped founder-goal compilation without starting execution',
+      'Gateway exposes /api/startup-lifecycle/persist to store compiled lifecycle DAGs as durable venture, goal, mission, node, edge, and task records without starting execution',
     ],
     evalRequirement: 'Full Startup Launch Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,

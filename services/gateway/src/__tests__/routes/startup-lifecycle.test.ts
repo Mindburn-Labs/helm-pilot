@@ -122,4 +122,51 @@ describe('startupLifecycleRoutes', () => {
     expect(body.templates.map((node) => node.stage)).toContain('pmf_discovery');
     expect(body.templates[0]?.requiredEvidence.length).toBeGreaterThan(0);
   });
+
+  it('persists a lifecycle DAG as durable mission runtime without starting execution', async () => {
+    const deps = createMockDeps();
+    deps.db._setResult([{ id: '00000000-0000-4000-8000-000000000010' }]);
+    const { fetch } = testApp(startupLifecycleRoutes, deps);
+    const res = await fetch(
+      'POST',
+      '/persist',
+      {
+        ventureName: 'EvidenceOS',
+        founderGoal:
+          'Build and launch a governed evidence automation product for startup founders.',
+        ventureContext: 'Founder has GitHub and Cloudflare access.',
+        constraints: ['No external sends without review'],
+        autonomyMode: 'review',
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      workspaceId: string;
+      capabilityState: string;
+      productionReady: boolean;
+      persisted: {
+        ventureId: string;
+        goalId: string;
+        missionId: string;
+        nodeCount: number;
+        edgeCount: number;
+        taskCount: number;
+      };
+      mission: {
+        status: string;
+        blockers: string[];
+      };
+    }>(res, 201);
+
+    expect(body.workspaceId).toBe(workspaceId);
+    expect(body.capabilityState).toBe('prototype');
+    expect(body.productionReady).toBe(false);
+    expect(body.mission.status).toBe('persisted_not_executing');
+    expect(body.persisted.ventureId).toBe('00000000-0000-4000-8000-000000000010');
+    expect(body.persisted.nodeCount).toBeGreaterThan(10);
+    expect(body.persisted.edgeCount).toBeGreaterThan(0);
+    expect(body.persisted.taskCount).toBe(body.persisted.nodeCount);
+    expect(body.mission.blockers.join(' ')).toContain('not executing through the runtime');
+    expect(body.mission.blockers.join(' ')).not.toContain('not persisted');
+  });
 });

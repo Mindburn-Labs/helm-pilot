@@ -13,7 +13,7 @@ This is the control artifact for moving Pilot from a governed agent/task prototy
 - Decision Court now splits `heuristic_preview`, `governed_llm_court`, and `unavailable`; governed mode requires HELM-governed model-call receipts and no longer silently falls back to fake adversarial output.
 - `operator.computer_use` now supports narrow HELM-governed local safe actions for allowlisted terminal commands, project-scoped file reads/writes, and local dev-server status checks with durable `computer_actions` evidence rows. It remains `prototype`, not `production_ready`, because sandbox provider execution, unrestricted desktop automation, and the Safe Computer/Sandbox Action Eval are not complete.
 - `/api/command-center` now aggregates real workspace-scoped durable rows for tasks, task runs, actions, tool executions, HELM receipts, approvals, audit events, browser observations, computer actions, agent handoffs, artifacts, an authorization snapshot, and capability truth. The web `/command-center` surface renders that state without route-local demo data.
-- Startup lifecycle templates now compile founder goals into governed lifecycle DAG drafts with required agents, skills, tools, evidence, HELM policy classes, escalation conditions, and acceptance criteria. This remains `prototype`, not `production_ready`, because the DAG is not persisted or executed through mission runtime and Full Startup Launch Eval has not passed.
+- Startup lifecycle templates now compile founder goals into governed lifecycle DAG drafts with required agents, skills, tools, evidence, HELM policy classes, escalation conditions, and acceptance criteria. `/api/startup-lifecycle/persist` stores those DAGs as durable venture, goal, mission, node, edge, and task rows. This remains `prototype`, not `production_ready`, because persisted mission nodes are not dispatched through executable runtime and Full Startup Launch Eval has not passed.
 - The Gate 10 eval registry now defines the required production autonomy eval scenarios, durable `eval_runs`/`eval_results`/`eval_evidence_links` records store eval packs, failed evals create blocker tasks, and passed eval packs create promotion-eligibility rows without mutating the capability registry. `/api/evals/execute` runs a narrow control-plane proof check for a registered scenario, but full external-world eval orchestration remains incomplete.
 - `score_opportunity` now returns a deterministic evidence-backed scorecard and writes Tool Broker records for autonomous calls, but PMF Discovery Eval has not promoted it to `production_ready`.
 - Skill registry code exists under `packages/shared/src/skills`, and Gate 3 wires it into gateway/orchestrator/conductor with audited skill metadata on subagent spawns. It is still not `production_ready` because skills are not fully Tool Broker callable and have not passed the Skill Invocation Governance Eval.
@@ -58,8 +58,8 @@ No row may move to `production_ready` without passing eval metadata in the regis
 - Gate 6, Browser Operation: read-only logged-in browser sessions, active-tab grants, browser actions, screenshots, DOM hashes, redaction, replay, receipts. Status: merged in PR #18, prototype until eval-backed.
 - Gate 7, Computer/Sandbox Operation: governed safe terminal/file/dev-server actions with evidence and deny rules. Status: merged in PR #19, prototype until eval-backed.
 - Gate 8, Command Center UI: real task/action/evidence/receipt/browser/computer/artifact/audit/approval state, agent lanes, evidence drawer, browser/computer replay rows, permission graph snapshot, escalation queue, and capability matrix. Status: merged in PR #20, prototype until eval-backed.
-- Gate 9, Startup Lifecycle Engine: mission templates/compiler for founder lifecycle workflows with required agents, skills, tools, evidence, policy classes, escalation conditions, and acceptance criteria. Status: merged in PR #21, prototype until eval-backed.
-- Gate 10, Eval Suite and Production Promotion: production eval scenario registry, durable eval run/result/evidence records, failed-eval blocker tasks, promotion eligibility records, promotion guard, and narrow control-plane proof-check execution are present. Status: current PR; full external-world eval orchestration remains incomplete.
+- Gate 9, Startup Lifecycle Engine: mission templates/compiler for founder lifecycle workflows with required agents, skills, tools, evidence, policy classes, escalation conditions, and acceptance criteria, plus durable venture/goal/mission/node/edge/task persistence. Status: merged in PR #21 plus follow-up persistence PR, prototype until eval-backed execution exists.
+- Gate 10, Eval Suite and Production Promotion: production eval scenario registry, durable eval run/result/evidence records, failed-eval blocker tasks, promotion eligibility records, promotion guard, and narrow control-plane proof-check execution are present. Status: merged across PR #22 and PR #23; full external-world eval orchestration remains incomplete.
 
 ## PR Sequence
 
@@ -74,8 +74,8 @@ No row may move to `production_ready` without passing eval metadata in the regis
 9. Browser PR: read-only browser session actions and observations with evidence/replay.
 10. Computer PR: safe sandbox/local command and file actions with HELM and evidence.
 11. UI PR: command-center shell backed by durable state from Gates 1 and 2.
-12. Lifecycle PR: startup mission compiler and lifecycle templates.
-13. Eval PR: eval persistence, promotion rules, HELM Governance eval, and first runtime eval.
+12. Lifecycle PR: startup mission compiler, lifecycle templates, and durable DAG persistence.
+13. Eval PR: eval persistence, promotion rules, HELM Governance eval, and first runtime eval proof checks.
 14. Docs PR: docs truth pass, public readiness checklist, and eval-linked claims.
 
 ## Test Plan
@@ -89,7 +89,7 @@ No row may move to `production_ready` without passing eval metadata in the regis
 - Gate 6: YC logged-in read/extract eval, credential redaction, observation replay, screenshot/DOM/evidence persistence.
 - Gate 7: allowed command, denied command, denied path, file diff evidence, receipt failure denial.
 - Gate 8: navigation, capability-state rendering, mission detail state rendering, receipt/evidence empty/blocked/live/completed states.
-- Gate 9: goal-to-mission compiler output, legal/financial/external-comms escalation, controlled startup launch workflow.
+- Gate 9: goal-to-mission compiler output, mission DAG persistence, legal/financial/external-comms escalation, controlled startup launch workflow.
 - Gate 10: eval result persistence, failing eval blocker creation, promotion-only-after-passing-eval rule.
 
 ## Known Blockers
@@ -103,6 +103,7 @@ No row may move to `production_ready` without passing eval metadata in the regis
 - HELM receipts have mandatory elevated-action sink enforcement, but still need HELM Governance Eval promotion before production-ready claims.
 - Opportunity scoring needs PMF Discovery Eval promotion and first-class Evidence Center artifact packs before production-ready claims.
 - A2A state must move from protocol/process-local assumptions to durable Postgres storage.
+- Mission runtime has durable venture, goal, mission, node, edge, task, and mission-task rows, but still needs executable scheduling, checkpoint, recovery, and replay semantics.
 - Workspace RBAC and operatorId scoping need centralized enforcement before broad delegated access.
 
 ## Ownership By Agent Area
