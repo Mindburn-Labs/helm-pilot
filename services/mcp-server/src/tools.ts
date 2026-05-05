@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { appendEvidenceItem } from '@pilot/db';
 import { type Db } from '@pilot/db/client';
 import { type MemoryService } from '@pilot/memory';
 import type { McpTool, McpToolCallResult } from '@pilot/shared/mcp';
@@ -238,7 +240,28 @@ export const PILOT_MCP_TOOLS: ExposedTool[] = [
         sizeBytes: content.length,
         changelog: 'Initial version',
       });
-      return text({ id: row.id, name: row.name, type: row.type, version: 1 });
+      const evidenceItemId = await appendEvidenceItem(db, {
+        workspaceId,
+        artifactId: row.id,
+        evidenceType: 'artifact_created',
+        sourceType: 'mcp_server',
+        title: `Artifact created: ${row.name}`,
+        summary: description || `Created ${atype} artifact`,
+        redactionState: 'redacted',
+        sensitivity: 'internal',
+        contentHash: content ? hashText(content) : null,
+        storageRef: storagePath,
+        replayRef: `artifact:${row.id}:1`,
+        metadata: {
+          artifactType: atype,
+          version: 1,
+          mimeType: 'text/plain',
+          sizeBytes: content.length,
+          storageMode: 'inline_artifact_metadata',
+          tool: 'create_artifact',
+        },
+      });
+      return text({ id: row.id, name: row.name, type: row.type, version: 1, evidenceItemId });
     },
   },
 ];
@@ -253,4 +276,8 @@ export function mcpToolDescriptors(): McpTool[] {
 
 export function findMcpTool(name: string): ExposedTool | undefined {
   return PILOT_MCP_TOOLS.find((t) => t.name === name);
+}
+
+function hashText(text: string) {
+  return `sha256:${createHash('sha256').update(text).digest('hex')}`;
 }

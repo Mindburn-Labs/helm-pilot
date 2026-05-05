@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Db } from '@pilot/db/client';
+import { artifactVersions, artifacts, evidenceItems } from '@pilot/db/schema';
 import { createMcpApp } from '../app.js';
 
 // ─── Pilot MCP provider app tests (Phase 14 Track A) ───
@@ -9,6 +10,46 @@ import { createMcpApp } from '../app.js';
 
 const BEARER = 'test-token-1234567890abcdef';
 const dbStub = {} as unknown as Db;
+
+function createArtifactMcpDb() {
+  const insertedArtifacts: unknown[] = [];
+  const insertedArtifactVersions: unknown[] = [];
+  const insertedEvidenceItems: unknown[] = [];
+  const db = {
+    insert: vi.fn((table: unknown) => ({
+      values: vi.fn((value: unknown) => {
+        if (table === artifacts) {
+          insertedArtifacts.push(value);
+          return {
+            returning: vi.fn(async () => [
+              {
+                id: '00000000-0000-4000-8000-000000000030',
+                name: (value as { name: string }).name,
+                type: (value as { type: string }).type,
+              },
+            ]),
+          };
+        }
+        if (table === artifactVersions) {
+          insertedArtifactVersions.push(value);
+          return {};
+        }
+        if (table === evidenceItems) {
+          insertedEvidenceItems.push(value);
+          return {
+            returning: vi.fn(async () => [
+              {
+                id: '00000000-0000-4000-8000-000000000031',
+              },
+            ]),
+          };
+        }
+        return { returning: vi.fn(async () => []) };
+      }),
+    })),
+  };
+  return { db: db as unknown as Db, insertedArtifacts, insertedArtifactVersions, insertedEvidenceItems };
+}
 
 function post(body: unknown, headers: Record<string, string> = {}) {
   return new Request('http://test.local/mcp', {
@@ -115,6 +156,81 @@ describe('createMcpApp', () => {
       error: { code: number; message: string };
     };
     expect(body.error.code).toBe(-32601);
+  });
+
+  it('tools/call create_artifact indexes the artifact as canonical evidence', async () => {
+    const { db, insertedArtifacts, insertedArtifactVersions, insertedEvidenceItems } =
+      createArtifactMcpDb();
+    const appWithDb = createMcpApp({ db, bearerToken: BEARER });
+
+    const res = await appWithDb.fetch(
+      post(
+        {
+          jsonrpc: '2.0',
+          id: 10,
+          method: 'tools/call',
+          params: {
+            name: 'create_artifact',
+            arguments: {
+              workspaceId: '00000000-0000-4000-8000-000000000001',
+              type: 'copy',
+              name: 'launch-email.txt',
+              description: 'Launch email draft',
+              content: 'Pilot is live.',
+            },
+          },
+        },
+        { authorization: `Bearer ${BEARER}` },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      result: { content: Array<{ type: string; text: string }> };
+    };
+    const payload = JSON.parse(body.result.content[0]!.text) as {
+      id: string;
+      name: string;
+      type: string;
+      version: number;
+      evidenceItemId: string;
+    };
+
+    expect(insertedArtifacts[0]).toMatchObject({
+      workspaceId: '00000000-0000-4000-8000-000000000001',
+      type: 'copy',
+      name: 'launch-email.txt',
+      description: 'Launch email draft',
+      storagePath: 'inline://launch-email.txt',
+      mimeType: 'text/plain',
+      sizeBytes: 14,
+      metadata: { content: 'Pilot is live.' },
+    });
+    expect(insertedArtifactVersions[0]).toMatchObject({
+      artifactId: '00000000-0000-4000-8000-000000000030',
+      version: 1,
+      storagePath: 'inline://launch-email.txt',
+      sizeBytes: 14,
+    });
+    expect(insertedEvidenceItems[0]).toMatchObject({
+      workspaceId: '00000000-0000-4000-8000-000000000001',
+      artifactId: '00000000-0000-4000-8000-000000000030',
+      evidenceType: 'artifact_created',
+      sourceType: 'mcp_server',
+      title: 'Artifact created: launch-email.txt',
+      summary: 'Launch email draft',
+      redactionState: 'redacted',
+      contentHash: expect.stringMatching(/^sha256:/u),
+      storageRef: 'inline://launch-email.txt',
+      replayRef: 'artifact:00000000-0000-4000-8000-000000000030:1',
+    });
+    expect(payload).toEqual({
+      id: '00000000-0000-4000-8000-000000000030',
+      name: 'launch-email.txt',
+      type: 'copy',
+      version: 1,
+      evidenceItemId: '00000000-0000-4000-8000-000000000031',
+    });
   });
 
   it('malformed JSON returns -32700', async () => {
