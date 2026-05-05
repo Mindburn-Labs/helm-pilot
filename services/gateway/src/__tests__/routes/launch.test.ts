@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { launchRoutes } from '../../routes/launch.js';
-import { testApp, expectJson } from '../helpers.js';
+import { createMockDeps, testApp, expectJson } from '../helpers.js';
 
 const mockEngine = {
   listArtifacts: vi.fn(async () => []),
@@ -64,6 +64,22 @@ vi.mock('@pilot/launch-engine', () => ({
 beforeEach(() => {
   Object.values(mockEngine).forEach((fn) => fn.mockClear());
 });
+
+function mockHelmClient() {
+  return {
+    evaluate: vi.fn(async (req: Record<string, unknown>) => ({
+      receipt: {
+        decisionId: `dec-${String(req['action']).toLowerCase()}`,
+        verdict: 'ALLOW',
+        policyVersion: 'founder-ops-v1',
+        receivedAt: new Date(),
+        action: req['action'],
+        resource: req['resource'],
+        principal: req['principal'],
+      },
+    })),
+  };
+}
 
 describe('launchRoutes', () => {
   const wsHeader = { 'X-Workspace-Id': 'ws-1' };
@@ -238,8 +254,28 @@ describe('launchRoutes', () => {
       expect(json).toHaveProperty('error', 'workspaceId and targetId required');
     });
 
-    it('returns 201 on success', async () => {
+    it('blocks elevated deployment execution when HELM is unavailable', async () => {
       const { fetch } = testApp(launchRoutes);
+      const res = await fetch(
+        'POST',
+        '/deployments',
+        {
+          workspaceId: 'ws-1',
+          targetId: 'target-1',
+          image: 'registry.example.com/app:v1',
+        },
+        wsHeader,
+      );
+      const json = await expectJson<{ error: string }>(res, 503);
+
+      expect(json.error).toBe('HELM governance client is required for elevated launch actions');
+      expect(mockEngine.deployToTarget).not.toHaveBeenCalled();
+    });
+
+    it('returns 201 on success after HELM approval', async () => {
+      const helmClient = mockHelmClient();
+      const deps = createMockDeps({ helmClient: helmClient as never });
+      const { fetch } = testApp(launchRoutes, deps);
       const res = await fetch(
         'POST',
         '/deployments',
@@ -252,6 +288,13 @@ describe('launchRoutes', () => {
       );
       const json = await expectJson(res, 201);
 
+      expect(helmClient.evaluate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'DEPLOY',
+          resource: 'digitalocean:target-1',
+          effectLevel: 'E3',
+        }),
+      );
       expect(mockEngine.deployToTarget).toHaveBeenCalledWith(
         'ws-1',
         {
@@ -316,17 +359,81 @@ describe('launchRoutes', () => {
   // ─── POST /deployments/:id/health ───
 
   describe('POST /deployments/:id/health', () => {
-    it('returns 201 on success', async () => {
+    it('blocks elevated health checks when HELM is unavailable', async () => {
       const { fetch } = testApp(launchRoutes);
+      const res = await fetch('POST', '/deployments/dep-1/health', undefined, wsHeader);
+      const json = await expectJson<{ error: string }>(res, 503);
+
+      expect(json.error).toBe('HELM governance client is required for elevated launch actions');
+      expect(mockEngine.runDeploymentHealthCheck).not.toHaveBeenCalled();
+    });
+
+    it('returns 201 on success', async () => {
+      const helmClient = mockHelmClient();
+      const deps = createMockDeps({ helmClient: helmClient as never });
+      const { fetch } = testApp(launchRoutes, deps);
       const res = await fetch('POST', '/deployments/dep-1/health', undefined, wsHeader);
       const json = await expectJson(res, 201);
 
+      expect(helmClient.evaluate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'DEPLOY_HEALTH_CHECK',
+          resource: 'digitalocean:target-1',
+          effectLevel: 'E2',
+        }),
+      );
       expect(mockEngine.runDeploymentHealthCheck).toHaveBeenCalledWith(
         'dep-1',
         expect.objectContaining({ name: 'digitalocean' }),
         'ws-1',
       );
       expect(json.check).toEqual({ id: 'hc-1', status: 'healthy' });
+    });
+  });
+
+  // ─── POST /deployments/:id/rollback ───
+
+  describe('POST /deployments/:id/rollback', () => {
+    it('blocks elevated rollback when HELM is unavailable', async () => {
+      const { fetch } = testApp(launchRoutes);
+      const res = await fetch(
+        'POST',
+        '/deployments/dep-1/rollback',
+        { targetVersion: 'v1' },
+        wsHeader,
+      );
+      const json = await expectJson<{ error: string }>(res, 503);
+
+      expect(json.error).toBe('HELM governance client is required for elevated launch actions');
+      expect(mockEngine.rollbackDeployment).not.toHaveBeenCalled();
+    });
+
+    it('runs rollback only after HELM approval', async () => {
+      const helmClient = mockHelmClient();
+      const deps = createMockDeps({ helmClient: helmClient as never });
+      const { fetch } = testApp(launchRoutes, deps);
+      const res = await fetch(
+        'POST',
+        '/deployments/dep-1/rollback',
+        { targetVersion: 'v1' },
+        wsHeader,
+      );
+      const json = await expectJson(res, 200);
+
+      expect(helmClient.evaluate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'DEPLOY_ROLLBACK',
+          resource: 'digitalocean:target-1',
+          effectLevel: 'E3',
+        }),
+      );
+      expect(mockEngine.rollbackDeployment).toHaveBeenCalledWith(
+        'dep-1',
+        'v1',
+        expect.objectContaining({ name: 'digitalocean' }),
+        'ws-1',
+      );
+      expect(json.deployment).toEqual({ id: 'dep-1', status: 'rolled_back' });
     });
   });
 });
