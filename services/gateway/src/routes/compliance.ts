@@ -1,6 +1,8 @@
-import { Hono } from 'hono';
-import { eq, desc } from 'drizzle-orm';
-import { workspaces, complianceAttestations } from '@pilot/db/schema';
+import { randomUUID } from 'node:crypto';
+import { Hono, type Context } from 'hono';
+import { and, eq, desc } from 'drizzle-orm';
+import { appendEvidenceItem } from '@pilot/db';
+import { auditLog, workspaces, complianceAttestations } from '@pilot/db/schema';
 import {
   FRAMEWORKS,
   ComplianceFrameworkCodeSchema,
@@ -46,17 +48,44 @@ export function complianceRoutes(deps: GatewayDeps) {
     if (!parsed.success) {
       return c.json({ error: 'invalid framework code' }, 400);
     }
-    const [ws] = await deps.db
-      .select({ enabled: workspaces.complianceFrameworks })
-      .from(workspaces)
-      .where(eq(workspaces.id, workspaceId))
-      .limit(1);
-    if (!ws) return c.json({ error: 'workspace not found' }, 404);
-    const next = Array.from(new Set([...(ws.enabled ?? []), parsed.data]));
-    await deps.db
-      .update(workspaces)
-      .set({ complianceFrameworks: next, updatedAt: new Date() })
-      .where(eq(workspaces.id, workspaceId));
+    const result = await deps.db
+      .transaction(async (tx) => {
+        const [ws] = await tx
+          .select({ enabled: workspaces.complianceFrameworks })
+          .from(workspaces)
+          .where(eq(workspaces.id, workspaceId))
+          .limit(1);
+        if (!ws) return null;
+
+        const next = Array.from(new Set([...(ws.enabled ?? []), parsed.data]));
+        await tx
+          .update(workspaces)
+          .set({ complianceFrameworks: next, updatedAt: new Date() })
+          .where(eq(workspaces.id, workspaceId));
+
+        await appendComplianceEvidence(tx, {
+          workspaceId,
+          actor: actorFromContext(c),
+          action: 'COMPLIANCE_FRAMEWORK_ENABLED',
+          target: parsed.data,
+          evidenceType: 'compliance_framework_enabled',
+          replayRef: `compliance:${workspaceId}:framework:${parsed.data}:enabled`,
+          title: `Compliance framework enabled: ${parsed.data}`,
+          summary: 'Workspace compliance framework configuration changed.',
+          metadata: {
+            framework: parsed.data,
+            enabledCount: next.length,
+          },
+        });
+
+        return { enabled: next };
+      })
+      .catch(() => undefined);
+
+    if (result === null) return c.json({ error: 'workspace not found' }, 404);
+    if (result === undefined) return c.json({ error: 'failed to enable framework' }, 500);
+
+    const next = result.enabled;
     return c.json({ enabled: next });
   });
 
@@ -67,17 +96,44 @@ export function complianceRoutes(deps: GatewayDeps) {
     if (roleDenied) return roleDenied;
     const parsed = ComplianceFrameworkCodeSchema.safeParse(c.req.param('code'));
     if (!parsed.success) return c.json({ error: 'invalid framework code' }, 400);
-    const [ws] = await deps.db
-      .select({ enabled: workspaces.complianceFrameworks })
-      .from(workspaces)
-      .where(eq(workspaces.id, workspaceId))
-      .limit(1);
-    if (!ws) return c.json({ error: 'workspace not found' }, 404);
-    const next = (ws.enabled ?? []).filter((code) => code !== parsed.data);
-    await deps.db
-      .update(workspaces)
-      .set({ complianceFrameworks: next, updatedAt: new Date() })
-      .where(eq(workspaces.id, workspaceId));
+    const result = await deps.db
+      .transaction(async (tx) => {
+        const [ws] = await tx
+          .select({ enabled: workspaces.complianceFrameworks })
+          .from(workspaces)
+          .where(eq(workspaces.id, workspaceId))
+          .limit(1);
+        if (!ws) return null;
+
+        const next = (ws.enabled ?? []).filter((code) => code !== parsed.data);
+        await tx
+          .update(workspaces)
+          .set({ complianceFrameworks: next, updatedAt: new Date() })
+          .where(eq(workspaces.id, workspaceId));
+
+        await appendComplianceEvidence(tx, {
+          workspaceId,
+          actor: actorFromContext(c),
+          action: 'COMPLIANCE_FRAMEWORK_DISABLED',
+          target: parsed.data,
+          evidenceType: 'compliance_framework_disabled',
+          replayRef: `compliance:${workspaceId}:framework:${parsed.data}:disabled`,
+          title: `Compliance framework disabled: ${parsed.data}`,
+          summary: 'Workspace compliance framework configuration changed.',
+          metadata: {
+            framework: parsed.data,
+            enabledCount: next.length,
+          },
+        });
+
+        return { enabled: next };
+      })
+      .catch(() => undefined);
+
+    if (result === null) return c.json({ error: 'workspace not found' }, 404);
+    if (result === undefined) return c.json({ error: 'failed to disable framework' }, 500);
+
+    const next = result.enabled;
     return c.json({ enabled: next });
   });
 
@@ -109,19 +165,47 @@ export function complianceRoutes(deps: GatewayDeps) {
       }
     }
 
-    const expiresAt = new Date(
-      Date.now() + meta.retentionDays * 24 * 60 * 60 * 1000,
-    );
-    const [row] = await deps.db
-      .insert(complianceAttestations)
-      .values({
-        workspaceId,
-        framework,
-        bundleHash: bundleHash ?? null,
-        expiresAt,
-        metadata: { trigger: 'manual' },
+    const expiresAt = new Date(Date.now() + meta.retentionDays * 24 * 60 * 60 * 1000);
+    const row = await deps.db
+      .transaction(async (tx) => {
+        const [created] = await tx
+          .insert(complianceAttestations)
+          .values({
+            workspaceId,
+            framework,
+            bundleHash: bundleHash ?? null,
+            expiresAt,
+            metadata: { trigger: 'manual' },
+          })
+          .returning();
+
+        if (!created) return null;
+
+        await appendComplianceEvidence(tx, {
+          workspaceId,
+          actor: actorFromContext(c),
+          action: 'COMPLIANCE_ATTESTATION_CREATED',
+          target: created.id,
+          evidenceType: 'compliance_attestation_created',
+          replayRef: `compliance:${workspaceId}:attestation:${created.id}`,
+          title: `Compliance attestation created: ${framework}`,
+          summary: 'Workspace compliance attestation was created.',
+          metadata: {
+            framework,
+            attestationId: created.id,
+            bundleHash: bundleHash ?? null,
+            expiresAt: expiresAt.toISOString(),
+          },
+        });
+
+        return created;
       })
-      .returning();
+      .catch(() => undefined);
+
+    if (row === null || row === undefined) {
+      return c.json({ error: 'failed to create compliance attestation' }, 500);
+    }
+
     return c.json({ id: row?.id, framework, bundleHash, expiresAt });
   });
 
@@ -140,4 +224,67 @@ export function complianceRoutes(deps: GatewayDeps) {
   });
 
   return app;
+}
+
+type ComplianceEvidenceInput = {
+  workspaceId: string;
+  actor: string;
+  action: string;
+  target: string;
+  evidenceType: string;
+  replayRef: string;
+  title: string;
+  summary: string;
+  metadata: Record<string, unknown>;
+};
+
+async function appendComplianceEvidence(
+  tx: Pick<GatewayDeps['db'], 'insert' | 'update'>,
+  input: ComplianceEvidenceInput,
+) {
+  const auditEventId = randomUUID();
+  const metadata = {
+    evidenceType: input.evidenceType,
+    replayRef: input.replayRef,
+    ...input.metadata,
+  };
+
+  await tx.insert(auditLog).values({
+    id: auditEventId,
+    workspaceId: input.workspaceId,
+    action: input.action,
+    actor: input.actor,
+    target: input.target,
+    verdict: 'allow',
+    metadata,
+  });
+
+  const evidenceItemId = await appendEvidenceItem(tx, {
+    workspaceId: input.workspaceId,
+    auditEventId,
+    evidenceType: input.evidenceType,
+    sourceType: 'gateway_compliance',
+    title: input.title,
+    summary: input.summary,
+    redactionState: 'redacted',
+    sensitivity: 'internal',
+    replayRef: input.replayRef,
+    metadata: input.metadata,
+  });
+
+  await tx
+    .update(auditLog)
+    .set({
+      metadata: {
+        ...metadata,
+        evidenceItemId,
+      },
+    })
+    .where(and(eq(auditLog.workspaceId, input.workspaceId), eq(auditLog.id, auditEventId)));
+
+  return evidenceItemId;
+}
+
+function actorFromContext(c: Context) {
+  return `user:${(c.get('userId') as string | undefined) ?? 'unknown'}`;
 }
