@@ -10,6 +10,7 @@ vi.mock('@pilot/db/schema', () => ({
   connectorGrants: { id: 'cg.id', workspaceId: 'cg.ws', needsReauth: 'cg.nr' },
   connectorTokens: { grantId: 'ct.grant', expiresAt: 'ct.exp' },
   connectors: { id: 'c.id', name: 'c.name' },
+  auditLog: { id: 'audit.id', workspaceId: 'audit.ws' },
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -27,7 +28,12 @@ function makeDb() {
     values: Record<string, unknown>;
     where: unknown;
   }> = [];
+  const auditUpdateCalls: Array<{
+    values: Record<string, unknown>;
+    where: unknown;
+  }> = [];
   const insertCalls: Array<Record<string, unknown>> = [];
+  const auditInsertCalls: Array<Record<string, unknown>> = [];
 
   let nextSelectRows: unknown[] = [];
   let nextLockAcquired = true;
@@ -48,7 +54,11 @@ function makeDb() {
   const db = {
     insert: vi.fn((_table: unknown) => ({
       values: vi.fn((value: Record<string, unknown>) => {
-        insertCalls.push(value);
+        if (value['evidenceType']) {
+          insertCalls.push(value);
+        } else {
+          auditInsertCalls.push(value);
+        }
         return {
           returning: vi.fn(async () => [{ id: `evidence-item-${insertCalls.length}` }]),
         };
@@ -57,7 +67,11 @@ function makeDb() {
     update: vi.fn((_table: unknown) => ({
       set: vi.fn((values: Record<string, unknown>) => ({
         where: (where: unknown) => {
-          updateCalls.push({ values, where });
+          if (values['metadata']) {
+            auditUpdateCalls.push({ values, where });
+          } else {
+            updateCalls.push({ values, where });
+          }
           return Promise.resolve();
         },
       })),
@@ -69,7 +83,9 @@ function makeDb() {
   return {
     db,
     updateCalls,
+    auditUpdateCalls,
     insertCalls,
+    auditInsertCalls,
     setNextSelectRows: (rows: unknown[]) => {
       nextSelectRows = rows;
     },
@@ -140,7 +156,14 @@ describe('connector refresh — registerRefreshJobs', () => {
   });
 
   it('success path: clears attempts + needs_reauth', async () => {
-    const { db, updateCalls, insertCalls, setNextSelectRows } = makeDb();
+    const {
+      db,
+      updateCalls,
+      insertCalls,
+      auditInsertCalls,
+      auditUpdateCalls,
+      setNextSelectRows,
+    } = makeDb();
     const oauth = makeOauth('new_access_token');
     const { boss, handlers } = makeBoss();
 
@@ -162,8 +185,24 @@ describe('connector refresh — registerRefreshJobs', () => {
       lastRefreshError: null,
       needsReauth: false,
     });
+    expect(auditInsertCalls[0]).toMatchObject({
+      id: expect.any(String),
+      workspaceId: 'ws_abc',
+      action: 'CONNECTOR_REFRESH_SUCCEEDED',
+      actor: 'workspace:ws_abc',
+      target: 'conn_github',
+      verdict: 'succeeded',
+      metadata: expect.objectContaining({
+        evidenceType: 'connector_refresh_succeeded',
+        replayRef: 'connector-refresh:cg_1:succeeded:0',
+        grantId: 'cg_1',
+        connectorId: 'conn_github',
+        productionReady: false,
+      }),
+    });
     expect(insertCalls[0]).toMatchObject({
       workspaceId: 'ws_abc',
+      auditEventId: auditInsertCalls[0]?.['id'],
       evidenceType: 'connector_refresh_succeeded',
       sourceType: 'connector_refresh_worker',
       redactionState: 'redacted',
@@ -177,6 +216,9 @@ describe('connector refresh — registerRefreshJobs', () => {
         permanent: false,
         credentialBoundary: 'no_raw_tokens_in_evidence',
       }),
+    });
+    expect(auditUpdateCalls[0]?.values['metadata']).toMatchObject({
+      evidenceItemId: 'evidence-item-1',
     });
     expect(JSON.stringify(insertCalls)).not.toContain('new_access_token');
   });

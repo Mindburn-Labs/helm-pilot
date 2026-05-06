@@ -392,7 +392,7 @@ const capabilityRecords = validateCapabilityRecords([
       'Safe computer action evidence_items now link to OPERATOR_COMPUTER_USE audit_log rows through audit_event_id',
       'Production eval run evidence_items now link to PILOT_PRODUCTION_EVAL_RUN audit_log rows through audit_event_id',
       'Connector lifecycle evidence_items now link to CONNECTOR_* audit_log rows through audit_event_id with audit metadata backfilled to the evidence item id',
-      'Connector refresh background worker success and failure paths append sanitized evidence_items rows without token material',
+      'Connector refresh background worker success and failure paths append sanitized evidence_items rows without token material and link them to CONNECTOR_REFRESH_* audit_log rows',
       'Workspace-scoped YC, Startup School, private YC, knowledge ingestion, and opportunity-cluster pipeline workers append redacted pipeline_worker evidence_items rows for success and failure',
       'YC scraper ingestion finalizers append redacted yc_scraper_ingestion evidence_items rows for parsed and failed workspace-scoped ingestion records without session, token, or raw error material',
       'Orchestrator and MCP artifact creation append artifact_created evidence_items rows linked to artifact_id and replay refs',

@@ -1,8 +1,9 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type PgBoss from 'pg-boss';
 import { and, eq, lt, sql } from 'drizzle-orm';
 import { appendEvidenceItem } from '@pilot/db';
 import type { Db } from '@pilot/db/client';
+import { auditLog } from '@pilot/db/schema';
 import { createLogger } from '@pilot/shared/logger';
 import type { OAuthFlowManager } from './oauth.js';
 
@@ -257,20 +258,50 @@ async function appendRefreshEvidence(
     productionReady: false,
     credentialBoundary: 'no_raw_tokens_in_evidence',
   };
+  const evidenceType =
+    input.status === 'succeeded' ? 'connector_refresh_succeeded' : 'connector_refresh_failed';
+  const auditEventId = randomUUID();
+  const replayRef = `connector-refresh:${input.grantId}:${input.status}:${input.attempts}`;
+  const auditMetadata = {
+    evidenceType,
+    replayRef,
+    ...metadata,
+  };
 
-  await appendEvidenceItem(deps.db, {
+  await deps.db.insert(auditLog).values({
+    id: auditEventId,
     workspaceId: input.workspaceId,
-    evidenceType:
-      input.status === 'succeeded' ? 'connector_refresh_succeeded' : 'connector_refresh_failed',
+    action: evidenceType.toUpperCase(),
+    actor: `workspace:${input.workspaceId}`,
+    target: input.connectorId,
+    verdict: input.status,
+    reason: input.summary,
+    metadata: auditMetadata,
+  });
+
+  const evidenceItemId = await appendEvidenceItem(deps.db, {
+    workspaceId: input.workspaceId,
+    auditEventId,
+    evidenceType,
     sourceType: 'connector_refresh_worker',
     title: `Connector refresh ${input.status}: ${input.connectorId}`,
     summary: input.summary,
     redactionState: 'redacted',
     sensitivity: 'sensitive',
     contentHash: hashJson(metadata),
-    replayRef: `connector-refresh:${input.grantId}:${input.status}:${input.attempts}`,
+    replayRef,
     metadata,
   });
+
+  await deps.db
+    .update(auditLog)
+    .set({
+      metadata: {
+        ...auditMetadata,
+        evidenceItemId,
+      },
+    })
+    .where(and(eq(auditLog.workspaceId, input.workspaceId), eq(auditLog.id, auditEventId)));
 }
 
 function hashJson(value: unknown): string {
