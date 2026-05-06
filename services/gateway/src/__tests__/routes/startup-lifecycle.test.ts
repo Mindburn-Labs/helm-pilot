@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { evidenceItems } from '@pilot/db/schema';
+import { evidenceItems, missionRuntimeCheckpoints } from '@pilot/db/schema';
 import { startupLifecycleRoutes } from '../../routes/startup-lifecycle.js';
 import { createMockDeps, expectJson, testApp } from '../helpers.js';
 
@@ -22,6 +22,34 @@ function captureEvidenceItemInserts(deps: ReturnType<typeof createMockDeps>) {
     return originalInsert(table);
   }) as typeof deps.db.insert;
   return insertedEvidenceItems;
+}
+
+function captureEvidenceAndMissionCheckpointInserts(deps: ReturnType<typeof createMockDeps>) {
+  const insertedEvidenceItems: unknown[] = [];
+  const insertedMissionRuntimeCheckpoints: unknown[] = [];
+  const originalInsert = deps.db.insert;
+  deps.db.insert = vi.fn((table: unknown) => {
+    if (table === evidenceItems) {
+      return {
+        values: vi.fn((value: unknown) => {
+          insertedEvidenceItems.push(value);
+          const id = `00000000-0000-4000-8000-00000000019${insertedEvidenceItems.length}`;
+          return { returning: vi.fn(async () => [{ id }]) };
+        }),
+      };
+    }
+    if (table === missionRuntimeCheckpoints) {
+      return {
+        values: vi.fn((value: unknown) => {
+          insertedMissionRuntimeCheckpoints.push(value);
+          const id = `00000000-0000-4000-8000-00000000029${insertedMissionRuntimeCheckpoints.length}`;
+          return { returning: vi.fn(async () => [{ id }]) };
+        }),
+      };
+    }
+    return originalInsert(table);
+  }) as typeof deps.db.insert;
+  return { insertedEvidenceItems, insertedMissionRuntimeCheckpoints };
 }
 
 describe('startupLifecycleRoutes', () => {
@@ -455,7 +483,7 @@ describe('startupLifecycleRoutes', () => {
         pending: 1,
       },
     });
-    expect(body.blockers.join(' ')).toContain('recovery and rollback');
+    expect(body.blockers.join(' ')).toContain('production retry/replay');
     expect(insertedEvidenceItems[0]).toMatchObject({
       workspaceId,
       ventureId,
@@ -686,6 +714,291 @@ describe('startupLifecycleRoutes', () => {
       }),
     });
     expect(deps.db.update).toHaveBeenCalled();
+    expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
+  });
+
+  it('recovers a mission by checkpointing and reopening dependency-ready nodes', async () => {
+    const deps = createMockDeps();
+    const { insertedEvidenceItems, insertedMissionRuntimeCheckpoints } =
+      captureEvidenceAndMissionCheckpointInserts(deps);
+    const missionId = '00000000-0000-4000-8000-000000000160';
+    const founderNodeId = '00000000-0000-4000-8000-000000000161';
+    const ideationNodeId = '00000000-0000-4000-8000-000000000162';
+    const ideationTaskId = '00000000-0000-4000-8000-000000000163';
+    const selectResults = [
+      [
+        {
+          id: missionId,
+          workspaceId,
+          ventureId: null,
+          title: 'Launch EvidenceOS',
+          status: 'blocked',
+        },
+      ],
+      [
+        {
+          id: founderNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'founder_onboarding',
+          stage: 'founder_onboarding',
+          title: 'Founder DNA and access charter',
+          status: 'completed',
+          sortOrder: 0,
+        },
+        {
+          id: ideationNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'ideation',
+          stage: 'ideation',
+          title: 'Venture hypothesis generation',
+          status: 'pending',
+          sortOrder: 1,
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000164',
+          workspaceId,
+          missionId,
+          fromNodeKey: 'founder_onboarding',
+          toNodeKey: 'ideation',
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000165',
+          workspaceId,
+          missionId,
+          nodeId: ideationNodeId,
+          taskId: ideationTaskId,
+        },
+      ],
+      [],
+      [
+        {
+          id: founderNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'founder_onboarding',
+          stage: 'founder_onboarding',
+          title: 'Founder DNA and access charter',
+          status: 'completed',
+          sortOrder: 0,
+        },
+        {
+          id: ideationNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'ideation',
+          stage: 'ideation',
+          title: 'Venture hypothesis generation',
+          status: 'pending',
+          sortOrder: 1,
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000164',
+          workspaceId,
+          missionId,
+          fromNodeKey: 'founder_onboarding',
+          toNodeKey: 'ideation',
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000165',
+          workspaceId,
+          missionId,
+          nodeId: ideationNodeId,
+          taskId: ideationTaskId,
+        },
+      ],
+    ];
+    let selectCall = 0;
+    const originalSelect = deps.db.select;
+    deps.db.select = vi.fn(() => {
+      deps.db._setResult(selectResults[selectCall] ?? []);
+      selectCall += 1;
+      return originalSelect();
+    }) as typeof deps.db.select;
+
+    const { fetch } = testApp(startupLifecycleRoutes, deps);
+    const res = await fetch('POST', `/missions/${missionId}/recover`, {}, wsHeader);
+    const body = await expectJson<{
+      recoveryVersion: string;
+      checkpoint: { checkpointKind: string; recoveryPlan: { recoverableReadyNodeKeys: string[] } };
+      advancedReadyNodes: Array<{ nodeId: string; nodeKey: string; taskId?: string }>;
+      missionStatus: string;
+      evidenceItemIds: string[];
+      blockers: string[];
+    }>(res, 200);
+
+    expect(body.recoveryVersion).toBe('mission-recovery.v1');
+    expect(body.checkpoint.checkpointKind).toBe('pre_recovery');
+    expect(body.checkpoint.recoveryPlan.recoverableReadyNodeKeys).toEqual(['ideation']);
+    expect(body.advancedReadyNodes).toEqual([
+      expect.objectContaining({
+        nodeId: ideationNodeId,
+        nodeKey: 'ideation',
+        taskId: ideationTaskId,
+      }),
+    ]);
+    expect(body.missionStatus).toBe('scheduled_not_executing');
+    expect(body.evidenceItemIds).toEqual([
+      '00000000-0000-4000-8000-000000000191',
+      '00000000-0000-4000-8000-000000000192',
+    ]);
+    expect(body.blockers.join(' ')).toContain('does not execute unless executeReady');
+    expect(insertedMissionRuntimeCheckpoints[0]).toMatchObject({
+      checkpointKind: 'pre_recovery',
+      recoveryPlan: expect.objectContaining({
+        recoverableReadyNodeKeys: ['ideation'],
+      }),
+    });
+    expect(insertedEvidenceItems[1]).toMatchObject({
+      evidenceType: 'startup_lifecycle_mission_recovered',
+      replayRef: `mission:${missionId}:recover:00000000-0000-4000-8000-000000000291`,
+    });
+    expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
+  });
+
+  it('rolls back failed or blocked mission nodes without deleting history or external effects', async () => {
+    const deps = createMockDeps();
+    const { insertedEvidenceItems, insertedMissionRuntimeCheckpoints } =
+      captureEvidenceAndMissionCheckpointInserts(deps);
+    const missionId = '00000000-0000-4000-8000-000000000170';
+    const failedNodeId = '00000000-0000-4000-8000-000000000171';
+    const blockedNodeId = '00000000-0000-4000-8000-000000000172';
+    const failedTaskId = '00000000-0000-4000-8000-000000000173';
+    const blockedTaskId = '00000000-0000-4000-8000-000000000174';
+    const selectResults = [
+      [
+        {
+          id: missionId,
+          workspaceId,
+          ventureId: null,
+          title: 'Launch EvidenceOS',
+          status: 'blocked',
+        },
+      ],
+      [
+        {
+          id: failedNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'ideation',
+          stage: 'ideation',
+          title: 'Venture hypothesis generation',
+          status: 'failed',
+          sortOrder: 0,
+        },
+        {
+          id: blockedNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'market_research',
+          stage: 'market_research',
+          title: 'Market and competitor map',
+          status: 'blocked',
+          sortOrder: 1,
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000175',
+          workspaceId,
+          missionId,
+          fromNodeKey: 'ideation',
+          toNodeKey: 'market_research',
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000176',
+          workspaceId,
+          missionId,
+          nodeId: failedNodeId,
+          taskId: failedTaskId,
+        },
+        {
+          id: '00000000-0000-4000-8000-000000000177',
+          workspaceId,
+          missionId,
+          nodeId: blockedNodeId,
+          taskId: blockedTaskId,
+        },
+      ],
+      [],
+    ];
+    let selectCall = 0;
+    const originalSelect = deps.db.select;
+    deps.db.select = vi.fn(() => {
+      deps.db._setResult(selectResults[selectCall] ?? []);
+      selectCall += 1;
+      return originalSelect();
+    }) as typeof deps.db.select;
+    const updates: Array<Record<string, unknown>> = [];
+    deps.db.update = vi.fn(() => ({
+      set: vi.fn((payload: Record<string, unknown>) => {
+        updates.push(payload);
+        return { where: vi.fn(async () => []) };
+      }),
+    })) as unknown as typeof deps.db.update;
+
+    const { fetch } = testApp(startupLifecycleRoutes, deps);
+    const res = await fetch(
+      'POST',
+      `/missions/${missionId}/rollback`,
+      { reason: 'retry failed research branch' },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      rollbackVersion: string;
+      checkpoint: { checkpointKind: string; rollbackPlan: { targetNodeKeys: string[] } };
+      rolledBackNodes: Array<{ nodeId: string; nodeKey: string; waitingOn: string[] }>;
+      missionStatus: string;
+      evidenceItemIds: string[];
+      blockers: string[];
+    }>(res, 200);
+
+    expect(body.rollbackVersion).toBe('mission-rollback.v1');
+    expect(body.checkpoint.checkpointKind).toBe('pre_rollback');
+    expect(body.checkpoint.rollbackPlan.targetNodeKeys).toEqual(['ideation', 'market_research']);
+    expect(body.rolledBackNodes).toEqual([
+      expect.objectContaining({ nodeId: failedNodeId, nodeKey: 'ideation', waitingOn: [] }),
+      expect.objectContaining({
+        nodeId: blockedNodeId,
+        nodeKey: 'market_research',
+        waitingOn: ['ideation'],
+      }),
+    ]);
+    expect(body.missionStatus).toBe('scheduled_not_executing');
+    expect(body.evidenceItemIds).toEqual([
+      '00000000-0000-4000-8000-000000000191',
+      '00000000-0000-4000-8000-000000000192',
+    ]);
+    expect(body.blockers.join(' ')).toContain('does not reverse external-world actions');
+    expect(insertedMissionRuntimeCheckpoints[0]).toMatchObject({
+      checkpointKind: 'pre_rollback',
+      rollbackPlan: expect.objectContaining({
+        destructive: false,
+        targetNodeKeys: ['ideation', 'market_research'],
+      }),
+    });
+    expect(insertedEvidenceItems[1]).toMatchObject({
+      evidenceType: 'startup_lifecycle_mission_rollback_applied',
+      replayRef: `mission:${missionId}:rollback:00000000-0000-4000-8000-000000000291`,
+    });
+    expect(updates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: 'ready' }),
+        expect.objectContaining({ status: 'pending' }),
+        expect.objectContaining({ status: 'scheduled_not_executing' }),
+      ]),
+    );
     expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
   });
 

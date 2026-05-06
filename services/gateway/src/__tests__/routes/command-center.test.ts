@@ -646,7 +646,7 @@ describe('commandCenterRoutes', () => {
 
     expect(body.runtimeTruth.productionReady).toBe(false);
     expect(body.runtimeTruth.commandCenterState).toBe('prototype');
-    expect(body.runtimeTruth.missionRuntimeState).toBe('blocked');
+    expect(body.runtimeTruth.missionRuntimeState).toBe('prototype');
     expect(body.runtimeTruth.statement).toContain('without claiming mission autonomy');
     expect(body.authorization).toEqual({
       workspaceRole: 'owner',

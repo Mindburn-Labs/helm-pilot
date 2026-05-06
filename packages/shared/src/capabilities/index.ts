@@ -72,19 +72,19 @@ export type CapabilityEvalMetadata = z.infer<typeof CapabilityEvalMetadataSchema
 export type CapabilityRecord = z.infer<typeof CapabilityRecordSchema>;
 export type CapabilitySummary = z.infer<typeof CapabilitySummarySchema>;
 
-export const CAPABILITY_REGISTRY_UPDATED_AT = '2026-05-05T00:00:00.000Z';
+export const CAPABILITY_REGISTRY_UPDATED_AT = '2026-05-06T00:00:00.000Z';
 
 const capabilityRecords = validateCapabilityRecords([
   {
     key: 'mission_runtime',
     name: 'Mission runtime',
-    state: 'blocked',
+    state: 'prototype',
     summary:
-      'Pilot now has durable venture, goal, mission, DAG, task, action, and tool ledgers plus scheduler, narrow mission-node task dispatch, bounded ready-node execution, post-completion dependency advancement, evidence-backed mission checkpoint snapshots, and recovery plan previews, but execution is not yet recovered, rolled back, and evaluated as the runtime backbone.',
+      'Pilot now has durable venture, goal, mission, DAG, task, action, tool, mission checkpoint, scheduler, bounded executor, recovery, and rollback controls, but it is not a long-running founder-off-grid runtime and has not passed production autonomy evals.',
     owner: 'Foundation Agent',
     blockers: [
       'Mission execution is explicit bounded ready-node dispatch, not production-ready founder-off-grid DAG automation',
-      'Mission checkpoint snapshots and recovery plans are evidence-only; there is no recovery and rollback executor',
+      'Mission checkpoint, recovery, and rollback controls have not passed production autonomy evals',
       'No durable long-running mission loop with retry, resume, and replay semantics',
       'Current task APIs must remain compatible until mission-backed equivalents pass regression gates',
     ],
@@ -96,6 +96,7 @@ const capabilityRecords = validateCapabilityRecords([
       'Gateway exposes /api/startup-lifecycle/missions/:missionId/execute-ready for explicit bounded execution of currently ready nodes without production promotion',
       'Gateway exposes /api/startup-lifecycle/missions/:missionId/checkpoint to persist a redacted mission DAG snapshot as evidence without recovery promotion',
       'Gateway exposes /api/startup-lifecycle/missions/:missionId/recovery-plan to compare the latest checkpoint with current mission state and persist a non-executing recovery plan',
+      'Gate 9 adds mission_runtime_checkpoints plus /api/startup-lifecycle/missions/:missionId/recover and /rollback for constrained prototype recovery and rollback with evidence',
     ],
     evalRequirement: 'Full Startup Launch Eval and Multi-Agent Parallel Build Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,
@@ -400,10 +401,10 @@ const capabilityRecords = validateCapabilityRecords([
     name: 'Command center UI',
     state: 'prototype',
     summary:
-      'The web app has a command center backed by real task, action, tool execution, receipt, browser, computer, artifact, audit, handoff, approval, and capability-state rows, while mission DAG autonomy remains blocked.',
+      'The web app has a command center backed by real task, action, tool execution, receipt, browser, computer, artifact, audit, handoff, approval, mission, checkpoint, recovery, and capability-state rows, while mission DAG autonomy remains prototype-only.',
     owner: 'UI Agent',
     blockers: [
-      'Mission runtime is still blocked, so the command center cannot claim venture/mission DAG autonomy',
+      'Mission runtime is still prototype-only, so the command center cannot claim production venture/mission DAG autonomy',
       'Permission graph and mission graph are read-only command-center introspection; founder-off-grid execution control surface is still incomplete',
       'Command Center Real-State UX Eval has not promoted the capability to production_ready',
     ],
@@ -411,9 +412,9 @@ const capabilityRecords = validateCapabilityRecords([
       'Gate 8 adds /api/command-center backed by durable task/action/tool/evidence/browser/computer/artifact/audit/approval/handoff rows',
       'Gate 8 adds /api/command-center/proof-dag/:taskRunId for subagent proof DAG inspection without production promotion',
       'Gate 8 adds /api/command-center/permission-graph with workspace role, member, operator, tool-scope, policy-config-key, and governance capability edges without raw policy values',
-      'Gate 8 adds /api/command-center/mission-graph backed by durable missions, mission_nodes, mission_edges, mission_tasks, checkpoint evidence, and recovery-plan evidence rows without dispatching the DAG',
+      'Gate 8 adds /api/command-center/mission-graph backed by durable missions, mission_nodes, mission_edges, mission_tasks, checkpoint evidence, recovery-plan evidence, and mission recovery evidence rows without production promotion',
       'Gate 10 adds /api/command-center/eval-status backed by durable eval_runs and capability_promotions rows without mutating the capability registry',
-      'apps/web /command-center renders capability truth, blocked mission runtime, receipt chips, evidence drawers, browser/computer replay rows, subagent proof-DAG rows, and escalation state from the API',
+      'apps/web /command-center renders capability truth, prototype mission runtime, receipt chips, evidence drawers, browser/computer replay rows, subagent proof-DAG rows, and escalation state from the API',
     ],
     evalRequirement: 'Command Center Real-State UX Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,
@@ -423,11 +424,11 @@ const capabilityRecords = validateCapabilityRecords([
     name: 'Startup lifecycle engine',
     state: 'prototype',
     summary:
-      'Pilot can compile, persist, schedule, execute one or more explicitly ready lifecycle nodes, and advance newly unblocked nodes through the governed task runtime across onboarding, PMF, build, launch, growth, sales, formation, fundraising, and operations, but it does not execute the mission DAG as production-ready founder-off-grid automation yet.',
+      'Pilot can compile, persist, schedule, execute bounded ready lifecycle nodes, checkpoint mission runtime, plan recovery, recover ready nodes, and apply constrained non-destructive rollback across onboarding, PMF, build, launch, growth, sales, formation, fundraising, and operations, but it does not execute as production-ready founder-off-grid automation yet.',
     owner: 'Runtime Agent',
     blockers: [
       'Lifecycle node execution is explicit bounded dispatch, not a production-ready autonomous startup launch workflow',
-      'Dependency advancement marks nodes ready and checkpoint/recovery-plan evidence exists, but retry, recovery, and rollback over the mission DAG are incomplete',
+      'Dependency advancement, recovery, and rollback controls are prototype-only until Recovery Eval and Full Startup Launch Eval pass',
       'Legal/financial/external communication escalation contracts are compiled but not enforced by a running lifecycle engine',
       'No end-to-end startup launch eval passing against the lifecycle engine',
     ],
@@ -438,6 +439,7 @@ const capabilityRecords = validateCapabilityRecords([
       'Gateway exposes /api/startup-lifecycle/missions/:missionId/schedule, /api/startup-lifecycle/missions/:missionId/nodes/:nodeId/execute, and /api/startup-lifecycle/missions/:missionId/execute-ready for scheduling and bounded ready-node execution',
       'Gateway exposes /api/startup-lifecycle/missions/:missionId/checkpoint to attach a replayable mission/node/edge/task-link snapshot to the evidence ledger',
       'Gateway exposes /api/startup-lifecycle/missions/:missionId/recovery-plan to persist non-executing recovery plan evidence from checkpoint/current-state drift',
+      'Gateway exposes /api/startup-lifecycle/missions/:missionId/recover and /rollback to persist runtime checkpoints and evidence-backed prototype recovery/rollback records',
     ],
     evalRequirement: 'Full Startup Launch Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,

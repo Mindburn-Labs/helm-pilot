@@ -1,15 +1,17 @@
 import { createHash } from 'node:crypto';
 import { Hono } from 'hono';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { appendEvidenceItem } from '@pilot/db';
 import {
   evidenceItems,
   goals,
   missionEdges,
   missionNodes,
+  missionRuntimeCheckpoints,
   missions,
   missionTasks,
   tasks,
+  taskRuns,
   ventures,
 } from '@pilot/db/schema';
 import {
@@ -21,12 +23,20 @@ import {
   ExecuteStartupMissionInputSchema,
   ExecuteStartupMissionNodeInputSchema,
   type ExecutedStartupMissionNode,
+  MissionRuntimeCheckpointSchema,
+  type MissionRuntimeCheckpointKind,
   PlannedStartupMissionRecoverySchema,
   PlanStartupMissionRecoveryInputSchema,
   PersistStartupLifecycleInputSchema,
   PersistedStartupLifecycleMissionSchema,
+  RecoveredStartupMissionSchema,
+  RecoverStartupMissionInputSchema,
+  RolledBackStartupMissionSchema,
+  RollbackStartupMissionInputSchema,
+  type ScheduledStartupMissionNode,
   ScheduledStartupMissionSchema,
   ScheduleStartupMissionInputSchema,
+  StartupLifecycleStageSchema,
   compileStartupLifecycleMission,
   getStartupLifecycleTemplates,
 } from '@pilot/shared/schemas';
@@ -445,7 +455,7 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
         nodeStatuses,
       },
       blockers: [
-        'Mission checkpoint snapshots are durable evidence only; recovery and rollback executors remain blocked.',
+        'Mission checkpoint snapshots are durable evidence for constrained recovery and rollback controls; production retry/replay and founder-off-grid execution remain incomplete.',
         'Full Startup Launch Eval has not promoted mission_runtime or startup_lifecycle to production_ready.',
       ],
     });
@@ -619,9 +629,185 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
       evidenceItemIds: [evidenceItemId],
       plan,
       blockers: [
-        'Recovery plan is persisted as evidence only; recovery, retry, rollback, and continuation executors remain blocked.',
+        'Recovery plan is persisted as evidence only; use constrained /recover or /rollback routes for prototype execution controls.',
+        'Production retry/replay and founder-off-grid continuation remain incomplete.',
         'Full Startup Launch Eval has not promoted mission_runtime or startup_lifecycle to production_ready.',
       ],
+    });
+
+    return c.json(response, 200);
+  });
+
+  app.post('/missions/:missionId/recover', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'recover startup lifecycle mission');
+    if (roleDenied) return roleDenied;
+
+    const raw = await c.req.json().catch(() => ({}));
+    if (workspaceIdMismatch(c, (raw as { workspaceId?: string }).workspaceId)) {
+      return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
+    }
+
+    const parsed = RecoverStartupMissionInputSchema.safeParse({
+      ...(raw as Record<string, unknown>),
+      workspaceId,
+      missionId: c.req.param('missionId'),
+    });
+    if (!parsed.success) {
+      return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
+    }
+
+    const [mission] = await _deps.db
+      .select()
+      .from(missions)
+      .where(and(eq(missions.id, parsed.data.missionId), eq(missions.workspaceId, workspaceId)))
+      .limit(1);
+    if (!mission) return c.json({ error: 'Mission not found' }, 404);
+
+    const checkpoint = await persistMissionRuntimeCheckpoint(_deps, workspaceId, mission, {
+      checkpointKind: 'pre_recovery',
+      reason: parsed.data.context ?? 'mission recovery requested',
+    });
+    const advancement = await advanceReadyMissionNodes(_deps, workspaceId, mission.id);
+    await _deps.db
+      .update(missions)
+      .set({ status: advancement.missionStatus, updatedAt: new Date() })
+      .where(and(eq(missions.id, mission.id), eq(missions.workspaceId, workspaceId)));
+
+    const recoveryEvidenceItemId = await appendEvidenceItem(_deps.db, {
+      workspaceId,
+      ventureId: mission.ventureId ?? null,
+      missionId: mission.id,
+      evidenceType: 'startup_lifecycle_mission_recovered',
+      sourceType: 'gateway_startup_lifecycle',
+      title: `Startup lifecycle mission recovery: ${mission.title}`,
+      summary: `${advancement.advancedReadyNodes.length} node(s) advanced during recovery`,
+      redactionState: 'redacted',
+      sensitivity: 'internal',
+      contentHash: hashJson({
+        missionId: mission.id,
+        checkpointId: checkpoint.checkpointId,
+        advancedReadyNodes: advancement.advancedReadyNodes.map((node) => node.nodeKey),
+        executeReady: parsed.data.executeReady,
+      }),
+      replayRef: `mission:${mission.id}:recover:${checkpoint.checkpointId}`,
+      metadata: {
+        recoveryVersion: 'mission-recovery.v1',
+        checkpointId: checkpoint.checkpointId,
+        advancedReadyNodeKeys: advancement.advancedReadyNodes.map((node) => node.nodeKey),
+        executeReady: parsed.data.executeReady,
+        productionReady: false,
+      },
+    });
+
+    const executedResult = parsed.data.executeReady
+      ? await executeReadyMissionNodes(_deps, workspaceId, mission, {
+          context: parsed.data.context,
+          iterationBudget: parsed.data.iterationBudget,
+          maxNodes: parsed.data.maxNodes,
+        })
+      : undefined;
+    if (executedResult && !executedResult.ok) {
+      return c.json(executedResult.body, executedResult.status);
+    }
+    const executed = executedResult?.response;
+
+    const response = RecoveredStartupMissionSchema.parse({
+      workspaceId,
+      missionId: mission.id,
+      recoveryVersion: 'mission-recovery.v1',
+      productionReady: false,
+      recoveryStarted: true,
+      checkpoint,
+      advancedReadyNodes: advancement.advancedReadyNodes,
+      executed,
+      missionStatus: executed?.missionStatus ?? advancement.missionStatus,
+      evidenceItemIds: [
+        ...checkpoint.evidenceItemIds,
+        recoveryEvidenceItemId,
+        ...(executed?.evidenceItemIds ?? []),
+      ],
+      blockers: missionRecoveryBlockers(parsed.data.executeReady),
+    });
+
+    return c.json(response, 200);
+  });
+
+  app.post('/missions/:missionId/rollback', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'rollback startup lifecycle mission');
+    if (roleDenied) return roleDenied;
+
+    const raw = await c.req.json().catch(() => ({}));
+    if (workspaceIdMismatch(c, (raw as { workspaceId?: string }).workspaceId)) {
+      return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
+    }
+
+    const parsed = RollbackStartupMissionInputSchema.safeParse({
+      ...(raw as Record<string, unknown>),
+      workspaceId,
+      missionId: c.req.param('missionId'),
+    });
+    if (!parsed.success) {
+      return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
+    }
+
+    const [mission] = await _deps.db
+      .select()
+      .from(missions)
+      .where(and(eq(missions.id, parsed.data.missionId), eq(missions.workspaceId, workspaceId)))
+      .limit(1);
+    if (!mission) return c.json({ error: 'Mission not found' }, 404);
+
+    const snapshot = await loadMissionRuntimeSnapshot(_deps, workspaceId, mission);
+    const rollbackPlan = buildRollbackPlan(snapshot, parsed.data.reason);
+    const checkpoint = await persistMissionRuntimeCheckpoint(_deps, workspaceId, mission, {
+      checkpointKind: 'pre_rollback',
+      reason: parsed.data.reason,
+      snapshot,
+      rollbackPlan,
+    });
+    const rollback = await applyConstrainedMissionRollback(_deps, workspaceId, mission, snapshot);
+    const rollbackEvidenceItemId = await appendEvidenceItem(_deps.db, {
+      workspaceId,
+      ventureId: mission.ventureId ?? null,
+      missionId: mission.id,
+      evidenceType: 'startup_lifecycle_mission_rollback_applied',
+      sourceType: 'gateway_startup_lifecycle',
+      title: `Startup lifecycle mission rollback: ${mission.title}`,
+      summary: `${rollback.rolledBackNodes.length} node(s) reopened without deleting history`,
+      redactionState: 'redacted',
+      sensitivity: 'internal',
+      contentHash: hashJson({
+        missionId: mission.id,
+        checkpointId: checkpoint.checkpointId,
+        reason: parsed.data.reason,
+        rolledBackNodeKeys: rollback.rolledBackNodes.map((node) => node.nodeKey),
+      }),
+      replayRef: `mission:${mission.id}:rollback:${checkpoint.checkpointId}`,
+      metadata: {
+        rollbackVersion: 'mission-rollback.v1',
+        checkpointId: checkpoint.checkpointId,
+        scope: parsed.data.scope,
+        rolledBackNodeKeys: rollback.rolledBackNodes.map((node) => node.nodeKey),
+        destructive: false,
+        productionReady: false,
+      },
+    });
+
+    const response = RolledBackStartupMissionSchema.parse({
+      workspaceId,
+      missionId: mission.id,
+      rollbackVersion: 'mission-rollback.v1',
+      productionReady: false,
+      rollbackApplied: true,
+      checkpoint,
+      rolledBackNodes: rollback.rolledBackNodes,
+      missionStatus: rollback.missionStatus,
+      evidenceItemIds: [...checkpoint.evidenceItemIds, rollbackEvidenceItemId],
+      blockers: missionRollbackBlockers(),
     });
 
     return c.json(response, 200);
@@ -846,67 +1032,14 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
       .limit(1);
     if (!mission) return c.json({ error: 'Mission not found' }, 404);
 
-    const executedNodes: ExecutedStartupMissionNode[] = [];
-    let missionStatus: 'completed' | 'scheduled_not_executing' | 'blocked' | 'awaiting_approval' =
-      'scheduled_not_executing';
-    for (let index = 0; index < parsed.data.maxNodes; index += 1) {
-      const [node] = await _deps.db
-        .select()
-        .from(missionNodes)
-        .where(
-          and(
-            eq(missionNodes.missionId, mission.id),
-            eq(missionNodes.workspaceId, workspaceId),
-            eq(missionNodes.status, 'ready'),
-          ),
-        )
-        .orderBy(missionNodes.sortOrder)
-        .limit(1);
-      if (!node) break;
-
-      const result = await executeReadyMissionNode(_deps, workspaceId, mission, node, {
-        context: parsed.data.context,
-        iterationBudget: parsed.data.iterationBudget,
-      });
-      if (!result.ok) return c.json(result.body, result.status);
-      executedNodes.push(result.response);
-      missionStatus = result.response.missionStatus;
-      if (result.response.status !== 'completed') break;
-    }
-
-    const remainingReadyNodes = await _deps.db
-      .select({ id: missionNodes.id })
-      .from(missionNodes)
-      .where(
-        and(
-          eq(missionNodes.missionId, mission.id),
-          eq(missionNodes.workspaceId, workspaceId),
-          eq(missionNodes.status, 'ready'),
-        ),
-      )
-      .orderBy(missionNodes.sortOrder);
-
-    const response = ExecutedStartupMissionSchema.parse({
-      workspaceId,
-      missionId: mission.id,
-      executorVersion: 'mission-executor.v1',
-      productionReady: false,
-      executionStarted: executedNodes.length > 0,
-      missionStatus:
-        executedNodes.length > 0
-          ? missionStatus
-          : remainingReadyNodes.length > 0
-            ? 'scheduled_not_executing'
-            : mission.status === 'completed'
-              ? 'completed'
-              : 'blocked',
-      executedNodes,
-      remainingReadyNodeIds: remainingReadyNodes.map((node) => node.id),
-      evidenceItemIds: executedNodes.flatMap((node) => node.evidenceItemIds),
-      blockers: missionExecutorBlockers(executedNodes.length, remainingReadyNodes.length),
+    const result = await executeReadyMissionNodes(_deps, workspaceId, mission, {
+      context: parsed.data.context,
+      iterationBudget: parsed.data.iterationBudget,
+      maxNodes: parsed.data.maxNodes,
     });
+    if (!result.ok) return c.json(result.body, result.status);
 
-    return c.json(response, 200);
+    return c.json(result.response, 200);
   });
 
   return app;
@@ -1143,6 +1276,87 @@ async function executeReadyMissionNode(
   return { ok: true, response };
 }
 
+async function executeReadyMissionNodes(
+  deps: GatewayDeps,
+  workspaceId: string,
+  mission: typeof missions.$inferSelect,
+  input: {
+    context?: string;
+    iterationBudget?: number;
+    maxNodes: number;
+  },
+): Promise<
+  | { ok: true; response: typeof ExecutedStartupMissionSchema._type }
+  | {
+      ok: false;
+      status: 403 | 404 | 409 | 502;
+      body: Record<string, unknown>;
+    }
+> {
+  const executedNodes: ExecutedStartupMissionNode[] = [];
+  let missionStatus: 'completed' | 'scheduled_not_executing' | 'blocked' | 'awaiting_approval' =
+    'scheduled_not_executing';
+  for (let index = 0; index < input.maxNodes; index += 1) {
+    const [node] = await deps.db
+      .select()
+      .from(missionNodes)
+      .where(
+        and(
+          eq(missionNodes.missionId, mission.id),
+          eq(missionNodes.workspaceId, workspaceId),
+          eq(missionNodes.status, 'ready'),
+        ),
+      )
+      .orderBy(missionNodes.sortOrder)
+      .limit(1);
+    if (!node) break;
+
+    const result = await executeReadyMissionNode(deps, workspaceId, mission, node, {
+      context: input.context,
+      iterationBudget: input.iterationBudget,
+    });
+    if (!result.ok) return result;
+    executedNodes.push(result.response);
+    missionStatus = result.response.missionStatus;
+    if (result.response.status !== 'completed') break;
+  }
+
+  const remainingReadyNodes = await deps.db
+    .select({ id: missionNodes.id })
+    .from(missionNodes)
+    .where(
+      and(
+        eq(missionNodes.missionId, mission.id),
+        eq(missionNodes.workspaceId, workspaceId),
+        eq(missionNodes.status, 'ready'),
+      ),
+    )
+    .orderBy(missionNodes.sortOrder);
+
+  return {
+    ok: true,
+    response: ExecutedStartupMissionSchema.parse({
+      workspaceId,
+      missionId: mission.id,
+      executorVersion: 'mission-executor.v1',
+      productionReady: false,
+      executionStarted: executedNodes.length > 0,
+      missionStatus:
+        executedNodes.length > 0
+          ? missionStatus
+          : remainingReadyNodes.length > 0
+            ? 'scheduled_not_executing'
+            : mission.status === 'completed'
+              ? 'completed'
+              : 'blocked',
+      executedNodes,
+      remainingReadyNodeIds: remainingReadyNodes.map((node) => node.id),
+      evidenceItemIds: executedNodes.flatMap((node) => node.evidenceItemIds),
+      blockers: missionExecutorBlockers(executedNodes.length, remainingReadyNodes.length),
+    }),
+  };
+}
+
 function deriveVentureName(founderGoal: string): string {
   const compact = founderGoal.replace(/\s+/g, ' ').trim();
   if (compact.length <= 80) return compact;
@@ -1176,6 +1390,297 @@ function countNodeStatuses(nodes: Array<typeof missionNodes.$inferSelect>): Reco
     counts[node.status] = (counts[node.status] ?? 0) + 1;
   }
   return counts;
+}
+
+interface MissionRuntimeSnapshot {
+  mission: typeof missions.$inferSelect;
+  nodes: Array<typeof missionNodes.$inferSelect>;
+  edges: Array<typeof missionEdges.$inferSelect>;
+  taskLinks: Array<typeof missionTasks.$inferSelect>;
+  taskRunCheckpointRefs: Array<Record<string, unknown>>;
+  nodeStatusCounts: Record<string, number>;
+  cursorNode?: typeof missionNodes.$inferSelect;
+}
+
+async function loadMissionRuntimeSnapshot(
+  deps: GatewayDeps,
+  workspaceId: string,
+  mission: typeof missions.$inferSelect,
+): Promise<MissionRuntimeSnapshot> {
+  const nodes = await deps.db
+    .select()
+    .from(missionNodes)
+    .where(and(eq(missionNodes.missionId, mission.id), eq(missionNodes.workspaceId, workspaceId)))
+    .orderBy(missionNodes.sortOrder);
+  const edges = await deps.db
+    .select()
+    .from(missionEdges)
+    .where(and(eq(missionEdges.missionId, mission.id), eq(missionEdges.workspaceId, workspaceId)))
+    .orderBy(missionEdges.edgeKey);
+  const taskLinks = await deps.db
+    .select()
+    .from(missionTasks)
+    .where(and(eq(missionTasks.missionId, mission.id), eq(missionTasks.workspaceId, workspaceId)))
+    .orderBy(missionTasks.createdAt);
+  const taskIds = taskLinks.map((link) => link.taskId).filter((taskId): taskId is string => Boolean(taskId));
+  const runRows =
+    taskIds.length > 0
+      ? await deps.db
+          .select({
+            id: taskRuns.id,
+            taskId: taskRuns.taskId,
+            status: taskRuns.status,
+            checkpointId: taskRuns.checkpointId,
+            lastCheckpointAt: taskRuns.lastCheckpointAt,
+          })
+          .from(taskRuns)
+          .where(inArray(taskRuns.taskId, taskIds))
+      : [];
+  const taskRunCheckpointRefs = runRows
+    .filter((row) => row.checkpointId || row.lastCheckpointAt)
+    .map((row) => ({
+      taskRunId: row.id,
+      taskId: row.taskId,
+      status: row.status,
+      checkpointId: row.checkpointId,
+      lastCheckpointAt:
+        row.lastCheckpointAt instanceof Date
+          ? row.lastCheckpointAt.toISOString()
+          : row.lastCheckpointAt,
+    }));
+  const cursorNode = nodes.find((node) =>
+    ['running', 'ready', 'awaiting_approval', 'blocked', 'failed'].includes(node.status),
+  );
+  return {
+    mission,
+    nodes,
+    edges,
+    taskLinks,
+    taskRunCheckpointRefs,
+    nodeStatusCounts: countNodeStatuses(nodes),
+    ...(cursorNode ? { cursorNode } : {}),
+  };
+}
+
+async function persistMissionRuntimeCheckpoint(
+  deps: GatewayDeps,
+  workspaceId: string,
+  mission: typeof missions.$inferSelect,
+  input: {
+    checkpointKind: MissionRuntimeCheckpointKind;
+    reason: string;
+    snapshot?: MissionRuntimeSnapshot;
+    rollbackPlan?: Record<string, unknown>;
+  },
+) {
+  const snapshot = input.snapshot ?? (await loadMissionRuntimeSnapshot(deps, workspaceId, mission));
+  const readyNodeIds = snapshot.nodes
+    .filter((node) => node.status === 'ready')
+    .map((node) => node.id);
+  const blockedNodeIds = snapshot.nodes
+    .filter((node) => node.status === 'blocked')
+    .map((node) => node.id);
+  const failedNodeIds = snapshot.nodes
+    .filter((node) => node.status === 'failed')
+    .map((node) => node.id);
+  const awaitingApprovalNodeIds = snapshot.nodes
+    .filter((node) => node.status === 'awaiting_approval')
+    .map((node) => node.id);
+  const recoveryPlan = buildRecoveryPlan(snapshot);
+  const rollbackPlan = input.rollbackPlan ?? {};
+  const contentHash = hashJson({
+    checkpointKind: input.checkpointKind,
+    missionId: mission.id,
+    missionStatus: mission.status,
+    nodeStatusCounts: snapshot.nodeStatusCounts,
+    readyNodeIds,
+    blockedNodeIds,
+    failedNodeIds,
+    awaitingApprovalNodeIds,
+    taskRunCheckpointRefs: snapshot.taskRunCheckpointRefs,
+    recoveryPlan,
+    rollbackPlan,
+  });
+  const evidenceItemId = await appendEvidenceItem(deps.db, {
+    workspaceId,
+    ventureId: mission.ventureId ?? null,
+    missionId: mission.id,
+    evidenceType: 'startup_lifecycle_mission_checkpoint',
+    sourceType: 'gateway_startup_lifecycle',
+    title: `Mission runtime checkpoint: ${mission.title}`,
+    summary: `${input.checkpointKind} checkpoint for mission ${mission.id}`,
+    redactionState: 'redacted',
+    sensitivity: 'internal',
+    contentHash,
+    replayRef: `mission:${mission.id}:checkpoint:${input.checkpointKind}`,
+    metadata: {
+      checkpointKind: input.checkpointKind,
+      missionStatus: mission.status,
+      cursorNodeKey: snapshot.cursorNode?.nodeKey ?? null,
+      reason: input.reason,
+      productionReady: false,
+    },
+  });
+  const now = new Date();
+  const [checkpoint] = await deps.db
+    .insert(missionRuntimeCheckpoints)
+    .values({
+      workspaceId,
+      missionId: mission.id,
+      checkpointKind: input.checkpointKind,
+      checkpointStatus: 'recorded',
+      missionStatus: mission.status,
+      cursorNodeId: snapshot.cursorNode?.id ?? null,
+      cursorNodeKey: snapshot.cursorNode?.nodeKey ?? null,
+      nodeStatusCounts: snapshot.nodeStatusCounts,
+      readyNodeIds,
+      blockedNodeIds,
+      failedNodeIds,
+      awaitingApprovalNodeIds,
+      taskRunCheckpointRefs: snapshot.taskRunCheckpointRefs,
+      recoveryPlan,
+      rollbackPlan,
+      evidenceItemId,
+      contentHash,
+      metadata: {
+        checkpointVersion: 'mission-runtime-checkpoint.v1',
+        reason: input.reason,
+        productionReady: false,
+      },
+      createdAt: now,
+    })
+    .returning({ id: missionRuntimeCheckpoints.id });
+  if (!checkpoint?.id) {
+    throw new Error('Mission runtime checkpoint was not persisted');
+  }
+
+  return MissionRuntimeCheckpointSchema.parse({
+    checkpointId: checkpoint.id,
+    checkpointKind: input.checkpointKind,
+    missionId: mission.id,
+    missionStatus: mission.status,
+    ...(snapshot.cursorNode?.id ? { cursorNodeId: snapshot.cursorNode.id } : {}),
+    ...(snapshot.cursorNode?.nodeKey ? { cursorNodeKey: snapshot.cursorNode.nodeKey } : {}),
+    nodeStatusCounts: snapshot.nodeStatusCounts,
+    readyNodeIds,
+    blockedNodeIds,
+    failedNodeIds,
+    awaitingApprovalNodeIds,
+    taskRunCheckpointRefs: snapshot.taskRunCheckpointRefs,
+    recoveryPlan,
+    rollbackPlan,
+    evidenceItemIds: [evidenceItemId],
+    productionReady: false,
+    createdAt: now.toISOString(),
+  });
+}
+
+function buildRecoveryPlan(snapshot: MissionRuntimeSnapshot): Record<string, unknown> {
+  const completedNodeKeys = new Set(
+    snapshot.nodes
+      .filter((node) => node.status === 'completed' || node.status === 'skipped')
+      .map((node) => node.nodeKey),
+  );
+  const recoverableReadyNodeKeys = snapshot.nodes
+    .filter(
+      (node) =>
+        node.status === 'pending' && dependenciesSatisfied(node, snapshot.edges, completedNodeKeys),
+    )
+    .map((node) => node.nodeKey);
+  return {
+    recoveryVersion: 'mission-recovery.v1',
+    recoverableReadyNodeKeys,
+    taskRunCheckpointRefs: snapshot.taskRunCheckpointRefs,
+    blockedTerminalNodeKeys: snapshot.nodes
+      .filter((node) => ['failed', 'blocked', 'awaiting_approval'].includes(node.status))
+      .map((node) => node.nodeKey),
+  };
+}
+
+function dependenciesSatisfied(
+  node: typeof missionNodes.$inferSelect,
+  edges: Array<typeof missionEdges.$inferSelect>,
+  completedNodeKeys: Set<string>,
+) {
+  return edges
+    .filter((edge) => edge.toNodeKey === node.nodeKey)
+    .every((edge) => completedNodeKeys.has(edge.fromNodeKey));
+}
+
+function buildRollbackPlan(
+  snapshot: MissionRuntimeSnapshot,
+  reason: string,
+): Record<string, unknown> {
+  return {
+    rollbackVersion: 'mission-rollback.v1',
+    scope: 'failed_blocked_to_ready',
+    reason,
+    destructive: false,
+    targetNodeKeys: snapshot.nodes
+      .filter((node) => ['failed', 'blocked', 'awaiting_approval'].includes(node.status))
+      .map((node) => node.nodeKey),
+  };
+}
+
+async function applyConstrainedMissionRollback(
+  deps: GatewayDeps,
+  workspaceId: string,
+  mission: typeof missions.$inferSelect,
+  snapshot: MissionRuntimeSnapshot,
+): Promise<{
+  rolledBackNodes: ScheduledStartupMissionNode[];
+  missionStatus: 'scheduled_not_executing' | 'blocked';
+}> {
+  const completedNodeKeys = new Set(
+    snapshot.nodes
+      .filter((node) => node.status === 'completed' || node.status === 'skipped')
+      .map((node) => node.nodeKey),
+  );
+  const taskIdByNodeId = new Map(
+    snapshot.taskLinks
+      .filter((link) => Boolean(link.nodeId))
+      .map((link) => [String(link.nodeId), link.taskId]),
+  );
+  const rolledBackNodes: ScheduledStartupMissionNode[] = [];
+  for (const node of snapshot.nodes.filter((item) =>
+    ['failed', 'blocked', 'awaiting_approval'].includes(item.status),
+  )) {
+    const waitingOn = snapshot.edges
+      .filter((edge) => edge.toNodeKey === node.nodeKey)
+      .map((edge) => edge.fromNodeKey)
+      .filter((dependency) => !completedNodeKeys.has(dependency));
+    const nextStatus = waitingOn.length === 0 ? 'ready' : 'pending';
+    await deps.db
+      .update(missionNodes)
+      .set({ status: nextStatus, startedAt: null, completedAt: null, updatedAt: new Date() })
+      .where(and(eq(missionNodes.id, node.id), eq(missionNodes.workspaceId, workspaceId)));
+
+    const taskId = taskIdByNodeId.get(node.id);
+    if (taskId) {
+      await deps.db
+        .update(tasks)
+        .set({ status: 'pending', completedAt: null, updatedAt: new Date() })
+        .where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, workspaceId)));
+    }
+    rolledBackNodes.push({
+      nodeId: node.id,
+      nodeKey: node.nodeKey,
+      stage: StartupLifecycleStageSchema.parse(node.stage),
+      title: node.title,
+      ...(taskId ? { taskId } : {}),
+      waitingOn,
+    });
+  }
+
+  const missionStatus = rolledBackNodes.some((node) => node.waitingOn.length === 0)
+    ? 'scheduled_not_executing'
+    : 'blocked';
+  await deps.db
+    .update(missions)
+    .set({ status: missionStatus, completedAt: null, updatedAt: new Date() })
+    .where(and(eq(missions.id, mission.id), eq(missions.workspaceId, workspaceId)));
+
+  return { rolledBackNodes, missionStatus };
 }
 
 function jsonRecord(value: unknown): Record<string, unknown> {
@@ -1390,7 +1895,7 @@ function missionNodeExecutionBlockers(
 ): string[] {
   const blockers = [
     'Mission node execution uses the governed task runtime but has not passed Full Startup Launch Eval',
-    'Mission-level checkpoint, recovery, rollback, and automatic next-node dispatch remain blocked',
+    'Mission checkpoint, recovery, and rollback controls are prototype-only; automatic next-node dispatch remains blocked',
   ];
   if (status === 'blocked')
     blockers.push('Agent run blocked before completing node acceptance criteria');
@@ -1402,13 +1907,31 @@ function missionNodeExecutionBlockers(
 function missionExecutorBlockers(executedCount: number, remainingReadyCount: number): string[] {
   const blockers = [
     'Mission executor is explicit and bounded; it is not founder-off-grid autonomous execution',
-    'Mission-level checkpoint, recovery, rollback, and Full Startup Launch Eval remain blocked',
+    'Mission recovery/rollback controls and Full Startup Launch Eval have not promoted mission runtime',
   ];
   if (executedCount === 0) blockers.push('No ready mission node was executed');
   if (remainingReadyCount > 0) {
     blockers.push('Additional ready nodes remain and require another explicit execution call');
   }
   return blockers;
+}
+
+function missionRecoveryBlockers(executeReady: boolean): string[] {
+  return [
+    executeReady
+      ? 'Mission recovery can continue ready nodes explicitly, but it is not a background founder-off-grid loop'
+      : 'Mission recovery reopens ready nodes but does not execute unless executeReady is explicitly requested',
+    'Mission recovery is prototype-only until Recovery Eval and Full Startup Launch Eval pass',
+    'Recovery does not bypass HELM, task runtime policy, or user escalation gates',
+  ];
+}
+
+function missionRollbackBlockers(): string[] {
+  return [
+    'Mission rollback is constrained to reopening failed, blocked, or awaiting-approval lifecycle nodes; it does not reverse external-world actions',
+    'Rollback is prototype-only until Recovery Eval verifies replay, evidence, and incident handling',
+    'Production rollback of deployments, financial actions, legal actions, or external communications remains governed by separate HELM policies',
+  ];
 }
 
 function hashJson(value: unknown) {
