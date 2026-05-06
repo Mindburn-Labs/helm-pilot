@@ -230,6 +230,30 @@ describe('commandCenterRoutes', () => {
           createdAt: new Date('2026-05-05T08:01:00Z'),
         },
       ],
+      [
+        {
+          id: 'evidence-checkpoint-1',
+          workspaceId,
+          missionId,
+          evidenceType: 'startup_lifecycle_mission_checkpoint',
+          sourceType: 'gateway_startup_lifecycle',
+          title: 'Startup lifecycle mission checkpoint: PMF Discovery',
+          replayRef: `mission:${missionId}:checkpoint:abc123`,
+          redactionState: 'redacted',
+          observedAt: new Date('2026-05-05T08:02:00Z'),
+        },
+        {
+          id: 'evidence-recovery-1',
+          workspaceId,
+          missionId,
+          evidenceType: 'startup_lifecycle_recovery_plan',
+          sourceType: 'gateway_startup_lifecycle',
+          title: 'Startup lifecycle recovery plan: PMF Discovery',
+          replayRef: `mission:${missionId}:recovery-plan:def456`,
+          redactionState: 'redacted',
+          observedAt: new Date('2026-05-05T08:03:00Z'),
+        },
+      ],
     ]);
 
     const res = await fetch('GET', `/mission-graph?missionId=${missionId}`, wsHeader);
@@ -241,6 +265,10 @@ describe('commandCenterRoutes', () => {
         nodes: Array<{ nodeKey: string; status: string }>;
         edges: Array<{ fromNodeKey: string; toNodeKey: string }>;
         taskLinks: Array<{ taskId: string; nodeId: string }>;
+        recovery: {
+          checkpoints: Array<{ id: string; replayRef: string }>;
+          recoveryPlans: Array<{ id: string; replayRef: string }>;
+        };
         orderedBy: string[];
       };
       blockers: string[];
@@ -259,8 +287,17 @@ describe('commandCenterRoutes', () => {
       toNodeKey: 'score',
     });
     expect(body.graph.taskLinks[0]).toMatchObject({ taskId: 'task-1', nodeId: 'node-1' });
+    expect(body.graph.recovery.checkpoints[0]).toMatchObject({
+      id: 'evidence-checkpoint-1',
+      replayRef: `mission:${missionId}:checkpoint:abc123`,
+    });
+    expect(body.graph.recovery.recoveryPlans[0]).toMatchObject({
+      id: 'evidence-recovery-1',
+      replayRef: `mission:${missionId}:recovery-plan:def456`,
+    });
     expect(body.graph.orderedBy).toContain('node.sortOrder');
-    expect(body.blockers.join(' ')).toContain('does not dispatch or resume mission DAGs');
+    expect(body.graph.orderedBy).toContain('recoveryEvidence.observedAt');
+    expect(body.blockers.join(' ')).toContain('do not dispatch, recover, roll back, or resume');
   });
 
   it('returns read-only eval status and promotion eligibility without registry mutation', async () => {

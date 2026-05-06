@@ -482,6 +482,24 @@ export function commandCenterRoutes(deps: GatewayDeps) {
             )
             .orderBy(asc(missionTasks.missionId), asc(missionTasks.createdAt), asc(missionTasks.id))
             .limit(500);
+    const recoveryEvidenceRows =
+      missionIds.length === 0
+        ? []
+        : await deps.db
+            .select()
+            .from(evidenceItems)
+            .where(
+              and(
+                eq(evidenceItems.workspaceId, workspaceId),
+                inArray(evidenceItems.missionId, missionIds),
+                or(
+                  eq(evidenceItems.evidenceType, 'startup_lifecycle_mission_checkpoint'),
+                  eq(evidenceItems.evidenceType, 'startup_lifecycle_recovery_plan'),
+                ),
+              ),
+            )
+            .orderBy(desc(evidenceItems.observedAt), desc(evidenceItems.id))
+            .limit(100);
 
     const response = CommandCenterMissionGraphResponseSchema.parse({
       workspaceId,
@@ -494,10 +512,24 @@ export function commandCenterRoutes(deps: GatewayDeps) {
         nodes: nodeRows,
         edges: edgeRows,
         taskLinks: taskLinkRows,
-        orderedBy: ['mission.updatedAt', 'node.sortOrder', 'edge.edgeKey', 'taskLink.createdAt'],
+        recovery: {
+          checkpoints: recoveryEvidenceRows.filter(
+            (row) => row.evidenceType === 'startup_lifecycle_mission_checkpoint',
+          ),
+          recoveryPlans: recoveryEvidenceRows.filter(
+            (row) => row.evidenceType === 'startup_lifecycle_recovery_plan',
+          ),
+        },
+        orderedBy: [
+          'mission.updatedAt',
+          'node.sortOrder',
+          'edge.edgeKey',
+          'taskLink.createdAt',
+          'recoveryEvidence.observedAt',
+        ],
       },
       blockers: [
-        'Mission graph is read-only command-center introspection; it does not dispatch or resume mission DAGs.',
+        'Mission graph and recovery evidence are read-only command-center introspection; they do not dispatch, recover, roll back, or resume mission DAGs.',
         ...capability.blockers,
       ],
     });

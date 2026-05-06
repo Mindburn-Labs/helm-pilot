@@ -320,6 +320,26 @@ describe('CommandCenterPage', () => {
               },
             ],
             taskLinks: [{ id: 'mission-task-1', taskId: 'task-1', nodeId: 'node-1' }],
+            recovery: {
+              checkpoints: [
+                {
+                  id: 'checkpoint-1',
+                  evidenceType: 'startup_lifecycle_mission_checkpoint',
+                  title: 'Startup lifecycle mission checkpoint: PMF Discovery',
+                  replayRef: 'mission:mission-1:checkpoint:abc123',
+                  redactionState: 'redacted',
+                },
+              ],
+              recoveryPlans: [
+                {
+                  id: 'recovery-plan-1',
+                  evidenceType: 'startup_lifecycle_recovery_plan',
+                  title: 'Startup lifecycle recovery plan: PMF Discovery',
+                  replayRef: 'mission:mission-1:recovery-plan:def456',
+                  redactionState: 'redacted',
+                },
+              ],
+            },
             orderedBy: ['mission.updatedAt', 'node.sortOrder'],
           },
           blockers: ['Mission graph is read-only command-center introspection'],
@@ -464,6 +484,8 @@ describe('CommandCenterPage', () => {
     await waitFor(() => expect(screen.getByText('PMF Discovery')).toBeTruthy());
     expect(screen.getByText('Research market')).toBeTruthy();
     expect(screen.getByText('research -> score')).toBeTruthy();
+    expect(screen.getByText('Startup lifecycle mission checkpoint: PMF Discovery')).toBeTruthy();
+    expect(screen.getByText('Startup lifecycle recovery plan: PMF Discovery')).toBeTruthy();
     await waitFor(() =>
       expect(screen.getAllByText('HELM Governance Eval').length).toBeGreaterThan(0),
     );

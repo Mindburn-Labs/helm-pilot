@@ -476,7 +476,7 @@ Return a read-only workspace permission graph for the command center. Requires a
 
 ### GET /api/command-center/mission-graph
 
-Return a read-only durable mission graph for the command center. Optional query: `?missionId=...`. Requires at least the workspace `partner` role. The response is backed by `missions`, `mission_nodes`, `mission_edges`, and `mission_tasks` rows, ordered deterministically, and does not dispatch or resume the mission DAG.
+Return a read-only durable mission graph for the command center. Optional query: `?missionId=...`. Requires at least the workspace `partner` role. The response is backed by `missions`, `mission_nodes`, `mission_edges`, `mission_tasks`, and mission checkpoint/recovery-plan `evidence_items` rows, ordered deterministically, and does not dispatch, recover, roll back, or resume the mission DAG.
 
 ### GET /api/command-center/eval-status
 
