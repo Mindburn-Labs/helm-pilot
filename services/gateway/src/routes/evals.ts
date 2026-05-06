@@ -25,6 +25,7 @@ import {
   PilotEvalRunRecordSchema,
   PilotEvalStatusSchema,
   RecordPilotEvalRunInputSchema,
+  buildCapabilityEvalReadinessInventory,
   checkCapabilityPromotionReadiness,
   executePilotProductionEval,
   getPilotProductionEvalSuite,
@@ -410,9 +411,7 @@ async function persistEvalRun(
               : null,
           promotionIds: promotions
             .map((promotion) =>
-              isRecord(promotion) && typeof promotion['id'] === 'string'
-                ? promotion['id']
-                : null,
+              isRecord(promotion) && typeof promotion['id'] === 'string' ? promotion['id'] : null,
             )
             .filter((id): id is string => typeof id === 'string'),
         },
@@ -450,6 +449,29 @@ export function evalRoutes(deps: GatewayDeps) {
         'A capability cannot be promoted to production_ready unless every required eval run passed with evidenceRefs, auditReceiptRefs, and completedAt.',
       scenarios: getPilotProductionEvalSuite(),
     });
+  });
+
+  app.get('/readiness', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view production eval readiness');
+    if (roleDenied) return roleDenied;
+
+    const rows = await deps.db
+      .select()
+      .from(evalRuns)
+      .where(eq(evalRuns.workspaceId, workspaceId))
+      .orderBy(desc(evalRuns.createdAt))
+      .limit(200);
+
+    return c.json(
+      {
+        workspaceId,
+        inventory: buildCapabilityEvalReadinessInventory(rows.map(toPilotEvalRunRecord)),
+        productionReadyRegistryMutation: false,
+      },
+      200,
+    );
   });
 
   app.get('/runs', async (c) => {

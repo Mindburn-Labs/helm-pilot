@@ -38,6 +38,12 @@ This document is a human-readable Gate 0 mirror. The API and UI must read the sh
 
 Current production-ready count: `0/18`.
 
+## Eval Readiness Inventory
+
+Pilot now exposes `GET /api/evals/readiness` as the current workspace-scoped promotion inventory. It combines the shared capability registry, required eval scenarios, recent durable eval runs, required tools, required integrations, required HELM policies, evidence requirements, audit requirements, and the missing real eval blockers for every capability.
+
+The inventory deliberately distinguishes the current narrow `control_plane_proof_check` executor from the required `real_external_eval` mode. A passed control-plane proof check can create durable eval evidence and blocker/promotion-eligibility rows for review, but it does not satisfy production promotion. A capability remains non-production until every required eval has a passed durable run with evidence refs, audit receipt refs, completion metadata, and `metadata.executionMode = "real_external_eval"`.
+
 ## Enforcement Rule
 
 A capability can move to `production_ready` only when the shared registry record includes passing eval metadata with an evidence reference. Docs, UI labels, API responses, and README copy must treat every other state as non-production.

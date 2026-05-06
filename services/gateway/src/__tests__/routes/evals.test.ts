@@ -160,6 +160,53 @@ describe('evalRoutes', () => {
     expect(body.scenarios.every((scenario) => scenario.evidenceRequirements.length > 0)).toBe(true);
   });
 
+  it('returns eval readiness inventory and does not treat control-plane proofs as production', async () => {
+    const { db } = createEvalDb([
+      [
+        {
+          evalId: 'helm_governance',
+          workspaceId,
+          status: 'passed',
+          capabilityKey: 'helm_receipts',
+          evidenceRefs: ['evidence:helm'],
+          auditReceiptRefs: ['audit:helm'],
+          metadata: { executionMode: 'control_plane_proof_check' },
+          completedAt: new Date('2026-05-05T00:00:00.000Z'),
+          startedAt: new Date('2026-05-05T00:00:00.000Z'),
+          createdAt: new Date('2026-05-05T00:00:00.000Z'),
+        },
+      ],
+    ]);
+    const { fetch } = testApp(evalRoutes, createMockDeps({ db: db as never }));
+
+    const res = await fetch('GET', '/readiness', undefined, wsHeader);
+    const body = await expectJson<{
+      productionReadyRegistryMutation: boolean;
+      inventory: {
+        currentExecutorMode: string;
+        requiredExecutionMode: string;
+        productionReadyCapabilities: number;
+        items: Array<{
+          capability: { key: string };
+          missingRealEvalIds: string[];
+          productionReadyBlocked: boolean;
+          blockers: string[];
+        }>;
+      };
+    }>(res, 200);
+
+    const helm = body.inventory.items.find((item) => item.capability.key === 'helm_receipts');
+    expect(body.productionReadyRegistryMutation).toBe(false);
+    expect(body.inventory.currentExecutorMode).toBe('control_plane_proof_check');
+    expect(body.inventory.requiredExecutionMode).toBe('real_external_eval');
+    expect(body.inventory.productionReadyCapabilities).toBe(0);
+    expect(helm).toMatchObject({
+      missingRealEvalIds: ['helm_governance'],
+      productionReadyBlocked: true,
+    });
+    expect(helm?.blockers.join(' ')).toContain('real_external_eval');
+  });
+
   it('lists persisted eval runs scoped to the workspace', async () => {
     const { db } = createEvalDb([
       [

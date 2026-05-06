@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { capabilityKeyValues, getCapabilityRecord } from '../capabilities/index.js';
 import {
+  buildCapabilityEvalReadinessInventory,
   checkCapabilityPromotionReadiness,
   executePilotProductionEval,
   getPilotProductionEvalSuite,
@@ -48,6 +49,31 @@ describe('production eval suite', () => {
       ['helm_governance', 'recovery'],
     );
     expect(getRequiredEvalForCapability('computer_use')?.id).toBe('safe_computer_sandbox_action');
+  });
+
+  it('reports real external eval readiness without treating control-plane proofs as production', () => {
+    const inventory = buildCapabilityEvalReadinessInventory([
+      {
+        evalId: 'helm_governance',
+        workspaceId,
+        status: 'passed',
+        capabilityKey: 'helm_receipts',
+        evidenceRefs: ['evidence:helm'],
+        auditReceiptRefs: ['audit:helm'],
+        metadata: { executionMode: 'control_plane_proof_check' },
+        completedAt: '2026-05-05T00:00:00.000Z',
+      },
+    ]);
+
+    const helm = inventory.items.find((item) => item.capability.key === 'helm_receipts');
+    if (!helm) throw new Error('helm_receipts readiness missing');
+
+    expect(inventory.currentExecutorMode).toBe('control_plane_proof_check');
+    expect(inventory.requiredExecutionMode).toBe('real_external_eval');
+    expect(inventory.productionReadyCapabilities).toBe(0);
+    expect(helm.missingRealEvalIds).toEqual(['helm_governance']);
+    expect(helm.productionReadyBlocked).toBe(true);
+    expect(helm.blockers.join(' ')).toContain('real_external_eval');
   });
 
   it('blocks promotion without a matching passed eval run, evidence, and audit receipt', () => {

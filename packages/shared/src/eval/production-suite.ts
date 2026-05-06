@@ -3,6 +3,7 @@ import {
   CapabilityKeySchema,
   CapabilityRecordSchema,
   getCapabilityRecord,
+  getCapabilityRecords,
   type CapabilityKey,
   type CapabilityRecord,
 } from '../capabilities/index.js';
@@ -30,6 +31,10 @@ export const PilotEvalIdSchema = z.enum([
 
 export const PilotEvalStatusSchema = z.enum(['not_run', 'running', 'passed', 'failed']);
 export const RecordablePilotEvalStatusSchema = z.enum(['running', 'passed', 'failed']);
+export const PilotEvalExecutionModeSchema = z.enum([
+  'control_plane_proof_check',
+  'real_external_eval',
+]);
 
 const JsonRecordSchema = z.record(z.unknown());
 
@@ -169,6 +174,37 @@ export const CapabilityPromotionCheckSchema = z.object({
   blockers: z.array(z.string()),
 });
 
+export const CapabilityEvalReadinessItemSchema = z.object({
+  capability: CapabilityRecordSchema,
+  requiredEvalIds: z.array(PilotEvalIdSchema).default([]),
+  requiredEvalNames: z.array(z.string().min(1)).default([]),
+  missingRealEvalIds: z.array(PilotEvalIdSchema).default([]),
+  missingRealEvalNames: z.array(z.string().min(1)).default([]),
+  requiredTools: z.array(z.string().min(1)).default([]),
+  requiredIntegrations: z.array(z.string().min(1)).default([]),
+  requiredHelmPolicies: z.array(z.string().min(1)).default([]),
+  evidenceRequirements: z.array(z.string().min(1)).default([]),
+  auditRequirements: z.array(z.string().min(1)).default([]),
+  latestRuns: z.array(PilotEvalRunRecordSchema).default([]),
+  currentExecutorMode: PilotEvalExecutionModeSchema,
+  requiredExecutionMode: PilotEvalExecutionModeSchema,
+  controlPlaneProofCheckOnly: z.boolean(),
+  productionReadyBlocked: z.boolean(),
+  blockers: z.array(z.string().min(1)).default([]),
+});
+
+export const CapabilityEvalReadinessInventorySchema = z.object({
+  generatedAt: z.string().datetime(),
+  productionReadyPromotionRule: z.string().min(1),
+  requiredExecutionMode: PilotEvalExecutionModeSchema,
+  currentExecutorMode: PilotEvalExecutionModeSchema,
+  controlPlaneProofCheckOnly: z.boolean(),
+  totalCapabilities: z.number().int().nonnegative(),
+  productionReadyCapabilities: z.number().int().nonnegative(),
+  blockedCapabilities: z.number().int().nonnegative(),
+  items: z.array(CapabilityEvalReadinessItemSchema),
+});
+
 export type PilotEvalId = z.infer<typeof PilotEvalIdSchema>;
 export type PilotEvalScenario = z.infer<typeof PilotEvalScenarioSchema>;
 export type PilotEvalRunRecord = z.infer<typeof PilotEvalRunRecordSchema>;
@@ -176,6 +212,11 @@ export type PilotEvalStepRecord = z.infer<typeof PilotEvalStepRecordSchema>;
 export type RecordPilotEvalRunInput = z.infer<typeof RecordPilotEvalRunInputSchema>;
 export type ExecutePilotEvalInput = z.input<typeof ExecutePilotEvalInputSchema>;
 export type CapabilityPromotionCheck = z.infer<typeof CapabilityPromotionCheckSchema>;
+export type PilotEvalExecutionMode = z.infer<typeof PilotEvalExecutionModeSchema>;
+export type CapabilityEvalReadinessItem = z.infer<typeof CapabilityEvalReadinessItemSchema>;
+export type CapabilityEvalReadinessInventory = z.infer<
+  typeof CapabilityEvalReadinessInventorySchema
+>;
 
 export const pilotProductionEvalSuite: readonly PilotEvalScenario[] = [
   {
@@ -667,6 +708,93 @@ export function checkCapabilityPromotionReadiness(params: {
   });
 }
 
+function uniqueSorted(values: readonly string[]): string[] {
+  return [...new Set(values)].sort((a, b) => a.localeCompare(b));
+}
+
+function isPassingRealExternalEval(run: PilotEvalRunRecord): boolean {
+  return (
+    run.status === 'passed' &&
+    run.evidenceRefs.length > 0 &&
+    run.auditReceiptRefs.length > 0 &&
+    Boolean(run.completedAt) &&
+    run.metadata['executionMode'] === 'real_external_eval'
+  );
+}
+
+export function buildCapabilityEvalReadinessInventory(
+  runs: readonly PilotEvalRunRecord[] = [],
+): CapabilityEvalReadinessInventory {
+  const items = getCapabilityRecords().map((capability) => {
+    const requiredEvals = getRequiredEvalsForCapability(capability.key);
+    const latestRuns = runs.filter((run) => {
+      if (run.capabilityKey && run.capabilityKey !== capability.key) return false;
+      return requiredEvals.some((scenario) => scenario.id === run.evalId);
+    });
+    const missingRealEvals = requiredEvals.filter(
+      (scenario) =>
+        !latestRuns.some((run) => run.evalId === scenario.id && isPassingRealExternalEval(run)),
+    );
+    const promotionCheck = checkCapabilityPromotionReadiness({
+      capability,
+      runs: latestRuns,
+    });
+    const blockers = [
+      ...capability.blockers,
+      ...promotionCheck.blockers,
+      ...missingRealEvals.map(
+        (scenario) =>
+          `${scenario.name} must pass as executionMode real_external_eval before production_ready promotion`,
+      ),
+    ];
+
+    return CapabilityEvalReadinessItemSchema.parse({
+      capability,
+      requiredEvalIds: requiredEvals.map((scenario) => scenario.id),
+      requiredEvalNames: requiredEvals.map((scenario) => scenario.name),
+      missingRealEvalIds: missingRealEvals.map((scenario) => scenario.id),
+      missingRealEvalNames: missingRealEvals.map((scenario) => scenario.name),
+      requiredTools: uniqueSorted(requiredEvals.flatMap((scenario) => scenario.requiredTools)),
+      requiredIntegrations: uniqueSorted(
+        requiredEvals.flatMap((scenario) => scenario.requiredIntegrations),
+      ),
+      requiredHelmPolicies: uniqueSorted(
+        requiredEvals.flatMap((scenario) => scenario.requiredHelmPolicies),
+      ),
+      evidenceRequirements: uniqueSorted(
+        requiredEvals.flatMap((scenario) => scenario.evidenceRequirements),
+      ),
+      auditRequirements: uniqueSorted(
+        requiredEvals.flatMap((scenario) => scenario.auditRequirements),
+      ),
+      latestRuns,
+      currentExecutorMode: 'control_plane_proof_check',
+      requiredExecutionMode: 'real_external_eval',
+      controlPlaneProofCheckOnly: true,
+      productionReadyBlocked:
+        capability.state !== 'production_ready' ||
+        missingRealEvals.length > 0 ||
+        !promotionCheck.canPromote,
+      blockers: uniqueSorted(blockers),
+    });
+  });
+
+  return CapabilityEvalReadinessInventorySchema.parse({
+    generatedAt: new Date().toISOString(),
+    productionReadyPromotionRule:
+      'A capability can become production_ready only after every required eval has a passed durable run with evidenceRefs, auditReceiptRefs, completedAt, and metadata.executionMode=real_external_eval.',
+    requiredExecutionMode: 'real_external_eval',
+    currentExecutorMode: 'control_plane_proof_check',
+    controlPlaneProofCheckOnly: true,
+    totalCapabilities: items.length,
+    productionReadyCapabilities: items.filter(
+      (item) => item.capability.state === 'production_ready',
+    ).length,
+    blockedCapabilities: items.filter((item) => item.productionReadyBlocked).length,
+    items,
+  });
+}
+
 export function executePilotProductionEval(input: ExecutePilotEvalInput): {
   run: RecordPilotEvalRunInput;
   blockers: string[];
@@ -681,9 +809,7 @@ export function executePilotProductionEval(input: ExecutePilotEvalInput): {
   }
 
   const capabilityKeys =
-    parsed.capabilityKey !== undefined
-      ? [parsed.capabilityKey]
-      : (scenario?.capabilityKeys ?? []);
+    parsed.capabilityKey !== undefined ? [parsed.capabilityKey] : (scenario?.capabilityKeys ?? []);
   if (capabilityKeys.length === 0) {
     blockers.push('No capability keys could be selected for this eval');
   }
