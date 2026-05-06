@@ -85,6 +85,12 @@ export const ExecuteStartupMissionInputSchema = z.object({
   iterationBudget: z.coerce.number().int().min(1).max(100).default(10),
 });
 
+export const CheckpointStartupMissionInputSchema = z.object({
+  workspaceId: z.string().uuid(),
+  missionId: z.string().uuid(),
+  reason: z.string().min(1).max(500).optional(),
+});
+
 export const CompiledStartupLifecycleMissionSchema = z.object({
   workspaceId: z.string().uuid(),
   generatedAt: z.string().datetime(),
@@ -184,6 +190,27 @@ export const ExecutedStartupMissionSchema = z.object({
   blockers: z.array(z.string().min(1)),
 });
 
+export const CheckpointedStartupMissionSchema = z.object({
+  workspaceId: z.string().uuid(),
+  missionId: z.string().uuid(),
+  checkpointId: z.string().min(1),
+  checkpointVersion: z.literal('mission-checkpoint.v1'),
+  productionReady: z.literal(false),
+  status: z.literal('checkpointed_not_recovered'),
+  missionStatus: z.string().min(1),
+  replayRef: z.string().min(1),
+  evidenceItemIds: z.array(z.string().uuid()).default([]),
+  snapshot: z.object({
+    missionId: z.string().uuid(),
+    status: z.string().min(1),
+    nodeCount: z.number().int().nonnegative(),
+    edgeCount: z.number().int().nonnegative(),
+    taskLinkCount: z.number().int().nonnegative(),
+    nodeStatuses: z.record(z.string(), z.number().int().nonnegative()),
+  }),
+  blockers: z.array(z.string().min(1)),
+});
+
 export type StartupLifecycleStage = z.infer<typeof StartupLifecycleStageSchema>;
 export type StartupLifecycleNode = z.infer<typeof StartupLifecycleNodeSchema>;
 export type StartupLifecycleEdge = z.infer<typeof StartupLifecycleEdgeSchema>;
@@ -192,6 +219,7 @@ export type PersistStartupLifecycleInput = z.infer<typeof PersistStartupLifecycl
 export type ScheduleStartupMissionInput = z.infer<typeof ScheduleStartupMissionInputSchema>;
 export type ExecuteStartupMissionNodeInput = z.infer<typeof ExecuteStartupMissionNodeInputSchema>;
 export type ExecuteStartupMissionInput = z.infer<typeof ExecuteStartupMissionInputSchema>;
+export type CheckpointStartupMissionInput = z.infer<typeof CheckpointStartupMissionInputSchema>;
 export type CompiledStartupLifecycleMission = z.infer<typeof CompiledStartupLifecycleMissionSchema>;
 export type PersistedStartupLifecycleMission = z.infer<
   typeof PersistedStartupLifecycleMissionSchema
@@ -199,6 +227,7 @@ export type PersistedStartupLifecycleMission = z.infer<
 export type ScheduledStartupMission = z.infer<typeof ScheduledStartupMissionSchema>;
 export type ExecutedStartupMissionNode = z.infer<typeof ExecutedStartupMissionNodeSchema>;
 export type ExecutedStartupMission = z.infer<typeof ExecutedStartupMissionSchema>;
+export type CheckpointedStartupMission = z.infer<typeof CheckpointedStartupMissionSchema>;
 
 const startupLifecycleTemplates: readonly StartupLifecycleNode[] = [
   {

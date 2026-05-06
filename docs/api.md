@@ -510,13 +510,17 @@ Compile and persist a founder goal as durable venture, goal, mission, mission no
 
 Inspect a persisted lifecycle mission, identify dependency-ready pending nodes, mark those nodes `ready`, and return linked task IDs. Requires at least the workspace `partner` role. The response is `scheduled_not_executing`; this route does not call the orchestrator, dispatch agents, start browser/computer sessions, or promote mission runtime to `production_ready`.
 
+### POST /api/startup-lifecycle/missions/:missionId/checkpoint
+
+Persist a redacted snapshot of the current mission, node, edge, and task-link state as `startup_lifecycle_mission_checkpoint` evidence. Requires at least the workspace `partner` role. The response is `checkpointed_not_recovered`; this route records replay metadata and the latest checkpoint pointer on the mission, but it does not recover, roll back, continue execution, or promote mission runtime to `production_ready`.
+
 ### POST /api/startup-lifecycle/missions/:missionId/nodes/:nodeId/execute
 
 Execute one scheduled `ready` lifecycle node through the existing governed task runtime with mission context. Requires at least the workspace `partner` role. The route updates the mission node, task, and mission state, calls `orchestrator.runTask` with `missionId`/`ventureId` context, and marks newly unblocked dependency nodes as `ready`. It does not automatically execute the next node, perform mission-level rollback/recovery, or promote mission runtime to `production_ready`.
 
 ### POST /api/startup-lifecycle/missions/:missionId/execute-ready
 
-Execute a bounded batch of currently `ready` lifecycle nodes through the existing governed task runtime. Requires at least the workspace `partner` role. The route reuses the single-node executor, returns executed node results plus remaining ready node IDs, and stays explicit/bounded; it is not founder-off-grid execution, does not provide checkpoint/recovery/rollback, and does not promote mission runtime to `production_ready`.
+Execute a bounded batch of currently `ready` lifecycle nodes through the existing governed task runtime. Requires at least the workspace `partner` role. The route reuses the single-node executor, returns executed node results plus remaining ready node IDs, and stays explicit/bounded; it is not founder-off-grid execution, does not provide recovery/rollback, and does not promote mission runtime to `production_ready`.
 
 ### GET /api/evals/production-suite
 
