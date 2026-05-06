@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 import { Hono } from 'hono';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { appendEvidenceItem } from '@pilot/db';
 import {
+  evidenceItems,
   goals,
   missionEdges,
   missionNodes,
@@ -20,6 +21,8 @@ import {
   ExecuteStartupMissionInputSchema,
   ExecuteStartupMissionNodeInputSchema,
   type ExecutedStartupMissionNode,
+  PlannedStartupMissionRecoverySchema,
+  PlanStartupMissionRecoveryInputSchema,
   PersistStartupLifecycleInputSchema,
   PersistedStartupLifecycleMissionSchema,
   ScheduledStartupMissionSchema,
@@ -443,6 +446,180 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
       },
       blockers: [
         'Mission checkpoint snapshots are durable evidence only; recovery and rollback executors remain blocked.',
+        'Full Startup Launch Eval has not promoted mission_runtime or startup_lifecycle to production_ready.',
+      ],
+    });
+
+    return c.json(response, 200);
+  });
+
+  app.post('/missions/:missionId/recovery-plan', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'plan startup lifecycle recovery');
+    if (roleDenied) return roleDenied;
+
+    const raw = await c.req.json().catch(() => ({}));
+    if (workspaceIdMismatch(c, (raw as { workspaceId?: string }).workspaceId)) {
+      return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
+    }
+
+    const parsed = PlanStartupMissionRecoveryInputSchema.safeParse({
+      ...(raw as Record<string, unknown>),
+      workspaceId,
+      missionId: c.req.param('missionId'),
+    });
+    if (!parsed.success) {
+      return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
+    }
+
+    const [mission] = await _deps.db
+      .select()
+      .from(missions)
+      .where(and(eq(missions.id, parsed.data.missionId), eq(missions.workspaceId, workspaceId)))
+      .limit(1);
+    if (!mission) return c.json({ error: 'Mission not found' }, 404);
+
+    const missionMetadata = jsonRecord(mission.metadata);
+    const lastCheckpoint = jsonRecord(missionMetadata['lastCheckpoint']);
+    const checkpointId = stringValue(lastCheckpoint['checkpointId']);
+    const checkpointReplayRef = stringValue(lastCheckpoint['replayRef']);
+    const [checkpointEvidence] = checkpointReplayRef
+      ? await _deps.db
+          .select()
+          .from(evidenceItems)
+          .where(
+            and(
+              eq(evidenceItems.workspaceId, workspaceId),
+              eq(evidenceItems.replayRef, checkpointReplayRef),
+            ),
+          )
+          .orderBy(desc(evidenceItems.observedAt), desc(evidenceItems.id))
+          .limit(1)
+      : [];
+
+    const nodeRows = await _deps.db
+      .select()
+      .from(missionNodes)
+      .where(and(eq(missionNodes.missionId, mission.id), eq(missionNodes.workspaceId, workspaceId)))
+      .orderBy(missionNodes.sortOrder);
+    const edgeRows = await _deps.db
+      .select()
+      .from(missionEdges)
+      .where(and(eq(missionEdges.missionId, mission.id), eq(missionEdges.workspaceId, workspaceId)))
+      .orderBy(missionEdges.edgeKey);
+    const taskLinks = await _deps.db
+      .select()
+      .from(missionTasks)
+      .where(and(eq(missionTasks.missionId, mission.id), eq(missionTasks.workspaceId, workspaceId)))
+      .orderBy(missionTasks.createdAt);
+
+    const currentNodeStatuses = nodeStatusMap(nodeRows);
+    const checkpointNodeStatuses = checkpointStatusMap(checkpointEvidence?.metadata);
+    const plan = buildMissionRecoveryPlan({
+      currentNodeStatuses,
+      checkpointNodeStatuses,
+      checkpointReplayRef,
+      nodeRows,
+    });
+    const planSnapshot = {
+      mission: {
+        id: mission.id,
+        status: mission.status,
+        productionReady: mission.productionReady,
+      },
+      checkpoint: {
+        checkpointId,
+        replayRef: checkpointReplayRef,
+        evidenceItemId: stringValue(lastCheckpoint['evidenceItemId']),
+      },
+      current: {
+        nodes: nodeRows.map((node) => ({
+          id: node.id,
+          nodeKey: node.nodeKey,
+          status: node.status,
+          stage: node.stage,
+          sortOrder: node.sortOrder,
+        })),
+        edges: edgeRows.map((edge) => ({
+          id: edge.id,
+          edgeKey: edge.edgeKey,
+          fromNodeKey: edge.fromNodeKey,
+          toNodeKey: edge.toNodeKey,
+        })),
+        taskLinks: taskLinks.map((link) => ({
+          id: link.id,
+          nodeId: link.nodeId,
+          taskId: link.taskId,
+          role: link.role,
+        })),
+      },
+      reason: parsed.data.reason ?? null,
+    };
+    const contentHash = hashJson({ plan, planSnapshot });
+    const recoveryPlanId = `mission-recovery-plan:${contentHash.slice('sha256:'.length, 23)}`;
+    const replayRef = `mission:${mission.id}:recovery-plan:${recoveryPlanId.split(':')[1]}`;
+    const plannedAt = new Date();
+
+    const evidenceItemId = await appendEvidenceItem(_deps.db, {
+      workspaceId,
+      ventureId: mission.ventureId ?? null,
+      missionId: mission.id,
+      evidenceType: 'startup_lifecycle_recovery_plan',
+      sourceType: 'gateway_startup_lifecycle',
+      title: `Startup lifecycle recovery plan: ${mission.title}`,
+      summary: parsed.data.reason ?? `Recovery plan for mission status ${mission.status}`,
+      redactionState: 'redacted',
+      sensitivity: 'internal',
+      contentHash,
+      replayRef,
+      observedAt: plannedAt,
+      metadata: {
+        recoveryPlanVersion: 'mission-recovery-plan.v1',
+        recoveryPlanId,
+        checkpointId,
+        checkpointReplayRef,
+        missionStatus: mission.status,
+        recoveryExecuted: false,
+        plan,
+        snapshot: planSnapshot,
+        productionReady: false,
+      },
+    });
+
+    await _deps.db
+      .update(missions)
+      .set({
+        metadata: {
+          ...missionMetadata,
+          lastRecoveryPlan: {
+            recoveryPlanId,
+            evidenceItemId,
+            replayRef,
+            contentHash,
+            plannedAt: plannedAt.toISOString(),
+          },
+        },
+        updatedAt: plannedAt,
+      })
+      .where(and(eq(missions.id, mission.id), eq(missions.workspaceId, workspaceId)));
+
+    const response = PlannedStartupMissionRecoverySchema.parse({
+      workspaceId,
+      missionId: mission.id,
+      recoveryPlanId,
+      recoveryPlanVersion: 'mission-recovery-plan.v1',
+      productionReady: false,
+      status: 'planned_not_executed',
+      missionStatus: mission.status,
+      recoveryExecuted: false,
+      checkpointId,
+      checkpointReplayRef,
+      replayRef,
+      evidenceItemIds: [evidenceItemId],
+      plan,
+      blockers: [
+        'Recovery plan is persisted as evidence only; recovery, retry, rollback, and continuation executors remain blocked.',
         'Full Startup Launch Eval has not promoted mission_runtime or startup_lifecycle to production_ready.',
       ],
     });
@@ -1004,6 +1181,88 @@ function countNodeStatuses(nodes: Array<typeof missionNodes.$inferSelect>): Reco
 function jsonRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function nodeStatusMap(nodes: Array<typeof missionNodes.$inferSelect>): Record<string, string> {
+  return Object.fromEntries(nodes.map((node) => [node.nodeKey, node.status]));
+}
+
+function checkpointStatusMap(metadata: unknown): Record<string, string> {
+  const snapshot = jsonRecord(jsonRecord(metadata)['snapshot']);
+  const nodes = Array.isArray(snapshot['nodes']) ? snapshot['nodes'] : [];
+  const statuses: Record<string, string> = {};
+  for (const rawNode of nodes) {
+    const node = jsonRecord(rawNode);
+    const nodeKey = stringValue(node['nodeKey']);
+    const status = stringValue(node['status']);
+    if (nodeKey && status) statuses[nodeKey] = status;
+  }
+  return statuses;
+}
+
+function buildMissionRecoveryPlan(input: {
+  currentNodeStatuses: Record<string, string>;
+  checkpointNodeStatuses: Record<string, string>;
+  checkpointReplayRef: string | null;
+  nodeRows: Array<typeof missionNodes.$inferSelect>;
+}): {
+  changedNodeKeys: string[];
+  blockedNodeKeys: string[];
+  failedNodeKeys: string[];
+  awaitingApprovalNodeKeys: string[];
+  readyNodeKeys: string[];
+  currentNodeStatuses: Record<string, string>;
+  checkpointNodeStatuses: Record<string, string>;
+  recommendedNextActions: string[];
+} {
+  const changedNodeKeys = Object.entries(input.currentNodeStatuses)
+    .filter(([nodeKey, status]) => {
+      const checkpointStatus = input.checkpointNodeStatuses[nodeKey];
+      return Boolean(checkpointStatus && checkpointStatus !== status);
+    })
+    .map(([nodeKey]) => nodeKey);
+  const nodeKeysByStatus = (status: string) =>
+    input.nodeRows.filter((node) => node.status === status).map((node) => node.nodeKey);
+  const blockedNodeKeys = nodeKeysByStatus('blocked');
+  const failedNodeKeys = nodeKeysByStatus('failed');
+  const awaitingApprovalNodeKeys = nodeKeysByStatus('awaiting_approval');
+  const readyNodeKeys = nodeKeysByStatus('ready');
+  const recommendedNextActions = [
+    ...(!input.checkpointReplayRef
+      ? ['Create a mission checkpoint before executing any recovery action.']
+      : []),
+    ...(changedNodeKeys.length > 0
+      ? ['Review node status drift against the checkpoint before retrying or resuming work.']
+      : []),
+    ...(failedNodeKeys.length > 0
+      ? ['Inspect failed node evidence and decide whether to retry the linked task manually.']
+      : []),
+    ...(blockedNodeKeys.length > 0
+      ? ['Resolve blocked node evidence and escalation conditions before further execution.']
+      : []),
+    ...(awaitingApprovalNodeKeys.length > 0
+      ? ['Resolve pending approvals before executing dependent mission nodes.']
+      : []),
+    ...(readyNodeKeys.length > 0
+      ? ['Use explicit bounded ready-node execution only after founder review.']
+      : []),
+    'Do not roll back, retry, or continue automatically from this plan.',
+  ];
+
+  return {
+    changedNodeKeys,
+    blockedNodeKeys,
+    failedNodeKeys,
+    awaitingApprovalNodeKeys,
+    readyNodeKeys,
+    currentNodeStatuses: input.currentNodeStatuses,
+    checkpointNodeStatuses: input.checkpointNodeStatuses,
+    recommendedNextActions,
+  };
 }
 
 function missionNodeExecutionContext(
