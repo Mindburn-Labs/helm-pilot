@@ -70,6 +70,44 @@ export const CommandCenterProofDagResponseSchema = z.object({
   blockers: z.array(z.string().min(1)),
 });
 
+export const CommandCenterPermissionGraphResponseSchema = z.object({
+  workspaceId: z.string().min(1),
+  generatedAt: z.string().datetime(),
+  productionReady: z.literal(false),
+  capability: CapabilityRecordSchema,
+  redactionContract: z.string().min(1),
+  graph: z.object({
+    nodes: z.array(
+      z.object({
+        id: z.string().min(1),
+        kind: z.enum([
+          'workspace',
+          'workspace_role',
+          'required_role',
+          'capability',
+          'operator',
+          'tool_scope',
+          'policy_config',
+        ]),
+        label: z.string().min(1),
+        state: z.string().optional(),
+        metadata: z.record(z.string(), z.unknown()).default({}),
+      }),
+    ),
+    edges: z.array(
+      z.object({
+        id: z.string().min(1),
+        from: z.string().min(1),
+        to: z.string().min(1),
+        relation: z.string().min(1),
+        status: z.enum(['allowed', 'configured', 'blocked', 'prototype', 'requires_eval']),
+        reason: z.string().optional(),
+      }),
+    ),
+  }),
+  blockers: z.array(z.string().min(1)),
+});
+
 export const CommandCenterReplayResponseSchema = z.object({
   workspaceId: z.string().min(1),
   replayRef: z.string().min(1),
@@ -87,4 +125,7 @@ export const CommandCenterReplayResponseSchema = z.object({
 export type CommandCenterRuntimeTruth = z.infer<typeof CommandCenterRuntimeTruthSchema>;
 export type CommandCenterResponse = z.infer<typeof CommandCenterResponseSchema>;
 export type CommandCenterProofDagResponse = z.infer<typeof CommandCenterProofDagResponseSchema>;
+export type CommandCenterPermissionGraphResponse = z.infer<
+  typeof CommandCenterPermissionGraphResponseSchema
+>;
 export type CommandCenterReplayResponse = z.infer<typeof CommandCenterReplayResponseSchema>;

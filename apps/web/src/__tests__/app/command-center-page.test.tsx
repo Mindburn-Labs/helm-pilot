@@ -220,6 +220,70 @@ describe('CommandCenterPage', () => {
       new Response(
         JSON.stringify({
           workspaceId: 'ws-1',
+          generatedAt: '2026-05-05T00:00:00.000Z',
+          productionReady: false,
+          capability: {
+            key: 'command_center',
+            name: 'Command center UI',
+            state: 'prototype',
+            summary: 'Backed by real durable rows.',
+            blockers: ['Permission graph is read-only'],
+            evalRequirement: 'Command Center Real-State UX Eval',
+          },
+          redactionContract: 'member user ids and raw policy values are withheld',
+          graph: {
+            nodes: [
+              { id: 'workspace:ws-1', kind: 'workspace', label: 'Workspace', state: 'scoped' },
+              {
+                id: 'workspace-role:current',
+                kind: 'workspace_role',
+                label: 'Current role owner',
+                state: 'allowed',
+              },
+              {
+                id: 'required-role:partner',
+                kind: 'required_role',
+                label: 'Command center requires partner',
+                state: 'allowed',
+              },
+              {
+                id: 'operator:operator-1',
+                kind: 'operator',
+                label: 'Opportunity Scout',
+                state: 'active',
+              },
+              {
+                id: 'tool-scope:score_opportunity',
+                kind: 'tool_scope',
+                label: 'score_opportunity',
+                state: 'configured',
+              },
+            ],
+            edges: [
+              {
+                id: 'current-role-command-center',
+                from: 'workspace-role:current',
+                to: 'required-role:partner',
+                relation: 'meets_required_role',
+                status: 'allowed',
+              },
+              {
+                id: 'operator-tool',
+                from: 'operator:operator-1',
+                to: 'tool-scope:score_opportunity',
+                relation: 'declares_tool_scope',
+                status: 'configured',
+              },
+            ],
+          },
+          blockers: ['Permission graph is read-only command-center introspection'],
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+    ).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          workspaceId: 'ws-1',
           rootTaskRunId,
           generatedAt: '2026-05-05T00:00:00.000Z',
           productionReady: false,
@@ -299,7 +363,10 @@ describe('CommandCenterPage', () => {
     expect(screen.getByText('YC Account')).toBeTruthy();
     expect(screen.getByText('dev_server_status')).toBeTruthy();
     expect(screen.getByText('Opportunity Score')).toBeTruthy();
-    expect(screen.getByText('Workspace role owner')).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByText('Current role owner -> Command center requires partner')).toBeTruthy(),
+    );
+    expect(screen.getByText('Opportunity Scout -> score_opportunity')).toBeTruthy();
     expect(screen.getAllByText('Operator ownership scoping').length).toBeGreaterThan(0);
     await waitFor(() => expect(screen.getByText('Subagent Proof DAG')).toBeTruthy());
     await waitFor(() => expect(screen.getByText('SUBAGENT_SPAWN')).toBeTruthy());
@@ -307,6 +374,10 @@ describe('CommandCenterPage', () => {
     expect(screen.getByText(/Proof DAG route is implemented for inspection/)).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/command-center/proof-dag/${encodeURIComponent(rootTaskRunId)}`,
+      expect.objectContaining({ credentials: 'include' }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/command-center/permission-graph',
       expect.objectContaining({ credentials: 'include' }),
     );
     expect(screen.queryByText('18/18')).toBeNull();

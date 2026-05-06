@@ -100,10 +100,12 @@ export {
 } from './managed-telegram.js';
 
 export {
+  type CommandCenterPermissionGraphResponse,
   type CommandCenterProofDagResponse,
   type CommandCenterReplayResponse,
   type CommandCenterResponse,
   type CommandCenterRuntimeTruth,
+  CommandCenterPermissionGraphResponseSchema,
   CommandCenterProofDagResponseSchema,
   CommandCenterReplayResponseSchema,
   CommandCenterResponseSchema,

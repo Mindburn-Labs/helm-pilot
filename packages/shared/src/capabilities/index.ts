@@ -401,12 +401,13 @@ const capabilityRecords = validateCapabilityRecords([
     owner: 'UI Agent',
     blockers: [
       'Mission runtime is still blocked, so the command center cannot claim venture/mission DAG autonomy',
-      'No first-class permission graph, live mission graph, or founder-off-grid execution control surface',
+      'Permission graph is read-only command-center introspection; live mission graph and founder-off-grid execution control surface are still incomplete',
       'Command Center Real-State UX Eval has not promoted the capability to production_ready',
     ],
     evidence: [
       'Gate 8 adds /api/command-center backed by durable task/action/tool/evidence/browser/computer/artifact/audit/approval/handoff rows',
       'Gate 8 adds /api/command-center/proof-dag/:taskRunId for subagent proof DAG inspection without production promotion',
+      'Gate 8 adds /api/command-center/permission-graph with workspace role, member, operator, tool-scope, policy-config-key, and governance capability edges without raw policy values',
       'apps/web /command-center renders capability truth, blocked mission runtime, receipt chips, evidence drawers, browser/computer replay rows, subagent proof-DAG rows, and escalation state from the API',
     ],
     evalRequirement: 'Command Center Real-State UX Eval',
