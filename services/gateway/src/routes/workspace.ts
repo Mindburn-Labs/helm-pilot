@@ -184,8 +184,10 @@ function defaultWorkspaceSettings(workspaceId: string) {
   return {
     workspaceId,
     policyConfig: {
+      killSwitch: false,
       maxIterationBudget: 50,
       toolBlocklist: [],
+      contentBans: [],
       connectorAllowlist: [],
       requireApprovalFor: [],
       failClosed: true,
@@ -225,8 +227,10 @@ function normalizeWorkspaceSettings(
 function normalizePolicyConfig(policyConfig: unknown) {
   const config = asRecord(policyConfig);
   return {
+    killSwitch: typeof config['killSwitch'] === 'boolean' ? config['killSwitch'] : false,
     maxIterationBudget: toNumber(config['maxIterationBudget'], 50),
     toolBlocklist: toStringArray(config['toolBlocklist'] ?? config['blockedTools']),
+    contentBans: toStringArray(config['contentBans']),
     connectorAllowlist: toStringArray(config['connectorAllowlist']),
     requireApprovalFor: toStringArray(config['requireApprovalFor']),
     failClosed: typeof config['failClosed'] === 'boolean' ? config['failClosed'] : true,
