@@ -177,6 +177,92 @@ describe('commandCenterRoutes', () => {
     expect(JSON.stringify(body)).not.toContain('apiToken');
   });
 
+  it('returns a read-only durable mission graph without production promotion', async () => {
+    const missionId = 'mission-1';
+    const { fetch } = createApp([
+      [
+        {
+          id: missionId,
+          workspaceId,
+          missionKey: 'pmf-discovery',
+          title: 'PMF Discovery',
+          status: 'scheduled',
+          autonomyMode: 'review',
+          capabilityState: 'prototype',
+          productionReady: false,
+          updatedAt: new Date('2026-05-05T08:00:00Z'),
+        },
+      ],
+      [
+        {
+          id: 'node-1',
+          workspaceId,
+          missionId,
+          nodeKey: 'research',
+          stage: 'market_research',
+          title: 'Research market',
+          objective: 'Collect evidence',
+          status: 'ready',
+          sortOrder: 1,
+          requiredAgents: ['opportunity_scout'],
+          requiredTools: ['score_opportunity'],
+        },
+      ],
+      [
+        {
+          id: 'edge-1',
+          workspaceId,
+          missionId,
+          edgeKey: 'research-to-score',
+          fromNodeKey: 'research',
+          toNodeKey: 'score',
+          reason: 'Evidence precedes scoring',
+        },
+      ],
+      [
+        {
+          id: 'mission-task-1',
+          workspaceId,
+          missionId,
+          nodeId: 'node-1',
+          taskId: 'task-1',
+          role: 'execution_task',
+          createdAt: new Date('2026-05-05T08:01:00Z'),
+        },
+      ],
+    ]);
+
+    const res = await fetch('GET', `/mission-graph?missionId=${missionId}`, wsHeader);
+    const body = await expectJson<{
+      productionReady: boolean;
+      missionId: string;
+      graph: {
+        missions: Array<{ id: string; title: string; productionReady: boolean }>;
+        nodes: Array<{ nodeKey: string; status: string }>;
+        edges: Array<{ fromNodeKey: string; toNodeKey: string }>;
+        taskLinks: Array<{ taskId: string; nodeId: string }>;
+        orderedBy: string[];
+      };
+      blockers: string[];
+    }>(res, 200);
+
+    expect(body.productionReady).toBe(false);
+    expect(body.missionId).toBe(missionId);
+    expect(body.graph.missions[0]).toMatchObject({
+      id: missionId,
+      title: 'PMF Discovery',
+      productionReady: false,
+    });
+    expect(body.graph.nodes[0]).toMatchObject({ nodeKey: 'research', status: 'ready' });
+    expect(body.graph.edges[0]).toMatchObject({
+      fromNodeKey: 'research',
+      toNodeKey: 'score',
+    });
+    expect(body.graph.taskLinks[0]).toMatchObject({ taskId: 'task-1', nodeId: 'node-1' });
+    expect(body.graph.orderedBy).toContain('node.sortOrder');
+    expect(body.blockers.join(' ')).toContain('does not dispatch or resume mission DAGs');
+  });
+
   it('requires a replay ref for command-center replay lookup', async () => {
     const { fetch, db } = createApp();
     const res = await fetch('GET', '/replay', wsHeader);

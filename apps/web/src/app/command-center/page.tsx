@@ -112,6 +112,21 @@ interface CommandCenterPermissionGraphResponse {
   blockers: string[];
 }
 
+interface CommandCenterMissionGraphResponse {
+  workspaceId: string;
+  generatedAt: string;
+  productionReady: false;
+  missionId: string | null;
+  graph: {
+    missions: DurableRow[];
+    nodes: DurableRow[];
+    edges: DurableRow[];
+    taskLinks: DurableRow[];
+    orderedBy: string[];
+  };
+  blockers: string[];
+}
+
 const navItems = [
   { label: 'Command', href: '/command-center' },
   { label: 'Ventures', href: '/discover' },
@@ -147,6 +162,8 @@ export default function CommandCenterPage() {
   const [permissionGraph, setPermissionGraph] =
     useState<CommandCenterPermissionGraphResponse | null>(null);
   const [permissionGraphError, setPermissionGraphError] = useState<string | null>(null);
+  const [missionGraph, setMissionGraph] = useState<CommandCenterMissionGraphResponse | null>(null);
+  const [missionGraphError, setMissionGraphError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const isNarrow = useNarrowViewport(760);
@@ -185,6 +202,30 @@ export default function CommandCenterPage() {
       .catch((err: unknown) => {
         if (!cancelled) {
           setPermissionGraphError(err instanceof Error ? err.message : String(err));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated()) return;
+
+    let cancelled = false;
+    apiFetch<CommandCenterMissionGraphResponse>('/api/command-center/mission-graph')
+      .then((response) => {
+        if (cancelled) return;
+        if (!response) {
+          setMissionGraphError('Mission graph unavailable.');
+          return;
+        }
+        setMissionGraph(response);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setMissionGraphError(err instanceof Error ? err.message : String(err));
         }
       });
 
@@ -287,6 +328,54 @@ export default function CommandCenterPage() {
     ];
   }, [permissionGraph, permissionGraphError]);
 
+  const missionRows = useMemo(() => {
+    if (!missionGraph) {
+      return [
+        {
+          id: 'mission-graph-loading',
+          title: 'Mission graph',
+          meta: missionGraphError ?? 'loading',
+          detail:
+            missionGraphError ?? 'Waiting for durable mission graph from the command-center API.',
+        },
+      ];
+    }
+    const missions = Array.isArray(missionGraph.graph.missions) ? missionGraph.graph.missions : [];
+    const nodes = Array.isArray(missionGraph.graph.nodes) ? missionGraph.graph.nodes : [];
+    const edges = Array.isArray(missionGraph.graph.edges) ? missionGraph.graph.edges : [];
+    return [
+      ...missions.slice(0, 5).map((row) => ({
+        id: String(row.id ?? row.missionKey ?? 'mission'),
+        title: display(row.title, display(row.missionKey, 'Mission')),
+        meta: `${display(row.status, 'status')} / ${display(row.autonomyMode, 'mode')}`,
+        detail: `capability ${display(row.capabilityState, 'unknown')} / production ${display(
+          row.productionReady,
+          'false',
+        )}`,
+      })),
+      ...nodes.slice(0, 8).map((row) => ({
+        id: String(row.id ?? row.nodeKey ?? 'node'),
+        title: display(row.title, display(row.nodeKey, 'Mission node')),
+        meta: `${display(row.stage, 'stage')} / ${display(row.status, 'status')}`,
+        detail: `tools ${arrayCount(row.requiredTools)} / evidence ${arrayCount(
+          row.requiredEvidence,
+        )}`,
+      })),
+      ...edges.slice(0, 8).map((row) => ({
+        id: String(row.id ?? row.edgeKey ?? 'edge'),
+        title: `${display(row.fromNodeKey, 'from')} -> ${display(row.toNodeKey, 'to')}`,
+        meta: display(row.edgeKey, 'dependency'),
+        detail: display(row.reason, 'No dependency reason recorded'),
+      })),
+      ...missionGraph.blockers.slice(0, 2).map((blocker, index) => ({
+        id: `mission-blocker-${index}`,
+        title: 'Mission graph blocker',
+        meta: 'prototype',
+        detail: blocker,
+      })),
+    ];
+  }, [missionGraph, missionGraphError]);
+
   if (typeof window !== 'undefined' && !isAuthenticated()) return null;
 
   return (
@@ -360,6 +449,12 @@ export default function CommandCenterPage() {
             </section>
 
             <section style={splitStyle}>
+              <TimelineSection
+                title="Mission Graph"
+                empty="No durable mission graph rows returned."
+                rows={missionRows}
+              />
+
               <TimelineSection
                 title="What Pilot Is Doing"
                 empty="No durable task/action rows yet."

@@ -284,6 +284,52 @@ describe('CommandCenterPage', () => {
       new Response(
         JSON.stringify({
           workspaceId: 'ws-1',
+          generatedAt: '2026-05-05T00:00:00.000Z',
+          productionReady: false,
+          missionId: null,
+          graph: {
+            missions: [
+              {
+                id: 'mission-1',
+                missionKey: 'pmf-discovery',
+                title: 'PMF Discovery',
+                status: 'scheduled',
+                autonomyMode: 'review',
+                capabilityState: 'prototype',
+                productionReady: false,
+              },
+            ],
+            nodes: [
+              {
+                id: 'node-1',
+                nodeKey: 'research',
+                stage: 'market_research',
+                title: 'Research market',
+                status: 'ready',
+                requiredTools: ['score_opportunity'],
+                requiredEvidence: ['citations'],
+              },
+            ],
+            edges: [
+              {
+                id: 'edge-1',
+                edgeKey: 'research-to-score',
+                fromNodeKey: 'research',
+                toNodeKey: 'score',
+                reason: 'Evidence precedes scoring',
+              },
+            ],
+            taskLinks: [{ id: 'mission-task-1', taskId: 'task-1', nodeId: 'node-1' }],
+            orderedBy: ['mission.updatedAt', 'node.sortOrder'],
+          },
+          blockers: ['Mission graph is read-only command-center introspection'],
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+    ).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          workspaceId: 'ws-1',
           rootTaskRunId,
           generatedAt: '2026-05-05T00:00:00.000Z',
           productionReady: false,
@@ -363,6 +409,9 @@ describe('CommandCenterPage', () => {
     expect(screen.getByText('YC Account')).toBeTruthy();
     expect(screen.getByText('dev_server_status')).toBeTruthy();
     expect(screen.getByText('Opportunity Score')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('PMF Discovery')).toBeTruthy());
+    expect(screen.getByText('Research market')).toBeTruthy();
+    expect(screen.getByText('research -> score')).toBeTruthy();
     await waitFor(() =>
       expect(screen.getByText('Current role owner -> Command center requires partner')).toBeTruthy(),
     );
@@ -378,6 +427,10 @@ describe('CommandCenterPage', () => {
     );
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/command-center/permission-graph',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/command-center/mission-graph',
       expect.objectContaining({ credentials: 'include' }),
     );
     expect(screen.queryByText('18/18')).toBeNull();
