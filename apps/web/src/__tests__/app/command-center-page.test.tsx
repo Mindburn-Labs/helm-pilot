@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React, { type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import CommandCenterPage from '../../app/command-center/page';
@@ -487,6 +487,41 @@ describe('CommandCenterPage', () => {
         }),
         { headers: { 'content-type': 'application/json' } },
       ),
+    ).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          workspaceId: 'ws-1',
+          replayRef: 'browser:browser-session-1:0',
+          generatedAt: '2026-05-05T00:00:00.000Z',
+          productionReady: false,
+          replay: {
+            evidenceItems: [
+              {
+                id: 'ev-replay-1',
+                evidenceType: 'browser_observation',
+                sourceType: 'browser_session',
+                title: 'YC Account replay evidence',
+                summary: 'Redacted read-only browser observation',
+                redactionState: 'redacted',
+                replayRef: 'browser:browser-session-1:0',
+              },
+            ],
+            browserObservations: [
+              {
+                id: 'obs-replay-1',
+                url: 'https://www.ycombinator.com/account',
+                title: 'YC Account replay observation',
+                domHash: 'sha256:dom',
+                screenshotHash: 'sha256:screenshot',
+                replayRef: 'browser:browser-session-1:0',
+              },
+            ],
+            computerActions: [],
+          },
+          blockers: ['Replay inspector is read-only and does not execute browser actions'],
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
     );
 
     render(<CommandCenterPage />);
@@ -526,6 +561,11 @@ describe('CommandCenterPage', () => {
     await waitFor(() => expect(screen.getByText('SUBAGENT_SPAWN')).toBeTruthy());
     expect(screen.getAllByText('subagent_spawn').length).toBeGreaterThan(0);
     expect(screen.getByText(/Proof DAG route is implemented for inspection/)).toBeTruthy();
+    expect(screen.getByText('Replay Inspector')).toBeTruthy();
+    fireEvent.click(screen.getAllByLabelText('Inspect replay browser:browser-session-1:0')[0]);
+    await waitFor(() => expect(screen.getByText('YC Account replay evidence')).toBeTruthy());
+    expect(screen.getByText('YC Account replay observation')).toBeTruthy();
+    expect(screen.getByText(/Replay inspector is read-only/)).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/command-center/proof-dag/${encodeURIComponent(rootTaskRunId)}`,
       expect.objectContaining({ credentials: 'include' }),
@@ -540,6 +580,10 @@ describe('CommandCenterPage', () => {
     );
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/command-center/eval-status',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/command-center/replay?ref=${encodeURIComponent('browser:browser-session-1:0')}`,
       expect.objectContaining({ credentials: 'include' }),
     );
     expect(screen.queryByText('18/18')).toBeNull();

@@ -147,6 +147,27 @@ interface CommandCenterEvalStatusResponse {
   blockers: string[];
 }
 
+interface CommandCenterReplayResponse {
+  workspaceId: string;
+  replayRef: string;
+  generatedAt: string;
+  productionReady: false;
+  replay: {
+    evidenceItems: DurableRow[];
+    browserObservations: DurableRow[];
+    computerActions: DurableRow[];
+  };
+  blockers: string[];
+}
+
+type TimelineRow = {
+  id: string;
+  title: string;
+  meta: string;
+  detail: string;
+  replayRef?: string;
+};
+
 const navItems = [
   { label: 'Command', href: '/command-center' },
   { label: 'Ventures', href: '/discover' },
@@ -186,6 +207,10 @@ export default function CommandCenterPage() {
   const [missionGraphError, setMissionGraphError] = useState<string | null>(null);
   const [evalStatus, setEvalStatus] = useState<CommandCenterEvalStatusResponse | null>(null);
   const [evalStatusError, setEvalStatusError] = useState<string | null>(null);
+  const [selectedReplayRef, setSelectedReplayRef] = useState<string | null>(null);
+  const [replay, setReplay] = useState<CommandCenterReplayResponse | null>(null);
+  const [replayError, setReplayError] = useState<string | null>(null);
+  const [replayLoading, setReplayLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const isNarrow = useNarrowViewport(760);
@@ -324,6 +349,44 @@ export default function CommandCenterPage() {
     };
   }, [selectedProofDagRunId]);
 
+  useEffect(() => {
+    if (!selectedReplayRef) {
+      setReplay(null);
+      setReplayError(null);
+      setReplayLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setReplayLoading(true);
+    setReplayError(null);
+
+    apiFetch<CommandCenterReplayResponse>(
+      `/api/command-center/replay?ref=${encodeURIComponent(selectedReplayRef)}`,
+    )
+      .then((response) => {
+        if (cancelled) return;
+        if (!response) {
+          setReplay(null);
+          setReplayError('Replay evidence unavailable for the selected ref.');
+          return;
+        }
+        setReplay(response);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setReplay(null);
+        setReplayError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setReplayLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedReplayRef]);
+
   const capabilities = useMemo(() => {
     return [...(data?.capabilities.records ?? [])].sort((a, b) => {
       const stateDelta = stateOrder.indexOf(a.state) - stateOrder.indexOf(b.state);
@@ -430,24 +493,28 @@ export default function CommandCenterPage() {
         title: display(row.title, 'Mission checkpoint'),
         meta: `${display(row.evidenceType, 'checkpoint')} / ${display(row.redactionState, 'redacted')}`,
         detail: display(row.replayRef, 'No checkpoint replay ref recorded'),
+        replayRef: safeReplayRef(row.replayRef),
       })),
       ...recoveryPlans.slice(0, 4).map((row) => ({
         id: String(row.id ?? row.replayRef ?? 'recovery-plan'),
         title: display(row.title, 'Recovery plan'),
         meta: `${display(row.evidenceType, 'recovery')} / ${display(row.redactionState, 'redacted')}`,
         detail: display(row.replayRef, 'No recovery replay ref recorded'),
+        replayRef: safeReplayRef(row.replayRef),
       })),
       ...recoveryApplies.slice(0, 4).map((row) => ({
         id: String(row.id ?? row.replayRef ?? 'recovery-apply'),
         title: display(row.title, 'Recovery apply'),
         meta: `${display(row.evidenceType, 'recovery apply')} / ${display(row.redactionState, 'redacted')}`,
         detail: display(row.replayRef, 'No recovery apply replay ref recorded'),
+        replayRef: safeReplayRef(row.replayRef),
       })),
       ...rollbacks.slice(0, 4).map((row) => ({
         id: String(row.id ?? row.replayRef ?? 'rollback'),
         title: display(row.title, 'Mission rollback'),
         meta: `${display(row.evidenceType, 'rollback')} / ${display(row.redactionState, 'redacted')}`,
         detail: display(row.replayRef, 'No rollback replay ref recorded'),
+        replayRef: safeReplayRef(row.replayRef),
       })),
       ...missionGraph.blockers.slice(0, 2).map((blocker, index) => ({
         id: `mission-blocker-${index}`,
@@ -457,6 +524,80 @@ export default function CommandCenterPage() {
       })),
     ];
   }, [missionGraph, missionGraphError]);
+
+  const replayRows = useMemo<TimelineRow[]>(() => {
+    if (!selectedReplayRef) {
+      return [
+        {
+          id: 'replay-idle',
+          title: 'Select a replay ref',
+          meta: 'read-only',
+          detail:
+            'Choose Inspect on a mission, evidence, browser, or computer row to load its redacted replay data from the command-center API.',
+        },
+      ];
+    }
+    if (replayLoading) {
+      return [
+        {
+          id: 'replay-loading',
+          title: selectedReplayRef,
+          meta: 'loading',
+          detail: 'Loading replay evidence from the command-center API.',
+        },
+      ];
+    }
+    if (replayError) {
+      return [
+        {
+          id: 'replay-error',
+          title: selectedReplayRef,
+          meta: 'unavailable',
+          detail: replayError,
+        },
+      ];
+    }
+    if (!replay) {
+      return [
+        {
+          id: 'replay-empty',
+          title: selectedReplayRef,
+          meta: 'waiting',
+          detail: 'Replay data has not been loaded yet.',
+        },
+      ];
+    }
+
+    return [
+      ...replay.replay.evidenceItems.slice(0, 6).map((row) => ({
+        id: String(row.id ?? row.evidenceType ?? 'replay-evidence'),
+        title: display(row.title, display(row.evidenceType, 'Replay evidence')),
+        meta: `${display(row.sourceType, 'source')} / ${display(row.redactionState, 'redaction')}`,
+        detail: display(row.summary, display(row.contentHash, replay.replayRef)),
+      })),
+      ...replay.replay.browserObservations.slice(0, 4).map((row) => ({
+        id: String(row.id ?? row.url ?? 'replay-browser'),
+        title: display(row.title, display(row.url, 'Replay browser observation')),
+        meta: `browser / DOM ${display(row.domHash, 'unhashed')}`,
+        detail: `url ${display(row.url, 'unknown')} / screenshot ${display(
+          row.screenshotHash,
+          'not captured',
+        )}`,
+      })),
+      ...replay.replay.computerActions.slice(0, 4).map((row) => ({
+        id: String(row.id ?? row.actionType ?? 'replay-computer'),
+        title: display(row.actionType, 'Replay computer action'),
+        meta: `${display(row.status, 'status')} / exit ${display(row.exitCode, 'n/a')}`,
+        detail: display(row.command, display(row.filePath, display(row.devServerUrl, 'No command'))),
+      })),
+      ...replay.blockers.slice(0, 2).map((blocker, index) => ({
+        id: `replay-blocker-${index}`,
+        title: 'Replay blocker',
+        meta: 'read-only',
+        detail: blocker,
+      })),
+    ];
+  }, [replay, replayError, replayLoading, selectedReplayRef]);
 
   const evalRows = useMemo(() => {
     if (!evalStatus) {
@@ -589,6 +730,7 @@ export default function CommandCenterPage() {
                 title="Mission Graph"
                 empty="No durable mission graph rows returned."
                 rows={missionRows}
+                onInspectReplay={setSelectedReplayRef}
               />
 
               <TimelineSection
@@ -634,6 +776,7 @@ export default function CommandCenterPage() {
               <TimelineSection
                 title="What Evidence Exists"
                 empty="No evidence, browser, or computer replay rows recorded yet."
+                onInspectReplay={setSelectedReplayRef}
                 rows={[
                   ...data.recent.evidenceItems.slice(0, 6).map((row) => ({
                     id: String(row.id ?? row.evidenceType ?? 'evidence-item'),
@@ -643,12 +786,14 @@ export default function CommandCenterPage() {
                       row.replayRef,
                       display(row.contentHash, display(row.summary, 'No replay reference')),
                     ),
+                    replayRef: safeReplayRef(row.replayRef),
                   })),
                   ...data.recent.browserObservations.slice(0, 5).map((row) => ({
                     id: String(row.id ?? row.url ?? 'browser'),
                     title: display(row.title, display(row.url, 'Browser observation')),
                     meta: `DOM ${display(row.domHash, 'unhashed')}`,
                     detail: `replay ${display(row.replayRef, 'unlinked')} / redactions ${arrayCount(row.redactions)} / screenshot ${display(row.screenshotHash, 'not captured')}`,
+                    replayRef: safeReplayRef(row.replayRef),
                   })),
                   ...data.recent.computerActions.slice(0, 5).map((row) => ({
                     id: String(row.id ?? row.actionType ?? 'computer'),
@@ -658,6 +803,7 @@ export default function CommandCenterPage() {
                       row.command,
                       display(row.filePath, display(row.devServerUrl, 'No command')),
                     ),
+                    replayRef: safeReplayRef(row.replayRef),
                   })),
                 ]}
               />
@@ -686,18 +832,21 @@ export default function CommandCenterPage() {
               <TimelineSection
                 title="Browser/Computer Sessions"
                 empty="No replayable browser or computer session rows."
+                onInspectReplay={setSelectedReplayRef}
                 rows={[
                   ...data.recent.browserObservations.slice(0, 4).map((row) => ({
                     id: String(row.id ?? row.url ?? 'browser-session'),
                     title: display(row.url, 'Browser URL'),
                     meta: display(row.origin, 'origin'),
                     detail: `replay ${display(row.replayRef, display(row.replayIndex, '0'))} / evidence ${display(row.evidencePackId, 'none')}`,
+                    replayRef: safeReplayRef(row.replayRef),
                   })),
                   ...data.recent.computerActions.slice(0, 4).map((row) => ({
                     id: String(row.id ?? row.objective ?? 'computer-session'),
                     title: display(row.objective, 'Computer objective'),
                     meta: display(row.environment, 'local'),
                     detail: `replay ${display(row.replayRef, display(row.replayIndex, '0'))} / evidence ${display(row.evidencePackId, 'none')}`,
+                    replayRef: safeReplayRef(row.replayRef),
                   })),
                 ]}
               />
@@ -711,6 +860,25 @@ export default function CommandCenterPage() {
                   meta: `${display(row.status, 'unknown')} / ${display(row.handoffKind, 'handoff')}`,
                   detail: `task ${display(row.taskId, 'unlinked')}`,
                 }))}
+              />
+            </section>
+
+            <section style={replayInspectorSectionStyle} aria-label="Replay inspector">
+              <div style={sectionHeaderStyle}>
+                <div>
+                  <h2 style={sectionTitleStyle}>Replay Inspector</h2>
+                  <p style={mutedTextStyle}>
+                    Read-only replay lookup for selected evidence, browser, and computer refs.
+                  </p>
+                </div>
+                {selectedReplayRef ? (
+                  <code style={selectedReplayRefStyle}>{selectedReplayRef}</code>
+                ) : null}
+              </div>
+              <TimelineSection
+                title="Replay Evidence"
+                empty="No replay rows returned."
+                rows={replayRows}
               />
             </section>
 
@@ -903,10 +1071,12 @@ function TimelineSection({
   title,
   rows,
   empty,
+  onInspectReplay,
 }: {
   title: string;
-  rows: Array<{ id: string; title: string; meta: string; detail: string }>;
+  rows: TimelineRow[];
   empty: string;
+  onInspectReplay?: (replayRef: string) => void;
 }) {
   return (
     <section style={sectionStyle}>
@@ -920,6 +1090,16 @@ function TimelineSection({
               <h3 style={timelineTitleStyle}>{row.title}</h3>
               <p style={timelineMetaStyle}>{row.meta}</p>
               {row.detail ? <p style={mutedTextStyle}>{row.detail}</p> : null}
+              {row.replayRef && onInspectReplay ? (
+                <button
+                  type="button"
+                  aria-label={`Inspect replay ${row.replayRef}`}
+                  onClick={() => onInspectReplay(row.replayRef as string)}
+                  style={inspectButtonStyle}
+                >
+                  Inspect
+                </button>
+              ) : null}
             </div>
           </article>
         ))}
@@ -938,6 +1118,10 @@ function display(value: unknown, fallback: string): string {
 
 function arrayCount(value: unknown): string {
   return Array.isArray(value) ? String(value.length) : '0';
+}
+
+function safeReplayRef(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 function formatState(state: CapabilityState): string {
@@ -1260,6 +1444,22 @@ const proofDagSectionStyle: CSSProperties = {
   paddingTop: '1rem',
 };
 
+const replayInspectorSectionStyle: CSSProperties = {
+  ...proofDagSectionStyle,
+};
+
+const selectedReplayRefStyle: CSSProperties = {
+  fontFamily: 'var(--ds-font-mono)',
+  color: 'var(--ink-3)',
+  fontSize: '0.78rem',
+  overflowWrap: 'anywhere',
+  maxWidth: 360,
+  padding: '0.45rem 0.55rem',
+  border: '1px solid var(--ds-line)',
+  borderRadius: 8,
+  background: 'var(--ds-surface)',
+};
+
 const runSelectorStyle: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 170px), 1fr))',
@@ -1322,6 +1522,19 @@ const loadingInlineStyle: CSSProperties = {
 const errorInlineStyle: CSSProperties = {
   ...loadingInlineStyle,
   color: 'var(--danger)',
+};
+
+const inspectButtonStyle: CSSProperties = {
+  marginTop: '0.55rem',
+  width: 'fit-content',
+  padding: '0.35rem 0.55rem',
+  border: '1px solid var(--accent)',
+  borderRadius: 8,
+  color: 'var(--accent)',
+  background: 'var(--accent-soft)',
+  fontSize: '0.78rem',
+  fontWeight: 700,
+  cursor: 'pointer',
 };
 
 const capabilityGridStyle: CSSProperties = {
