@@ -17,26 +17,17 @@ const workspaceId = '00000000-0000-4000-8000-000000000001';
 const foreignWorkspaceId = '00000000-0000-4000-8000-000000000099';
 const wsHeader = { 'X-Workspace-Id': workspaceId };
 
-function createEvalDb(selectResults: unknown[][] = []) {
+function createEvalDb(
+  selectResults: unknown[][] = [],
+  options: { failEvidenceInsertAt?: number } = {},
+) {
   const inserts: Array<{ table: unknown; value: unknown }> = [];
   let evidenceItemCount = 0;
 
-  const db = {
-    select: vi.fn(() => ({
-      from: vi.fn(() => {
-        const result = selectResults.shift() ?? [];
-        const chain = {
-          where: vi.fn(() => chain),
-          orderBy: vi.fn(() => chain),
-          limit: vi.fn(async () => result),
-          then: (resolve: (value: unknown[]) => void) => resolve(result),
-        };
-        return chain;
-      }),
-    })),
-    insert: vi.fn((table: unknown) => ({
+  function insertInto(targetInserts: Array<{ table: unknown; value: unknown }>) {
+    return vi.fn((table: unknown) => ({
       values: vi.fn((value: unknown) => {
-        inserts.push({ table, value });
+        targetInserts.push({ table, value });
         return {
           onConflictDoUpdate: vi.fn(async () => []),
           returning: vi.fn(async () => {
@@ -76,19 +67,45 @@ function createEvalDb(selectResults: unknown[][] = []) {
             }
             if (table === evidenceItems) {
               evidenceItemCount += 1;
+              if (options.failEvidenceInsertAt === evidenceItemCount) {
+                throw new Error('evidence ledger unavailable');
+              }
               return [{ id: `evidence-item-${evidenceItemCount}` }];
             }
             return [];
           }),
         };
       }),
+    }));
+  }
+
+  const db: any = {
+    select: vi.fn(() => ({
+      from: vi.fn(() => {
+        const result = selectResults.shift() ?? [];
+        const chain = {
+          where: vi.fn(() => chain),
+          orderBy: vi.fn(() => chain),
+          limit: vi.fn(async () => result),
+          then: (resolve: (value: unknown[]) => void) => resolve(result),
+        };
+        return chain;
+      }),
     })),
+    insert: insertInto(inserts),
     update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(async () => []) })) })),
     delete: vi.fn(() => ({ where: vi.fn(async () => []) })),
     execute: vi.fn(async () => [{ '?column?': 1 }]),
     _setResult: vi.fn(),
     _reset: vi.fn(),
   };
+  db.transaction = vi.fn(async (callback: (tx: typeof db) => Promise<unknown>) => {
+    const stagedInserts: Array<{ table: unknown; value: unknown }> = [];
+    const tx = { ...db, insert: insertInto(stagedInserts) };
+    const result = await callback(tx);
+    inserts.push(...stagedInserts);
+    return result;
+  });
 
   return { db, inserts };
 }
@@ -325,6 +342,28 @@ describe('evalRoutes', () => {
       promotedState: 'production_ready',
       status: 'eligible',
     });
+  });
+
+  it('fails closed without committing eval promotion state when evidence persistence fails', async () => {
+    const { db, inserts } = createEvalDb([], { failEvidenceInsertAt: 1 });
+    const { fetch } = testApp(evalRoutes, createMockDeps({ db: db as never }));
+
+    const res = await fetch(
+      'POST',
+      '/runs',
+      {
+        evalId: 'helm_governance',
+        status: 'passed',
+        capabilityKey: 'helm_receipts',
+        evidenceRefs: ['evidence:helm-governance'],
+        auditReceiptRefs: ['audit:helm-governance'],
+      },
+      wsHeader,
+    );
+
+    expect(res.status).toBe(500);
+    expect(db.transaction).toHaveBeenCalledOnce();
+    expect(inserts).toEqual([]);
   });
 
   it('records multi-eval promotion eligibility only after all required evals pass', async () => {
