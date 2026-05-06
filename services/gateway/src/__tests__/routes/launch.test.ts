@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { auditLog, deployTargets, evidenceItems } from '@pilot/db/schema';
 import { launchRoutes } from '../../routes/launch.js';
 import { createMockDeps, testApp, expectJson } from '../helpers.js';
 
@@ -79,6 +80,81 @@ function mockHelmClient() {
       },
     })),
   };
+}
+
+function createDeployTargetDb(options: { failEvidence?: boolean } = {}) {
+  const inserts: Array<{ table: unknown; value: unknown }> = [];
+  const updates: Array<{ table: unknown; value: unknown }> = [];
+
+  const createDbFacade = (
+    insertSink: Array<{ table: unknown; value: unknown }>,
+    updateSink: Array<{ table: unknown; value: unknown }>,
+  ) => ({
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn(async () => []),
+        })),
+      })),
+    })),
+    insert: vi.fn((table: unknown) => ({
+      values: vi.fn((value: Record<string, unknown>) => {
+        insertSink.push({ table, value });
+        return {
+          returning: vi.fn(async () => {
+            if (table === deployTargets) {
+              return [
+                {
+                  id: 'target-1',
+                  workspaceId: value['workspaceId'],
+                  name: value['name'],
+                  provider: value['provider'],
+                  config: value['config'],
+                },
+              ];
+            }
+            if (table === evidenceItems) {
+              if (options.failEvidence) throw new Error('evidence unavailable');
+              return [{ id: 'evidence-deploy-target-1' }];
+            }
+            return [];
+          }),
+          then: (resolve: (value: unknown[]) => void, reject?: (reason: unknown) => void) =>
+            Promise.resolve([]).then(resolve, reject),
+          catch: (reject: (reason: unknown) => void) => Promise.resolve([]).catch(reject),
+        };
+      }),
+    })),
+    update: vi.fn((table: unknown) => ({
+      set: vi.fn((value: unknown) => {
+        updateSink.push({ table, value });
+        return {
+          where: vi.fn(async () => []),
+        };
+      }),
+    })),
+    delete: vi.fn(() => ({
+      where: vi.fn(async () => []),
+    })),
+    execute: vi.fn(async () => [{ '?column?': 1 }]),
+  });
+
+  const db = {
+    ...createDbFacade(inserts, updates),
+    transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
+      const stagedInserts: Array<{ table: unknown; value: unknown }> = [];
+      const stagedUpdates: Array<{ table: unknown; value: unknown }> = [];
+      const tx = createDbFacade(stagedInserts, stagedUpdates);
+      const result = await callback(tx);
+      inserts.push(...stagedInserts);
+      updates.push(...stagedUpdates);
+      return result;
+    }),
+    _setResult: vi.fn(),
+    _reset: vi.fn(),
+  };
+
+  return { db, inserts, updates };
 }
 
 describe('launchRoutes', () => {
@@ -202,8 +278,98 @@ describe('launchRoutes', () => {
       expect(json).toHaveProperty('error', 'workspaceId does not match authenticated workspace');
     });
 
-    it('returns 201 on success', async () => {
-      const { fetch } = testApp(launchRoutes);
+    it('writes redacted audit-linked evidence on success', async () => {
+      const { db, inserts, updates } = createDeployTargetDb();
+      const deps = createMockDeps({ db: db as never });
+      const { fetch } = testApp(launchRoutes, deps);
+      const res = await fetch(
+        'POST',
+        '/targets',
+        {
+          workspaceId: 'ws-1',
+          name: 'prod',
+          provider: 'digitalocean',
+          config: {
+            image: 'registry.example.com/app:v1',
+            envVars: { API_KEY: 'super-secret' },
+          },
+        },
+        wsHeader,
+      );
+      const json = await expectJson<{
+        id: string;
+        name: string;
+        provider: string;
+        evidenceItemId: string;
+      }>(res, 201);
+
+      expect(mockEngine.createDeployTarget).not.toHaveBeenCalled();
+      expect(json).toMatchObject({
+        id: 'target-1',
+        name: 'prod',
+        provider: 'digitalocean',
+      });
+      expect(json.evidenceItemId).toBe('evidence-deploy-target-1');
+      expect(inserts.map((insert) => insert.table)).toEqual([
+        deployTargets,
+        auditLog,
+        evidenceItems,
+      ]);
+      expect(inserts.find((insert) => insert.table === deployTargets)?.value).toMatchObject({
+        workspaceId: 'ws-1',
+        name: 'prod',
+        provider: 'digitalocean',
+        config: {
+          image: 'registry.example.com/app:v1',
+          envVars: { API_KEY: 'super-secret' },
+        },
+      });
+      const auditInsert = inserts.find((insert) => insert.table === auditLog)?.value as {
+        id: string;
+      };
+      expect(auditInsert).toMatchObject({
+        workspaceId: 'ws-1',
+        action: 'DEPLOY_TARGET_CREATED',
+        actor: 'user:user-1',
+        target: 'target-1',
+        verdict: 'allow',
+        metadata: {
+          evidenceType: 'deploy_target_created',
+          targetId: 'target-1',
+          targetName: 'prod',
+          provider: 'digitalocean',
+          configKeys: ['envVars', 'image'],
+          configValuesStoredInEvidence: false,
+        },
+      });
+      const evidenceInsert = inserts.find((insert) => insert.table === evidenceItems)?.value;
+      expect(evidenceInsert).toMatchObject({
+        workspaceId: 'ws-1',
+        auditEventId: auditInsert.id,
+        evidenceType: 'deploy_target_created',
+        sourceType: 'gateway_launch',
+        redactionState: 'redacted',
+        sensitivity: 'restricted',
+        metadata: {
+          targetId: 'target-1',
+          targetName: 'prod',
+          provider: 'digitalocean',
+          configKeys: ['envVars', 'image'],
+          configValuesStoredInEvidence: false,
+        },
+      });
+      expect(JSON.stringify(evidenceInsert)).not.toContain('super-secret');
+      expect(updates.find((update) => update.table === auditLog)?.value).toMatchObject({
+        metadata: {
+          evidenceItemId: 'evidence-deploy-target-1',
+        },
+      });
+    });
+
+    it('fails closed without committing deploy target rows when evidence persistence fails', async () => {
+      const { db, inserts } = createDeployTargetDb({ failEvidence: true });
+      const deps = createMockDeps({ db: db as never });
+      const { fetch } = testApp(launchRoutes, deps);
       const res = await fetch(
         'POST',
         '/targets',
@@ -214,14 +380,10 @@ describe('launchRoutes', () => {
         },
         wsHeader,
       );
-      const json = await expectJson(res, 201);
+      const json = await expectJson<{ error: string }>(res, 500);
 
-      expect(mockEngine.createDeployTarget).toHaveBeenCalledWith('ws-1', {
-        name: 'prod',
-        provider: 'digitalocean',
-        config: undefined,
-      });
-      expect(json).toEqual({ id: 'target-1', name: 'prod', provider: 'digitalocean' });
+      expect(json.error).toContain('failed to persist deploy target evidence');
+      expect(inserts).toEqual([]);
     });
 
     it('denies non-owner deploy target creation', async () => {
