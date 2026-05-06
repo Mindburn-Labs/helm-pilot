@@ -72,7 +72,7 @@ function makeSkill(overrides: Partial<SkillDefinition> = {}): SkillDefinition {
 
 function makeMockDb(options: { failInsertTable?: unknown; failUpdateTable?: unknown } = {}) {
   let autoId = 0;
-  return {
+  const db = {
     insert: vi.fn((table: unknown) => {
       if (table === options.failInsertTable) {
         throw new Error(`insert failed for ${String(table)}`);
@@ -103,7 +103,10 @@ function makeMockDb(options: { failInsertTable?: unknown; failUpdateTable?: unkn
         })),
       };
     }),
+    transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(db)),
   } as any;
+
+  return db;
 }
 
 function makePolicy(): PolicyConfig {

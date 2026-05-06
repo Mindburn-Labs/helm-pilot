@@ -10,6 +10,32 @@ function createBrokerDb(opts: { failEvidenceInsert?: boolean } = {}) {
   const insertedAudit: unknown[] = [];
   const updates: unknown[] = [];
 
+  const captureInsert = (evidenceSink: unknown[], auditSink: unknown[]) =>
+    vi.fn((table: unknown) => ({
+      values: vi.fn((value: unknown) => {
+        if (table === evidenceItems) {
+          evidenceSink.push(value);
+          return {
+            returning: vi.fn(async () => {
+              if (opts.failEvidenceInsert) throw new Error('evidence sink unavailable');
+              return [{ id: 'evidence-item-1' }];
+            }),
+          };
+        }
+        if (table === auditLog) {
+          auditSink.push(value);
+          return Promise.resolve([]);
+        }
+        return { returning: vi.fn(async () => []) };
+      }),
+    }));
+  const captureUpdate = (sink: unknown[]) =>
+    vi.fn((table: unknown) => ({
+      set: vi.fn((value: unknown) => {
+        sink.push({ table, value });
+        return { where: vi.fn(async () => []) };
+      }),
+    }));
   const db = {
     insert: vi.fn((table: unknown) => ({
       values: vi.fn((value: unknown) => {
@@ -21,15 +47,6 @@ function createBrokerDb(opts: { failEvidenceInsert?: boolean } = {}) {
           insertedExecutions.push(value);
           return { returning: vi.fn(async () => [{ id: 'tool-exec-1' }]) };
         }
-        if (table === evidenceItems) {
-          insertedEvidenceItems.push(value);
-          return {
-            returning: vi.fn(async () => {
-              if (opts.failEvidenceInsert) throw new Error('evidence sink unavailable');
-              return [{ id: 'evidence-item-1' }];
-            }),
-          };
-        }
         if (table === auditLog) {
           insertedAudit.push(value);
           return Promise.resolve([]);
@@ -37,12 +54,21 @@ function createBrokerDb(opts: { failEvidenceInsert?: boolean } = {}) {
         return { returning: vi.fn(async () => []) };
       }),
     })),
-    update: vi.fn((table: unknown) => ({
-      set: vi.fn((value: unknown) => {
-        updates.push({ table, value });
-        return { where: vi.fn(async () => []) };
-      }),
-    })),
+    update: captureUpdate(updates),
+    transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
+      const stagedEvidenceItems: unknown[] = [];
+      const stagedAudit: unknown[] = [];
+      const stagedUpdates: unknown[] = [];
+      const tx = {
+        insert: captureInsert(stagedEvidenceItems, stagedAudit),
+        update: captureUpdate(stagedUpdates),
+      };
+      const result = await callback(tx);
+      insertedEvidenceItems.push(...stagedEvidenceItems);
+      insertedAudit.push(...stagedAudit);
+      updates.push(...stagedUpdates);
+      return result;
+    }),
   };
 
   return { db, insertedActions, insertedExecutions, insertedEvidenceItems, insertedAudit, updates };
@@ -156,7 +182,7 @@ describe('ToolBroker', () => {
           value: expect.objectContaining({
             status: 'completed',
             outputHash: result.outputHash,
-            evidenceIds: ['00000000-0000-4000-8000-000000000004'],
+            evidenceIds: ['00000000-0000-4000-8000-000000000004', 'evidence-item-1'],
             completedAt: expect.any(Date),
           }),
         }),
@@ -177,6 +203,7 @@ describe('ToolBroker', () => {
       verdict: 'allow',
       metadata: expect.objectContaining({
         evidenceItemId: 'evidence-item-1',
+        evidenceIds: ['00000000-0000-4000-8000-000000000004', 'evidence-item-1'],
         toolExecutionId: 'tool-exec-1',
       }),
     });
@@ -336,6 +363,47 @@ describe('ToolBroker', () => {
     });
   });
 
+  it('does not mark low-risk tool completion when evidence persistence fails', async () => {
+    const { db, insertedActions, insertedExecutions, insertedEvidenceItems, insertedAudit, updates } =
+      createBrokerDb({ failEvidenceInsert: true });
+    const registry = new ToolRegistry(db as never, undefined, { skipBuiltins: true });
+    const execute = vi.fn(async () => ({ ok: true }));
+    registry.register({
+      name: 'read_status',
+      description: 'Read local status',
+      manifest: {
+        key: 'read_status',
+        version: 'test:v2',
+        riskClass: 'low',
+        effectLevel: 'E1',
+        requiredEvidence: ['tool_result'],
+        permissionRequirements: ['tool:read_status:execute'],
+        outputSensitivity: 'internal',
+      },
+      execute,
+    });
+    const broker = new ToolBroker(db as never);
+
+    await expect(
+      broker.execute(
+        registry,
+        'read_status',
+        {},
+        {
+          workspaceId: '00000000-0000-4000-8000-000000000001',
+          taskId: '00000000-0000-4000-8000-000000000002',
+        },
+      ),
+    ).rejects.toThrow('Tool Broker blocked read_status completion: evidence sink unavailable');
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(insertedActions).toHaveLength(1);
+    expect(insertedExecutions).toHaveLength(1);
+    expect(insertedEvidenceItems).toEqual([]);
+    expect(insertedAudit).toEqual([]);
+    expect(updates).toEqual([]);
+  });
+
   it('fails closed before tool execution when action persistence fails', async () => {
     const db = {
       insert: vi.fn(() => ({
@@ -403,18 +471,7 @@ describe('ToolBroker', () => {
     ).rejects.toThrow('Tool Broker blocked elevated operator.browser_read completion');
 
     expect(execute).toHaveBeenCalledTimes(1);
-    expect(insertedEvidenceItems[0]).toMatchObject({
-      evidenceType: 'tool_execution_completed',
-      sourceType: 'tool_broker',
-      sensitivity: 'sensitive',
-      metadata: expect.objectContaining({
-        riskClass: 'medium',
-        effectLevel: 'E2',
-        evidenceIds: [],
-        policyDecisionId: 'dec-1',
-        policyVersion: 'founder-ops-v1',
-      }),
-    });
+    expect(insertedEvidenceItems).toEqual([]);
     expect(updates).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

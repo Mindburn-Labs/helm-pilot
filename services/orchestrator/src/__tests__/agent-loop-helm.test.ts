@@ -47,10 +47,12 @@ function makeMockDb() {
         }),
       })),
     })),
+    transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(db)),
   } as unknown as {
     insert: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
     select: ReturnType<typeof vi.fn>;
+    transaction: ReturnType<typeof vi.fn>;
   };
   return { db, inserts };
 }
