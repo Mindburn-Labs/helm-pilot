@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   auditLog,
   evidenceItems,
+  workspaceDeletions,
   workspaceMembers,
   workspaceSettings,
   workspaces,
@@ -11,6 +12,7 @@ import { testApp, createMockDeps, expectJson } from '../helpers.js';
 
 const ADMIN_KEY = 'test-admin-key-0123456789abcdef';
 const ownerUserId = '00000000-0000-4000-8000-000000000001';
+const tenantWorkspaceId = '00000000-0000-4000-8000-000000000101';
 
 function createTenantCreationDb(options: { failEvidence?: boolean; ownerExists?: boolean } = {}) {
   const inserts: Array<{ table: unknown; value: unknown }> = [];
@@ -85,6 +87,86 @@ function createTenantCreationDb(options: { failEvidence?: boolean; ownerExists?:
   };
 
   return { db, inserts, updates };
+}
+
+function createTenantLifecycleDb(
+  options: { failEvidence?: boolean; selectResults?: unknown[][]; restoreRows?: unknown[] } = {},
+) {
+  const inserts: Array<{ table: unknown; value: unknown }> = [];
+  const updates: Array<{ table: unknown; value: unknown }> = [];
+  const deletes: Array<{ table: unknown }> = [];
+  let selectCall = 0;
+
+  const createDbFacade = (
+    insertSink: Array<{ table: unknown; value: unknown }>,
+    updateSink: Array<{ table: unknown; value: unknown }>,
+    deleteSink: Array<{ table: unknown }>,
+  ) => ({
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn(() => {
+            const result = options.selectResults?.[selectCall] ?? [];
+            selectCall += 1;
+            return { then: (resolve: (value: unknown[]) => void) => resolve(result) };
+          }),
+        })),
+      })),
+    })),
+    insert: vi.fn((table: unknown) => ({
+      values: vi.fn((value: unknown) => {
+        insertSink.push({ table, value });
+        return {
+          returning: vi.fn(async () => {
+            if (table === evidenceItems) {
+              if (options.failEvidence) throw new Error('evidence unavailable');
+              return [{ id: 'evidence-admin-lifecycle-1' }];
+            }
+            return [];
+          }),
+          then: (resolve: (value: unknown[]) => void, reject?: (reason: unknown) => void) =>
+            Promise.resolve([]).then(resolve, reject),
+          catch: (reject: (reason: unknown) => void) => Promise.resolve([]).catch(reject),
+        };
+      }),
+    })),
+    update: vi.fn((table: unknown) => ({
+      set: vi.fn((value: unknown) => {
+        updateSink.push({ table, value });
+        return {
+          where: vi.fn(async () => []),
+        };
+      }),
+    })),
+    delete: vi.fn((table: unknown) => {
+      deleteSink.push({ table });
+      return {
+        where: vi.fn(() => ({
+          returning: vi.fn(async () => options.restoreRows ?? []),
+        })),
+      };
+    }),
+    execute: vi.fn(async () => [{ '?column?': 1 }]),
+  });
+
+  const db = {
+    ...createDbFacade(inserts, updates, deletes),
+    transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
+      const stagedInserts: Array<{ table: unknown; value: unknown }> = [];
+      const stagedUpdates: Array<{ table: unknown; value: unknown }> = [];
+      const stagedDeletes: Array<{ table: unknown }> = [];
+      const tx = createDbFacade(stagedInserts, stagedUpdates, stagedDeletes);
+      const result = await callback(tx);
+      inserts.push(...stagedInserts);
+      updates.push(...stagedUpdates);
+      deletes.push(...stagedDeletes);
+      return result;
+    }),
+    _setResult: vi.fn(),
+    _reset: vi.fn(),
+  };
+
+  return { db, inserts, updates, deletes };
 }
 
 describe('adminRoutes', () => {
@@ -235,32 +317,201 @@ describe('adminRoutes', () => {
     });
   });
 
+  describe('DELETE /tenants/:id', () => {
+    it('writes audit-linked evidence when soft-deleting a tenant', async () => {
+      const hardDeleteAfterBefore = Date.now();
+      const { db, inserts, updates } = createTenantLifecycleDb({
+        selectResults: [[{ id: tenantWorkspaceId, name: 'Acme' }], []],
+      });
+      const deps = createMockDeps({ db: db as never });
+      const { fetch } = testApp(adminRoutes, deps);
+
+      const res = await fetch(
+        'DELETE',
+        `/tenants/${tenantWorkspaceId}`,
+        { reason: 'founder requested', graceDays: 7 },
+        authHeader(),
+      );
+      const body = await expectJson<{
+        softDeleted: boolean;
+        workspaceId: string;
+        hardDeleteAfter: string;
+        evidenceItemId: string;
+      }>(res, 200);
+
+      expect(body.softDeleted).toBe(true);
+      expect(body.workspaceId).toBe(tenantWorkspaceId);
+      expect(body.evidenceItemId).toBe('evidence-admin-lifecycle-1');
+      expect(new Date(body.hardDeleteAfter).getTime()).toBeGreaterThan(hardDeleteAfterBefore);
+      expect(inserts.map((insert) => insert.table)).toEqual([
+        workspaceDeletions,
+        auditLog,
+        evidenceItems,
+      ]);
+      expect(inserts.find((insert) => insert.table === workspaceDeletions)?.value).toMatchObject({
+        workspaceId: tenantWorkspaceId,
+        reason: 'founder requested',
+      });
+      const auditInsert = inserts.find((insert) => insert.table === auditLog)?.value as {
+        id: string;
+      };
+      expect(auditInsert).toMatchObject({
+        workspaceId: tenantWorkspaceId,
+        action: 'ADMIN_TENANT_SOFT_DELETED',
+        actor: 'platform-admin',
+        target: tenantWorkspaceId,
+        verdict: 'allow',
+        metadata: {
+          evidenceType: 'admin_tenant_soft_deleted',
+          workspaceId: tenantWorkspaceId,
+          workspaceName: 'Acme',
+          reason: 'founder requested',
+          existingSoftDelete: false,
+          adminCredentialStoredInEvidence: false,
+        },
+      });
+      expect(inserts.find((insert) => insert.table === evidenceItems)?.value).toMatchObject({
+        workspaceId: tenantWorkspaceId,
+        auditEventId: auditInsert.id,
+        evidenceType: 'admin_tenant_soft_deleted',
+        sourceType: 'gateway_admin',
+        redactionState: 'redacted',
+        sensitivity: 'restricted',
+        metadata: {
+          workspaceId: tenantWorkspaceId,
+          workspaceName: 'Acme',
+          reason: 'founder requested',
+          existingSoftDelete: false,
+          adminCredentialStoredInEvidence: false,
+        },
+      });
+      expect(JSON.stringify(inserts.map((insert) => insert.value))).not.toContain(ADMIN_KEY);
+      expect(updates.find((update) => update.table === auditLog)?.value).toMatchObject({
+        metadata: {
+          evidenceItemId: 'evidence-admin-lifecycle-1',
+        },
+      });
+    });
+
+    it('fails closed without committing soft-delete rows when evidence persistence fails', async () => {
+      const { db, inserts } = createTenantLifecycleDb({
+        failEvidence: true,
+        selectResults: [[{ id: tenantWorkspaceId, name: 'Acme' }], []],
+      });
+      const deps = createMockDeps({ db: db as never });
+      const { fetch } = testApp(adminRoutes, deps);
+
+      const res = await fetch(
+        'DELETE',
+        `/tenants/${tenantWorkspaceId}`,
+        { reason: 'founder requested' },
+        authHeader(),
+      );
+      const body = await expectJson<{ error: string }>(res, 500);
+
+      expect(body.error).toContain('failed to persist tenant soft-delete evidence');
+      expect(inserts).toEqual([]);
+    });
+  });
+
   describe('POST /tenants/:id/restore', () => {
     it('returns 404 when the workspace is not soft-deleted', async () => {
-      const deps = createMockDeps();
-      // Mock the delete query chain — no rows returned.
-      (deps.db as { delete: typeof vi.fn }).delete = vi.fn(() => ({
-        where: vi.fn(() => ({ returning: vi.fn(async () => []) })),
-      })) as never;
+      const { db } = createTenantLifecycleDb({ restoreRows: [] });
+      const deps = createMockDeps({ db: db as never });
 
       const { fetch } = testApp(adminRoutes, deps);
-      const res = await fetch('POST', '/tenants/ws-1/restore', undefined, authHeader());
+      const res = await fetch(
+        'POST',
+        `/tenants/${tenantWorkspaceId}/restore`,
+        undefined,
+        authHeader(),
+      );
       const body = await expectJson<{ error: string }>(res, 404);
       expect(body.error).toContain('not soft-deleted');
     });
 
-    it('returns 200 when a soft-delete row was removed', async () => {
-      const deps = createMockDeps();
-      (deps.db as { delete: typeof vi.fn }).delete = vi.fn(() => ({
-        where: vi.fn(() => ({
-          returning: vi.fn(async () => [{ id: 'del-1', workspaceId: 'ws-1' }]),
-        })),
-      })) as never;
+    it('writes audit-linked evidence when restoring a tenant', async () => {
+      const { db, inserts, updates, deletes } = createTenantLifecycleDb({
+        restoreRows: [{ id: 'del-1', workspaceId: tenantWorkspaceId }],
+      });
+      const deps = createMockDeps({ db: db as never });
 
       const { fetch } = testApp(adminRoutes, deps);
-      const res = await fetch('POST', '/tenants/ws-1/restore', undefined, authHeader());
-      const body = await expectJson<{ restored: boolean; workspaceId: string }>(res, 200);
-      expect(body).toEqual({ restored: true, workspaceId: 'ws-1' });
+      const res = await fetch(
+        'POST',
+        `/tenants/${tenantWorkspaceId}/restore`,
+        undefined,
+        authHeader(),
+      );
+      const body = await expectJson<{
+        restored: boolean;
+        workspaceId: string;
+        evidenceItemId: string;
+      }>(res, 200);
+
+      expect(body).toMatchObject({
+        restored: true,
+        workspaceId: tenantWorkspaceId,
+        evidenceItemId: 'evidence-admin-lifecycle-1',
+      });
+      expect(deletes).toEqual([{ table: workspaceDeletions }]);
+      expect(inserts.map((insert) => insert.table)).toEqual([auditLog, evidenceItems]);
+      const auditInsert = inserts.find((insert) => insert.table === auditLog)?.value as {
+        id: string;
+      };
+      expect(auditInsert).toMatchObject({
+        workspaceId: tenantWorkspaceId,
+        action: 'ADMIN_TENANT_RESTORED',
+        actor: 'platform-admin',
+        target: tenantWorkspaceId,
+        verdict: 'allow',
+        metadata: {
+          evidenceType: 'admin_tenant_restored',
+          workspaceId: tenantWorkspaceId,
+          restoredDeletionIds: ['del-1'],
+          adminCredentialStoredInEvidence: false,
+        },
+      });
+      expect(inserts.find((insert) => insert.table === evidenceItems)?.value).toMatchObject({
+        workspaceId: tenantWorkspaceId,
+        auditEventId: auditInsert.id,
+        evidenceType: 'admin_tenant_restored',
+        sourceType: 'gateway_admin',
+        redactionState: 'redacted',
+        sensitivity: 'restricted',
+        metadata: {
+          workspaceId: tenantWorkspaceId,
+          restoredDeletionIds: ['del-1'],
+          adminCredentialStoredInEvidence: false,
+        },
+      });
+      expect(JSON.stringify(inserts.map((insert) => insert.value))).not.toContain(ADMIN_KEY);
+      expect(updates.find((update) => update.table === auditLog)?.value).toMatchObject({
+        metadata: {
+          evidenceItemId: 'evidence-admin-lifecycle-1',
+        },
+      });
+    });
+
+    it('fails closed without committing restore when evidence persistence fails', async () => {
+      const { db, inserts, deletes } = createTenantLifecycleDb({
+        failEvidence: true,
+        restoreRows: [{ id: 'del-1', workspaceId: tenantWorkspaceId }],
+      });
+      const deps = createMockDeps({ db: db as never });
+      const { fetch } = testApp(adminRoutes, deps);
+
+      const res = await fetch(
+        'POST',
+        `/tenants/${tenantWorkspaceId}/restore`,
+        undefined,
+        authHeader(),
+      );
+      const body = await expectJson<{ error: string }>(res, 500);
+
+      expect(body.error).toContain('failed to persist tenant restore evidence');
+      expect(inserts).toEqual([]);
+      expect(deletes).toEqual([]);
     });
   });
 

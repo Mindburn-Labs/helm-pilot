@@ -163,30 +163,92 @@ export function adminRoutes(deps: GatewayDeps) {
       .limit(1);
     if (!workspace) return c.json({ error: 'workspace not found' }, 404);
 
-    // Upsert: a second DELETE extends the window.
-    const [existing] = await deps.db
-      .select()
-      .from(workspaceDeletions)
-      .where(eq(workspaceDeletions.workspaceId, id))
-      .limit(1);
+    const softDeleted = await deps.db
+      .transaction(async (tx) => {
+        // Upsert: a second DELETE extends the window.
+        const [existing] = await tx
+          .select()
+          .from(workspaceDeletions)
+          .where(eq(workspaceDeletions.workspaceId, id))
+          .limit(1);
 
-    if (existing) {
-      await deps.db
-        .update(workspaceDeletions)
-        .set({ hardDeleteAfter, reason: body.reason ?? existing.reason })
-        .where(eq(workspaceDeletions.workspaceId, id));
-    } else {
-      await deps.db.insert(workspaceDeletions).values({
-        workspaceId: id,
-        reason: body.reason ?? null,
-        hardDeleteAfter,
-      });
+        const reason = body.reason ?? existing?.reason ?? null;
+        if (existing) {
+          await tx
+            .update(workspaceDeletions)
+            .set({ hardDeleteAfter, reason })
+            .where(eq(workspaceDeletions.workspaceId, id));
+        } else {
+          await tx.insert(workspaceDeletions).values({
+            workspaceId: id,
+            reason,
+            hardDeleteAfter,
+          });
+        }
+
+        const auditEventId = randomUUID();
+        const replayRef = `admin-tenant:${id}:soft-delete`;
+        const evidenceMetadata = {
+          workspaceId: id,
+          workspaceName: workspace.name,
+          hardDeleteAfter: hardDeleteAfter.toISOString(),
+          reason,
+          existingSoftDelete: Boolean(existing),
+          adminCredentialStoredInEvidence: false,
+        };
+
+        await tx.insert(auditLog).values({
+          id: auditEventId,
+          workspaceId: id,
+          action: 'ADMIN_TENANT_SOFT_DELETED',
+          actor: 'platform-admin',
+          target: id,
+          verdict: 'allow',
+          metadata: {
+            evidenceType: 'admin_tenant_soft_deleted',
+            replayRef,
+            ...evidenceMetadata,
+          },
+        });
+
+        const evidenceItemId = await appendEvidenceItem(tx, {
+          workspaceId: id,
+          auditEventId,
+          evidenceType: 'admin_tenant_soft_deleted',
+          sourceType: 'gateway_admin',
+          title: `Admin tenant soft-delete marked: ${workspace.name}`,
+          summary: 'Platform admin marked a workspace for delayed hard deletion.',
+          redactionState: 'redacted',
+          sensitivity: 'restricted',
+          replayRef,
+          metadata: evidenceMetadata,
+        });
+
+        await tx
+          .update(auditLog)
+          .set({
+            metadata: {
+              evidenceType: 'admin_tenant_soft_deleted',
+              replayRef,
+              evidenceItemId,
+              ...evidenceMetadata,
+            },
+          })
+          .where(and(eq(auditLog.workspaceId, id), eq(auditLog.id, auditEventId)));
+
+        return { evidenceItemId };
+      })
+      .catch(() => null);
+
+    if (!softDeleted) {
+      return c.json({ error: 'failed to persist tenant soft-delete evidence' }, 500);
     }
 
     return c.json({
       softDeleted: true,
       workspaceId: id,
       hardDeleteAfter: hardDeleteAfter.toISOString(),
+      evidenceItemId: softDeleted.evidenceItemId,
     });
   });
 
@@ -197,12 +259,69 @@ export function adminRoutes(deps: GatewayDeps) {
   // endpoint returns 404 (restore from backup instead).
   app.post('/tenants/:id/restore', async (c) => {
     const id = c.req.param('id');
-    const result = await deps.db
-      .delete(workspaceDeletions)
-      .where(eq(workspaceDeletions.workspaceId, id))
-      .returning();
-    if (result.length === 0) return c.json({ error: 'workspace is not soft-deleted' }, 404);
-    return c.json({ restored: true, workspaceId: id });
+    const restored = await deps.db
+      .transaction(async (tx) => {
+        const result = await tx
+          .delete(workspaceDeletions)
+          .where(eq(workspaceDeletions.workspaceId, id))
+          .returning();
+        if (result.length === 0) return null;
+
+        const auditEventId = randomUUID();
+        const replayRef = `admin-tenant:${id}:restore`;
+        const evidenceMetadata = {
+          workspaceId: id,
+          restoredDeletionIds: result.map((row) => row.id),
+          adminCredentialStoredInEvidence: false,
+        };
+
+        await tx.insert(auditLog).values({
+          id: auditEventId,
+          workspaceId: id,
+          action: 'ADMIN_TENANT_RESTORED',
+          actor: 'platform-admin',
+          target: id,
+          verdict: 'allow',
+          metadata: {
+            evidenceType: 'admin_tenant_restored',
+            replayRef,
+            ...evidenceMetadata,
+          },
+        });
+
+        const evidenceItemId = await appendEvidenceItem(tx, {
+          workspaceId: id,
+          auditEventId,
+          evidenceType: 'admin_tenant_restored',
+          sourceType: 'gateway_admin',
+          title: `Admin tenant restored: ${id}`,
+          summary: 'Platform admin removed a pending tenant soft-delete marker.',
+          redactionState: 'redacted',
+          sensitivity: 'restricted',
+          replayRef,
+          metadata: evidenceMetadata,
+        });
+
+        await tx
+          .update(auditLog)
+          .set({
+            metadata: {
+              evidenceType: 'admin_tenant_restored',
+              replayRef,
+              evidenceItemId,
+              ...evidenceMetadata,
+            },
+          })
+          .where(and(eq(auditLog.workspaceId, id), eq(auditLog.id, auditEventId)));
+
+        return { restored: true, workspaceId: id, evidenceItemId };
+      })
+      .catch(() => undefined);
+    if (restored === undefined) {
+      return c.json({ error: 'failed to persist tenant restore evidence' }, 500);
+    }
+    if (restored === null) return c.json({ error: 'workspace is not soft-deleted' }, 404);
+    return c.json(restored);
   });
 
   // GET /api/admin/tenants/deletions
