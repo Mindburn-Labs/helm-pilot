@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { auditLog, evidenceItems, operatorConfigs, operators } from '@pilot/db/schema';
 import { operatorRoutes } from '../../routes/operator.js';
 import { testApp, expectJson, mockOperator, createMockDeps } from '../helpers.js';
 
@@ -59,24 +60,29 @@ describe('operatorRoutes', () => {
     it('creates operator with config and returns 201', async () => {
       const op = mockOperator({ name: 'Builder Bot', role: 'engineering', goal: 'Ship fast' });
 
-      let insertCount = 0;
-      deps.db.insert = vi.fn(() => {
-        insertCount++;
-        if (insertCount === 1) {
+      const inserts: Array<{ table: unknown; value: unknown }> = [];
+      const updates: Array<{ table: unknown; value: unknown }> = [];
+      deps.db.insert = vi.fn((table: unknown) => ({
+        values: vi.fn((value: unknown) => {
+          inserts.push({ table, value });
           return {
-            values: vi.fn(() => ({
-              returning: vi.fn(async () => [op]),
-              then: (r: any) => r([op]),
-            })),
-          };
-        }
-        return {
-          values: vi.fn(() => ({
-            returning: vi.fn(async () => []),
+            returning: vi.fn(async () => {
+              if (table === operators) return [op];
+              if (table === evidenceItems) return [{ id: 'evidence-operator-1' }];
+              return [];
+            }),
             then: (r: any) => r([]),
-          })),
-        };
-      }) as any;
+          };
+        }),
+      })) as any;
+      deps.db.update = vi.fn((table: unknown) => ({
+        set: vi.fn((value: unknown) => {
+          updates.push({ table, value });
+          return {
+            where: vi.fn(async () => []),
+          };
+        }),
+      })) as any;
 
       const res = await fetch(
         'POST',
@@ -92,7 +98,159 @@ describe('operatorRoutes', () => {
       const json = await expectJson<Record<string, unknown>>(res, 201);
 
       expect(json.name).toBe('Builder Bot');
-      expect(deps.db.insert).toHaveBeenCalledTimes(2);
+      expect(inserts.map((insert) => insert.table)).toEqual([
+        operators,
+        operatorConfigs,
+        auditLog,
+        evidenceItems,
+      ]);
+      const auditInsert = inserts.find((insert) => insert.table === auditLog)?.value as {
+        id: string;
+      };
+      expect(auditInsert).toMatchObject({
+        workspaceId,
+        action: 'WORKSPACE_OPERATOR_CREATED',
+        target: 'op-1',
+        verdict: 'allow',
+        metadata: {
+          evidenceType: 'workspace_operator_created',
+          operatorId: 'op-1',
+          role: 'engineering',
+        },
+      });
+      expect(inserts.find((insert) => insert.table === evidenceItems)?.value).toMatchObject({
+        workspaceId,
+        auditEventId: auditInsert.id,
+        evidenceType: 'workspace_operator_created',
+        sourceType: 'gateway_operator',
+        replayRef: 'operator:op-1:created',
+        metadata: {
+          operatorId: 'op-1',
+          role: 'engineering',
+        },
+      });
+      expect(updates.find((update) => update.table === auditLog)?.value).toMatchObject({
+        metadata: {
+          evidenceItemId: 'evidence-operator-1',
+        },
+      });
+    });
+
+    it('fails closed when operator creation evidence cannot be persisted', async () => {
+      const op = mockOperator({ name: 'Builder Bot', role: 'engineering', goal: 'Ship fast' });
+
+      deps.db.insert = vi.fn((table: unknown) => ({
+        values: vi.fn(() => ({
+          returning: vi.fn(async () => {
+            if (table === operators) return [op];
+            if (table === evidenceItems) throw new Error('evidence unavailable');
+            return [];
+          }),
+          then: (r: any) => r([]),
+        })),
+      })) as any;
+
+      const res = await fetch(
+        'POST',
+        '/',
+        {
+          workspaceId,
+          name: 'Builder Bot',
+          role: 'engineering',
+          goal: 'Ship fast',
+        },
+        wsHeader,
+      );
+      const json = await expectJson<{ error: string }>(res, 500);
+
+      expect(json.error).toBe('Failed to create operator');
+    });
+  });
+
+  // ── PUT /:id ──
+
+  describe('PUT /:id', () => {
+    it('updates operator and writes audit-linked evidence', async () => {
+      const existing = mockOperator({
+        workspaceId,
+        name: 'Builder Bot',
+        role: 'engineering',
+        goal: 'Ship fast',
+        tools: ['create_artifact'],
+      });
+      const updated = {
+        ...existing,
+        goal: 'Ship safely',
+        isActive: 'false',
+      };
+      deps.db._setResult([existing]);
+      const inserts: Array<{ table: unknown; value: unknown }> = [];
+      const updates: Array<{ table: unknown; value: unknown }> = [];
+      deps.db.insert = vi.fn((table: unknown) => ({
+        values: vi.fn((value: unknown) => {
+          inserts.push({ table, value });
+          return {
+            returning: vi.fn(async () =>
+              table === evidenceItems ? [{ id: 'evidence-operator-2' }] : [],
+            ),
+            then: (r: any) => r([]),
+          };
+        }),
+      })) as any;
+      deps.db.update = vi.fn((table: unknown) => ({
+        set: vi.fn((value: unknown) => {
+          updates.push({ table, value });
+          return {
+            where: vi.fn(() => ({
+              returning: vi.fn(async () => (table === operators ? [updated] : [])),
+              then: (r: any) => r([]),
+            })),
+          };
+        }),
+      })) as any;
+
+      const res = await fetch(
+        'PUT',
+        '/op-1',
+        {
+          goal: 'Ship safely',
+          isActive: false,
+        },
+        wsHeader,
+      );
+      const json = await expectJson<Record<string, unknown>>(res, 200);
+
+      expect(json.goal).toBe('Ship safely');
+      const auditInsert = inserts.find((insert) => insert.table === auditLog)?.value as {
+        id: string;
+      };
+      expect(auditInsert).toMatchObject({
+        workspaceId,
+        action: 'WORKSPACE_OPERATOR_UPDATED',
+        target: 'op-1',
+        verdict: 'allow',
+        metadata: {
+          evidenceType: 'workspace_operator_updated',
+          operatorId: 'op-1',
+          changedFields: ['goal', 'isActive'],
+        },
+      });
+      expect(inserts.find((insert) => insert.table === evidenceItems)?.value).toMatchObject({
+        workspaceId,
+        auditEventId: auditInsert.id,
+        evidenceType: 'workspace_operator_updated',
+        sourceType: 'gateway_operator',
+        replayRef: 'operator:op-1:updated',
+        metadata: {
+          operatorId: 'op-1',
+          changedFields: ['goal', 'isActive'],
+        },
+      });
+      expect(updates.find((update) => update.table === auditLog)?.value).toMatchObject({
+        metadata: {
+          evidenceItemId: 'evidence-operator-2',
+        },
+      });
     });
   });
 
