@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import {
+  approvals,
   managedTelegramBotMessages,
   managedTelegramBots,
   workspaceMembers,
@@ -22,6 +23,17 @@ type ManagedTelegramActionEvaluator = {
     resource: string;
     context?: Record<string, unknown>;
   }): Promise<unknown>;
+};
+
+type ManagedTelegramDraftBuilder = {
+  buildSupportDraft(row: Record<string, unknown>, inboundText: string): Promise<{
+    text: string;
+    governanceMetadata: Record<string, unknown>;
+  }>;
+};
+
+type ManagedTelegramSupportCapturer = {
+  captureSupportMessage(managedBotId: string, ctx: unknown): Promise<void>;
 };
 
 function makeManagedTelegramActionDb() {
@@ -99,6 +111,28 @@ function makeManagedTelegramActionDb() {
     return [];
   };
 
+  const insertTable = (table: unknown, values: Record<string, unknown>) => {
+    if (table === managedTelegramBotMessages) {
+      state.message = {
+        ...state.message,
+        ...values,
+        id: values['id'] ?? state.message['id'] ?? 'msg-1',
+      };
+      return [state.message];
+    }
+    if (table === approvals) {
+      return [
+        {
+          id: 'approval-1',
+          workspaceId: values['workspaceId'],
+          action: values['action'],
+          status: values['status'],
+        },
+      ];
+    }
+    return [];
+  };
+
   const db = {
     select: () => ({
       from: (table: unknown) => ({
@@ -106,6 +140,11 @@ function makeManagedTelegramActionDb() {
           orderBy: () => ({ limit: () => Promise.resolve(resultForTable(table)) }),
           limit: () => Promise.resolve(resultForTable(table)),
         }),
+      }),
+    }),
+    insert: (table: unknown) => ({
+      values: (values: Record<string, unknown>) => ({
+        returning: () => Promise.resolve(insertTable(table, values)),
       }),
     }),
     update: (table: unknown) => ({
@@ -254,9 +293,11 @@ describe('managed Telegram child webhook route', () => {
 describe('managed Telegram service governance', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('classifies managed bot actions with explicit HELM effect levels', () => {
+    expect(managedTelegramActionEffectLevel(TELEGRAM_MANAGED_ACTIONS.DRAFT_SUPPORT)).toBe('E1');
     expect(managedTelegramActionEffectLevel(TELEGRAM_MANAGED_ACTIONS.SEND_MESSAGE)).toBe('E2');
     expect(managedTelegramActionEffectLevel(TELEGRAM_MANAGED_ACTIONS.CLAIM)).toBe('E3');
     expect(managedTelegramActionEffectLevel(TELEGRAM_MANAGED_ACTIONS.SET_WEBHOOK)).toBe('E3');
@@ -311,6 +352,88 @@ describe('managed Telegram service governance', () => {
         }),
       }),
     );
+  });
+
+  it('persists governed LLM metadata on managed Telegram support drafts', async () => {
+    const { db, state } = makeManagedTelegramActionDb();
+    const llm = {
+      complete: vi.fn(async () => 'Legacy reply'),
+      completeWithUsage: vi.fn(async () => ({
+        content: 'Governed support reply',
+        usage: { tokensIn: 22, tokensOut: 9, model: 'support-model' },
+        governance: {
+          decisionId: 'dec-draft',
+          verdict: 'ALLOW' as const,
+          policyVersion: 'founder-ops-v1',
+          principal: 'workspace:ws-1/operator:launch',
+        },
+      })),
+    };
+    const service = new ManagedTelegramBotService({
+      db,
+      llm,
+    });
+    const ctx = {
+      from: { id: 777, username: 'founder_user', first_name: 'Founder' },
+      chat: { id: 888 },
+      message: { message_id: 42, text: 'Can Pilot deploy this?' },
+      reply: vi.fn(async () => ({ message_id: 4242 })),
+    };
+
+    await (service as unknown as ManagedTelegramSupportCapturer).captureSupportMessage(
+      'bot-1',
+      ctx,
+    );
+
+    expect(llm.completeWithUsage).toHaveBeenCalledOnce();
+    expect(llm.complete).not.toHaveBeenCalled();
+    expect(state.message['aiDraft']).toBe('Governed support reply');
+    expect(state.message['replyStatus']).toBe('awaiting_approval');
+    expect(state.message['governanceMetadata']).toMatchObject({
+      supportDraft: {
+        surface: 'managed_telegram',
+        action: TELEGRAM_MANAGED_ACTIONS.DRAFT_SUPPORT,
+        method: 'llm',
+        policyDecisionId: 'dec-draft',
+        policyVersion: 'founder-ops-v1',
+        helmDocumentVersionPins: { managedTelegramPolicy: 'founder-ops-v1' },
+        modelUsage: { tokensIn: 22, tokensOut: 9, model: 'support-model' },
+        credentialBoundary: 'no_raw_credentials_or_session_payloads_in_prompt',
+        policyPin: {
+          policyDecisionId: 'dec-draft',
+          policyVersion: 'founder-ops-v1',
+          decisionRequired: true,
+          documentVersionPins: { managedTelegramPolicy: 'founder-ops-v1' },
+        },
+      },
+    });
+  });
+
+  it('fails closed for production support drafts without governed LLM metadata', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('HELM_FAIL_CLOSED', '1');
+    const { db, state } = makeManagedTelegramActionDb();
+    const llm = {
+      complete: vi.fn(async () => 'Legacy reply'),
+      completeWithUsage: vi.fn(async () => ({
+        content: 'Ungoverned reply',
+        usage: { tokensIn: 10, tokensOut: 5, model: 'support-model' },
+      })),
+    };
+    const service = new ManagedTelegramBotService({
+      db,
+      llm,
+    });
+
+    await expect(
+      (service as unknown as ManagedTelegramDraftBuilder).buildSupportDraft(
+        state.bot,
+        'Can Pilot deploy this?',
+      ),
+    ).rejects.toMatchObject({
+      status: 503,
+      message: 'HELM-governed LLM metadata is required for production Telegram support drafts',
+    });
   });
 
   it('persists HELM policy pins when sending managed Telegram messages', async () => {
