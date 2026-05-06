@@ -117,6 +117,8 @@ export {
 } from './command-center.js';
 
 export {
+  type AppliedStartupMissionRecovery,
+  type ApplyStartupMissionRecoveryInput,
   type CheckpointedStartupMission,
   type CheckpointStartupMissionInput,
   type CompiledStartupLifecycleMission,
@@ -134,6 +136,8 @@ export {
   type StartupLifecycleEdge,
   type StartupLifecycleNode,
   type StartupLifecycleStage,
+  AppliedStartupMissionRecoverySchema,
+  ApplyStartupMissionRecoveryInputSchema,
   CheckpointedStartupMissionSchema,
   CheckpointStartupMissionInputSchema,
   CompiledStartupLifecycleMissionSchema,
