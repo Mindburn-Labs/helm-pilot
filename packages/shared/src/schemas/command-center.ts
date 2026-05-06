@@ -139,6 +139,9 @@ export const CommandCenterEvalStatusResponseSchema = z.object({
   evals: z.object({
     scenarios: z.array(DurableRowSchema),
     recentRuns: z.array(DurableRowSchema),
+    results: z.array(DurableRowSchema),
+    steps: z.array(DurableRowSchema),
+    evidenceLinks: z.array(DurableRowSchema),
     promotions: z.array(DurableRowSchema),
     orderedBy: z.array(z.string().min(1)),
   }),
@@ -168,7 +171,5 @@ export type CommandCenterPermissionGraphResponse = z.infer<
 export type CommandCenterMissionGraphResponse = z.infer<
   typeof CommandCenterMissionGraphResponseSchema
 >;
-export type CommandCenterEvalStatusResponse = z.infer<
-  typeof CommandCenterEvalStatusResponseSchema
->;
+export type CommandCenterEvalStatusResponse = z.infer<typeof CommandCenterEvalStatusResponseSchema>;
 export type CommandCenterReplayResponse = z.infer<typeof CommandCenterReplayResponseSchema>;
