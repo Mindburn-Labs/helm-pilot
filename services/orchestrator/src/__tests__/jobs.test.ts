@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { appendEvidenceItem } from '@pilot/db';
 import { registerJobHandlers } from '../jobs.js';
 
@@ -53,9 +53,22 @@ vi.mock('@pilot/shared/logger', () => ({
 }));
 
 let mockDb: any;
+const originalEnv = {
+  NODE_ENV: process.env['NODE_ENV'],
+  HELM_FAIL_CLOSED: process.env['HELM_FAIL_CLOSED'],
+};
+
+function restoreEnv(name: keyof typeof originalEnv) {
+  const original = originalEnv[name];
+  if (original === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = original;
+  }
+}
 
 function freshMockDb() {
-  return {
+  const db: any = {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
         where: vi.fn(() => ({
@@ -77,7 +90,9 @@ function freshMockDb() {
         where: vi.fn(() => Promise.resolve()),
       })),
     })),
+    transaction: vi.fn(async (callback: (tx: any) => Promise<unknown>) => callback(db)),
   };
+  return db;
 }
 
 describe('registerJobHandlers', () => {
@@ -94,6 +109,11 @@ describe('registerJobHandlers', () => {
     vi.clearAllMocks();
     handlers.clear();
     mockDb = freshMockDb();
+  });
+
+  afterEach(() => {
+    restoreEnv('NODE_ENV');
+    restoreEnv('HELM_FAIL_CLOSED');
   });
 
   it('registers all expected job handlers', () => {
@@ -324,6 +344,166 @@ describe('registerJobHandlers', () => {
       );
       expect(mockDb.insert).not.toHaveBeenCalledWith('opportunityScores');
       expect(appendEvidenceItem).not.toHaveBeenCalled();
+    });
+
+    it('fails closed in production when no governed LLM provider is configured', async () => {
+      process.env['NODE_ENV'] = 'production';
+      process.env['HELM_FAIL_CLOSED'] = '1';
+
+      let selectCount = 0;
+      mockDb.select = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              then: (r: any) => {
+                selectCount++;
+                if (selectCount === 1)
+                  return r([
+                    {
+                      id: 'opp-1',
+                      title: 'Production Opp',
+                      description: 'A production opportunity',
+                      source: 'hn',
+                      workspaceId: 'ws-1',
+                    },
+                  ]);
+                return r([]);
+              },
+            })),
+          })),
+        })),
+      }));
+
+      registerJobHandlers(mockBoss, { db: mockDb });
+      const handler = handlers.get('opportunity.score')!;
+
+      await expect(handler([{ data: { opportunityId: 'opp-1' } }])).rejects.toThrow(
+        'LLM provider is required for production opportunity scoring',
+      );
+      expect(mockDb.transaction).not.toHaveBeenCalled();
+      expect(mockDb.insert).not.toHaveBeenCalledWith('opportunityScores');
+      expect(mockDb.update).not.toHaveBeenCalled();
+      expect(appendEvidenceItem).not.toHaveBeenCalled();
+    });
+
+    it('fails closed in production when LLM scoring lacks HELM governance metadata', async () => {
+      process.env['NODE_ENV'] = 'production';
+      process.env['HELM_FAIL_CLOSED'] = '1';
+
+      let selectCount = 0;
+      mockDb.select = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              then: (r: any) => {
+                selectCount++;
+                if (selectCount === 1)
+                  return r([
+                    {
+                      id: 'opp-1',
+                      title: 'Production Opp',
+                      description: 'A production opportunity',
+                      source: 'hn',
+                      workspaceId: 'ws-1',
+                    },
+                  ]);
+                return r([]);
+              },
+            })),
+          })),
+        })),
+      }));
+
+      const mockLlm = {
+        complete: vi.fn(),
+        completeWithUsage: vi.fn(async () => ({
+          content:
+            '{"overall":80,"founderFit":70,"marketSignal":75,"timing":60,"feasibility":85,"rationale":"ok"}',
+          usage: { tokensIn: 100, tokensOut: 50, model: 'test' },
+        })),
+      } as any;
+
+      registerJobHandlers(mockBoss, { db: mockDb, llm: mockLlm });
+      const handler = handlers.get('opportunity.score')!;
+
+      await expect(handler([{ data: { opportunityId: 'opp-1' } }])).rejects.toThrow(
+        'Production opportunity scoring requires HELM-governed model metadata',
+      );
+      expect(mockDb.transaction).not.toHaveBeenCalled();
+      expect(mockDb.insert).not.toHaveBeenCalledWith('opportunityScores');
+      expect(mockDb.update).not.toHaveBeenCalled();
+      expect(appendEvidenceItem).not.toHaveBeenCalled();
+    });
+
+    it('persists opportunity score state and evidence in a single transaction', async () => {
+      vi.mocked(appendEvidenceItem).mockRejectedValueOnce(
+        new Error('evidence persistence failed'),
+      );
+
+      let selectCount = 0;
+      mockDb.select = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              then: (r: any) => {
+                selectCount++;
+                if (selectCount === 1)
+                  return r([
+                    {
+                      id: 'opp-1',
+                      title: 'Test Opp',
+                      description: 'A test opportunity',
+                      source: 'hn',
+                      workspaceId: 'ws-1',
+                    },
+                  ]);
+                return r([]);
+              },
+            })),
+          })),
+        })),
+      }));
+
+      const txInsert = vi.fn(() => ({
+        values: vi.fn(() => Promise.resolve([])),
+      }));
+      const txUpdate = vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn(() => Promise.resolve()),
+        })),
+      }));
+      const txDb = { insert: txInsert, update: txUpdate };
+      mockDb.transaction = vi.fn(async (callback: (tx: any) => Promise<unknown>) =>
+        callback(txDb),
+      );
+
+      const mockLlm = {
+        complete: vi.fn(),
+        completeWithUsage: vi.fn(async () => ({
+          content:
+            '{"overall":80,"founderFit":70,"marketSignal":75,"timing":60,"feasibility":85,"rationale":"ok"}',
+          usage: { tokensIn: 100, tokensOut: 50, model: 'test' },
+          governance: {
+            decisionId: 'dec-score',
+            verdict: 'ALLOW',
+            policyVersion: 'founder-ops-v1',
+            principal: 'workspace:ws-1/operator:scoring',
+          },
+        })),
+      } as any;
+
+      registerJobHandlers(mockBoss, { db: mockDb, llm: mockLlm });
+      const handler = handlers.get('opportunity.score')!;
+
+      await expect(handler([{ data: { opportunityId: 'opp-1' } }])).rejects.toThrow(
+        'evidence persistence failed',
+      );
+      expect(mockDb.transaction).toHaveBeenCalledOnce();
+      expect(txInsert).toHaveBeenCalledWith('opportunityScores');
+      expect(txInsert).toHaveBeenCalledWith('auditLog');
+      expect(txUpdate).toHaveBeenCalledWith('opportunities');
+      expect(mockDb.insert).not.toHaveBeenCalled();
+      expect(mockDb.update).not.toHaveBeenCalled();
     });
   });
 

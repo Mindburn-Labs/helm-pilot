@@ -53,6 +53,8 @@ export interface JobDeps {
   pipelineRunner?: (name: string, extraArgs: string[]) => Promise<PipelineRunResult>;
 }
 
+type OpportunityScorePersistenceDb = Pick<Db, 'insert' | 'update'>;
+
 interface PipelineRunResult {
   scriptPath: string;
   args: string[];
@@ -67,8 +69,9 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
   // ─── Opportunity Scoring (Phase 3a) ───
   // Uses the versioned scoring engine in @pilot/shared/scoring with
   // the founder's profile + strengths plumbed through for founder-fit.
-  // Falls through to heuristic scoring when the LLM is absent or the
-  // response is unparseable, so Discover never serves null scores.
+  // Uses heuristic scoring only when no LLM is configured. Once a governed
+  // model provider is configured, model/HELM failures propagate so production
+  // cannot persist a fake autonomous score.
   boss.work('opportunity.score', async (jobs: PgBoss.Job<{ opportunityId: string }>[]) => {
     for (const job of jobs) {
       const { opportunityId } = job.data;
@@ -140,28 +143,31 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
         );
         assertProductionScoreGovernance(result);
 
-        await deps.db.insert(opportunityScores).values({
-          opportunityId,
-          overallScore: result.overall,
-          founderFitScore: result.founderFit,
-          marketSignal: result.marketSignal,
-          feasibility: result.feasibility,
-          timing: result.timing,
-          scoringMethod: result.method,
-          policyDecisionId: result.governance?.decisionId ?? null,
-          policyVersion: result.governance?.policyVersion ?? null,
-          helmDocumentVersionPins: opportunityScoreDocumentPins(result),
-          modelUsage: result.usage ? { ...result.usage } : {},
-        });
+        await deps.db.transaction(async (tx) => {
+          await tx.insert(opportunityScores).values({
+            opportunityId,
+            overallScore: result.overall,
+            founderFitScore: result.founderFit,
+            marketSignal: result.marketSignal,
+            feasibility: result.feasibility,
+            timing: result.timing,
+            scoringMethod: result.method,
+            policyDecisionId: result.governance?.decisionId ?? null,
+            policyVersion: result.governance?.policyVersion ?? null,
+            helmDocumentVersionPins: opportunityScoreDocumentPins(result),
+            modelUsage: result.usage ? { ...result.usage } : {},
+          });
 
-        await deps.db
-          .update(opportunities)
-          .set({ status: 'scored' })
-          .where(eq(opportunities.id, opportunityId));
+          await tx
+            .update(opportunities)
+            .set({ status: 'scored' })
+            .where(eq(opportunities.id, opportunityId));
 
-        await appendOpportunityScoreGovernanceEvidence({
-          opportunity: opp,
-          result,
+          await appendOpportunityScoreGovernanceEvidence({
+            db: tx,
+            opportunity: opp,
+            result,
+          });
         });
 
         log.info(
@@ -181,6 +187,7 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
   });
 
   async function appendOpportunityScoreGovernanceEvidence(input: {
+    db: OpportunityScorePersistenceDb;
     opportunity: typeof opportunities.$inferSelect;
     result: ScoringResult;
   }): Promise<void> {
@@ -204,7 +211,7 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
       credentialBoundary: 'no_raw_credentials_or_session_payloads_in_evidence',
     };
 
-    await deps.db.insert(auditLog).values({
+    await input.db.insert(auditLog).values({
       workspaceId,
       action: 'OPPORTUNITY_SCORE_RECORDED',
       actor: 'job:opportunity.score',
@@ -213,7 +220,7 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
       metadata,
     });
 
-    await appendEvidenceItem(deps.db, {
+    await appendEvidenceItem(input.db, {
       workspaceId,
       evidenceType: 'opportunity_score',
       sourceType: 'opportunity_score_worker',
