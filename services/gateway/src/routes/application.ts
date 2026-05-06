@@ -264,6 +264,8 @@ export function applicationRoutes(deps: GatewayDeps) {
   app.put('/:id/status', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'mutate application status');
+    if (roleDenied) return roleDenied;
 
     const { id } = c.req.param();
     const body = await c.req.json();
@@ -273,21 +275,90 @@ export function applicationRoutes(deps: GatewayDeps) {
       return c.json({ error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` }, 400);
     }
 
+    const [existing] = await deps.db
+      .select()
+      .from(applications)
+      .where(and(eq(applications.id, id), eq(applications.workspaceId, workspaceId)))
+      .limit(1);
+
+    if (!existing) return c.json({ error: 'Application not found' }, 404);
+
     const values: Record<string, unknown> = { status: normalizedStatus, updatedAt: new Date() };
     if (normalizedStatus === 'submitted') {
       values['submittedAt'] = new Date();
     }
 
-    // Predicate composes id with workspaceId so a caller cannot flip the
-    // status of another tenant's application by id-guess.
-    const [updated] = await deps.db
-      .update(applications)
-      .set(values)
-      .where(and(eq(applications.id, id), eq(applications.workspaceId, workspaceId)))
-      .returning();
+    const updated = await deps.db
+      .transaction(async (tx) => {
+        // Predicate composes id with workspaceId so a caller cannot flip the
+        // status of another tenant's application by id-guess.
+        const [application] = await tx
+          .update(applications)
+          .set(values)
+          .where(and(eq(applications.id, id), eq(applications.workspaceId, workspaceId)))
+          .returning();
 
-    if (!updated) return c.json({ error: 'Application not found' }, 404);
-    return c.json(serializeApplication(updated));
+        if (!application) throw new Error('failed to update application status');
+
+        const auditEventId = randomUUID();
+        const replayRef = `application:${workspaceId}:${id}:status:${existing.status}->${normalizedStatus}`;
+        const auditMetadata = {
+          applicationId: id,
+          targetProgram: application.targetProgram,
+          previousStatus: existing.status,
+          status: normalizedStatus,
+          submitted: normalizedStatus === 'submitted',
+          evidenceContract: 'application_status_evidence_required',
+        };
+
+        await tx.insert(auditLog).values({
+          id: auditEventId,
+          workspaceId,
+          action: 'APPLICATION_STATUS_UPDATED',
+          actor: `user:${c.get('userId') ?? 'unknown'}`,
+          target: id,
+          verdict: 'allow',
+          metadata: {
+            evidenceType: 'application_status_updated',
+            replayRef,
+            ...auditMetadata,
+          },
+        });
+
+        const evidenceItemId = await appendEvidenceItem(tx, {
+          workspaceId,
+          auditEventId,
+          evidenceType: 'application_status_updated',
+          sourceType: 'gateway_application_route',
+          title: `Application status updated: ${application.targetProgram}`,
+          summary: `Application status changed from ${existing.status} to ${normalizedStatus}.`,
+          redactionState: 'none',
+          sensitivity: 'internal',
+          replayRef,
+          metadata: auditMetadata,
+        });
+
+        await tx
+          .update(auditLog)
+          .set({
+            metadata: {
+              evidenceType: 'application_status_updated',
+              replayRef,
+              evidenceItemId,
+              ...auditMetadata,
+            },
+          })
+          .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.id, auditEventId)));
+
+        return { application, evidenceItemId };
+      })
+      .catch(() => null);
+
+    if (!updated) return c.json({ error: 'Failed to persist application status evidence' }, 500);
+    return c.json({
+      ...serializeApplication(updated.application),
+      evidenceItemId: updated.evidenceItemId,
+    });
   });
 
   return app;

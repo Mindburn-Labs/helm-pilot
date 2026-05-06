@@ -177,6 +177,90 @@ function createApplicationDraftDb(
   return { db, inserts, updates };
 }
 
+function createApplicationStatusDb(options: { failEvidence?: boolean; existing?: unknown } = {}) {
+  const existing =
+    options.existing ??
+    ({
+      id: 'app-1',
+      workspaceId: 'ws-1',
+      name: 'YC',
+      targetProgram: 'YC',
+      status: 'draft',
+      submittedAt: null,
+    } as Record<string, unknown>);
+  const inserts: Array<{ table: unknown; value: unknown }> = [];
+  const updates: Array<{ table: unknown; value: unknown }> = [];
+
+  const createDbFacade = (
+    insertSink: Array<{ table: unknown; value: unknown }>,
+    updateSink: Array<{ table: unknown; value: unknown }>,
+  ) => ({
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn(async () => (existing ? [existing] : [])),
+        })),
+      })),
+    })),
+    insert: vi.fn((table: unknown) => ({
+      values: vi.fn((value: Record<string, unknown>) => {
+        insertSink.push({ table, value });
+        return {
+          returning: vi.fn(async () => {
+            if (table === evidenceItems) {
+              if (options.failEvidence) throw new Error('evidence unavailable');
+              return [{ id: 'evidence-application-status-1' }];
+            }
+            return [];
+          }),
+          then: (resolve: (value: unknown[]) => void, reject?: (reason: unknown) => void) =>
+            Promise.resolve([]).then(resolve, reject),
+          catch: (reject: (reason: unknown) => void) => Promise.resolve([]).catch(reject),
+        };
+      }),
+    })),
+    update: vi.fn((table: unknown) => ({
+      set: vi.fn((value: Record<string, unknown>) => {
+        updateSink.push({ table, value });
+        return {
+          where: vi.fn(() => ({
+            returning: vi.fn(async () => {
+              if (table === applications && existing) {
+                return [{ ...(existing as Record<string, unknown>), ...value }];
+              }
+              return [];
+            }),
+            then: (resolve: (value: unknown[]) => void, reject?: (reason: unknown) => void) =>
+              Promise.resolve([]).then(resolve, reject),
+            catch: (reject: (reason: unknown) => void) => Promise.resolve([]).catch(reject),
+          })),
+        };
+      }),
+    })),
+    delete: vi.fn(() => ({
+      where: vi.fn(async () => []),
+    })),
+    execute: vi.fn(async () => [{ '?column?': 1 }]),
+  });
+
+  const db = {
+    ...createDbFacade(inserts, updates),
+    transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
+      const stagedInserts: Array<{ table: unknown; value: unknown }> = [];
+      const stagedUpdates: Array<{ table: unknown; value: unknown }> = [];
+      const tx = createDbFacade(stagedInserts, stagedUpdates);
+      const result = await callback(tx);
+      inserts.push(...stagedInserts);
+      updates.push(...stagedUpdates);
+      return result;
+    }),
+    _setResult: vi.fn(),
+    _reset: vi.fn(),
+  };
+
+  return { db, inserts, updates };
+}
+
 describe('applicationRoutes', () => {
   const wsHeader = { 'X-Workspace-Id': 'ws-1' };
 
@@ -635,29 +719,86 @@ describe('applicationRoutes', () => {
       expect(body.error).toContain('Invalid status');
     });
 
-    it('updates status and returns 200', async () => {
-      const deps = createMockDeps();
-      const updated = {
-        id: 'app-1',
-        workspaceId: 'ws-1',
-        targetProgram: 'YC',
-        status: 'submitted',
-        submittedAt: new Date().toISOString(),
-      };
+    it('denies members from mutating application status', async () => {
+      const { fetch, deps } = testApp(applicationRoutes);
+      const res = await fetch(
+        'PUT',
+        '/app-1/status',
+        { status: 'submitted' },
+        { ...wsHeader, 'X-Workspace-Role': 'member' },
+      );
+      const body = await expectJson<{ error: string; requiredRole: string }>(res, 403);
 
-      deps.db.update = vi.fn(() => ({
-        set: vi.fn(() => ({
-          where: vi.fn(() => ({
-            returning: vi.fn(async () => [updated]),
-            then: (r: any) => r([updated]),
-          })),
-        })),
-      })) as any;
+      expect(body.error).toBe('insufficient workspace role');
+      expect(body.requiredRole).toBe('partner');
+      expect(deps.db.update).not.toHaveBeenCalled();
+    });
 
+    it('writes audit-linked evidence when updating status', async () => {
+      const { db, inserts, updates } = createApplicationStatusDb();
+      const deps = createMockDeps({ db: db as never });
       const { fetch } = testApp(applicationRoutes, deps);
       const res = await fetch('PUT', '/app-1/status', { status: 'submitted' }, wsHeader);
-      const body = await expectJson<{ status: string }>(res, 200);
+      const body = await expectJson<{ status: string; evidenceItemId: string }>(res, 200);
+
       expect(body.status).toBe('submitted');
+      expect(body.evidenceItemId).toBe('evidence-application-status-1');
+      expect(updates.map((update) => update.table)).toEqual([applications, auditLog]);
+      expect(inserts.map((insert) => insert.table)).toEqual([auditLog, evidenceItems]);
+      expect(updates.find((update) => update.table === applications)?.value).toMatchObject({
+        status: 'submitted',
+        submittedAt: expect.any(Date),
+      });
+      const auditInsert = inserts.find((insert) => insert.table === auditLog)?.value as {
+        id: string;
+      };
+      expect(auditInsert).toMatchObject({
+        workspaceId: 'ws-1',
+        action: 'APPLICATION_STATUS_UPDATED',
+        actor: 'user:user-1',
+        target: 'app-1',
+        verdict: 'allow',
+        metadata: {
+          evidenceType: 'application_status_updated',
+          replayRef: 'application:ws-1:app-1:status:draft->submitted',
+          applicationId: 'app-1',
+          targetProgram: 'YC',
+          previousStatus: 'draft',
+          status: 'submitted',
+          submitted: true,
+          evidenceContract: 'application_status_evidence_required',
+        },
+      });
+      expect(inserts.find((insert) => insert.table === evidenceItems)?.value).toMatchObject({
+        workspaceId: 'ws-1',
+        auditEventId: auditInsert.id,
+        evidenceType: 'application_status_updated',
+        sourceType: 'gateway_application_route',
+        replayRef: 'application:ws-1:app-1:status:draft->submitted',
+        metadata: {
+          applicationId: 'app-1',
+          previousStatus: 'draft',
+          status: 'submitted',
+          evidenceContract: 'application_status_evidence_required',
+        },
+      });
+      expect(updates.find((update) => update.table === auditLog)?.value).toMatchObject({
+        metadata: {
+          evidenceItemId: 'evidence-application-status-1',
+        },
+      });
+    });
+
+    it('fails closed without committing status changes when evidence persistence fails', async () => {
+      const { db, inserts, updates } = createApplicationStatusDb({ failEvidence: true });
+      const deps = createMockDeps({ db: db as never });
+      const { fetch } = testApp(applicationRoutes, deps);
+      const res = await fetch('PUT', '/app-1/status', { status: 'submitted' }, wsHeader);
+      const body = await expectJson<{ error: string }>(res, 500);
+
+      expect(body.error).toContain('Failed to persist application status evidence');
+      expect(inserts).toEqual([]);
+      expect(updates).toEqual([]);
     });
 
     it('returns 404 when application does not exist', async () => {
