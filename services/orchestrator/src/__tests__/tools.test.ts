@@ -161,6 +161,8 @@ function createArtifactDb() {
   const insertedArtifacts: unknown[] = [];
   const insertedArtifactVersions: unknown[] = [];
   const insertedEvidenceItems: unknown[] = [];
+  const insertedAudit: unknown[] = [];
+  const updatedAudit: unknown[] = [];
   const db = {
     insert: vi.fn((table: unknown) => ({
       values: vi.fn((value: unknown) => {
@@ -180,6 +182,10 @@ function createArtifactDb() {
           insertedArtifactVersions.push(value);
           return {};
         }
+        if (table === auditLog) {
+          insertedAudit.push(value);
+          return {};
+        }
         if (table === evidenceItems) {
           insertedEvidenceItems.push(value);
           return {
@@ -193,8 +199,21 @@ function createArtifactDb() {
         return { returning: vi.fn(async () => []) };
       }),
     })),
+    update: vi.fn((table: unknown) => ({
+      set: vi.fn((value: unknown) => {
+        if (table === auditLog) updatedAudit.push(value);
+        return { where: vi.fn(async () => []) };
+      }),
+    })),
   };
-  return { db, insertedArtifacts, insertedArtifactVersions, insertedEvidenceItems };
+  return {
+    db,
+    insertedArtifacts,
+    insertedArtifactVersions,
+    insertedEvidenceItems,
+    insertedAudit,
+    updatedAudit,
+  };
 }
 
 function makeSkill(overrides: Partial<SkillDefinition> = {}): SkillDefinition {
@@ -756,8 +775,14 @@ describe('ToolRegistry', () => {
       const workspaceId = '00000000-0000-4000-8000-000000000001';
       const taskId = '00000000-0000-4000-8000-000000000002';
       const actionId = '00000000-0000-4000-8000-000000000003';
-      const { db, insertedArtifacts, insertedArtifactVersions, insertedEvidenceItems } =
-        createArtifactDb();
+      const {
+        db,
+        insertedArtifacts,
+        insertedArtifactVersions,
+        insertedEvidenceItems,
+        insertedAudit,
+        updatedAudit,
+      } = createArtifactDb();
       const registry = createRegistryWithDb(db);
 
       const result = await registry.execute(
@@ -788,10 +813,26 @@ describe('ToolRegistry', () => {
         sizeBytes: 29,
         changelog: 'Initial version',
       });
+      expect(insertedAudit[0]).toMatchObject({
+        id: expect.any(String),
+        workspaceId,
+        action: 'ARTIFACT_CREATED',
+        actor: `workspace:${workspaceId}`,
+        target: '00000000-0000-4000-8000-000000000020',
+        verdict: 'created',
+        metadata: expect.objectContaining({
+          evidenceType: 'artifact_created',
+          replayRef: 'artifact:00000000-0000-4000-8000-000000000020:1',
+          artifactId: '00000000-0000-4000-8000-000000000020',
+          taskId,
+          actionId,
+        }),
+      });
       expect(insertedEvidenceItems[0]).toMatchObject({
         workspaceId,
         taskId,
         actionId,
+        auditEventId: (insertedAudit[0] as { id: string }).id,
         artifactId: '00000000-0000-4000-8000-000000000020',
         evidenceType: 'artifact_created',
         sourceType: 'tool_registry',
@@ -810,6 +851,11 @@ describe('ToolRegistry', () => {
           storageMode: 'inline_artifact_metadata',
           tool: 'create_artifact',
         },
+      });
+      expect(updatedAudit[0]).toMatchObject({
+        metadata: expect.objectContaining({
+          evidenceItemId: '00000000-0000-4000-8000-000000000021',
+        }),
       });
       expect(result).toMatchObject({
         id: '00000000-0000-4000-8000-000000000020',

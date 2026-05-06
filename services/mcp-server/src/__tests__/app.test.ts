@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Db } from '@pilot/db/client';
-import { artifactVersions, artifacts, evidenceItems } from '@pilot/db/schema';
+import { artifactVersions, artifacts, auditLog, evidenceItems } from '@pilot/db/schema';
 import { createMcpApp } from '../app.js';
 
 // ─── Pilot MCP provider app tests (Phase 14 Track A) ───
@@ -15,6 +15,8 @@ function createArtifactMcpDb() {
   const insertedArtifacts: unknown[] = [];
   const insertedArtifactVersions: unknown[] = [];
   const insertedEvidenceItems: unknown[] = [];
+  const insertedAudit: unknown[] = [];
+  const updatedAudit: unknown[] = [];
   const db = {
     insert: vi.fn((table: unknown) => ({
       values: vi.fn((value: unknown) => {
@@ -34,6 +36,10 @@ function createArtifactMcpDb() {
           insertedArtifactVersions.push(value);
           return {};
         }
+        if (table === auditLog) {
+          insertedAudit.push(value);
+          return {};
+        }
         if (table === evidenceItems) {
           insertedEvidenceItems.push(value);
           return {
@@ -47,8 +53,21 @@ function createArtifactMcpDb() {
         return { returning: vi.fn(async () => []) };
       }),
     })),
+    update: vi.fn((table: unknown) => ({
+      set: vi.fn((value: unknown) => {
+        if (table === auditLog) updatedAudit.push(value);
+        return { where: vi.fn(async () => []) };
+      }),
+    })),
   };
-  return { db: db as unknown as Db, insertedArtifacts, insertedArtifactVersions, insertedEvidenceItems };
+  return {
+    db: db as unknown as Db,
+    insertedArtifacts,
+    insertedArtifactVersions,
+    insertedEvidenceItems,
+    insertedAudit,
+    updatedAudit,
+  };
 }
 
 function post(body: unknown, headers: Record<string, string> = {}) {
@@ -159,8 +178,14 @@ describe('createMcpApp', () => {
   });
 
   it('tools/call create_artifact indexes the artifact as canonical evidence', async () => {
-    const { db, insertedArtifacts, insertedArtifactVersions, insertedEvidenceItems } =
-      createArtifactMcpDb();
+    const {
+      db,
+      insertedArtifacts,
+      insertedArtifactVersions,
+      insertedEvidenceItems,
+      insertedAudit,
+      updatedAudit,
+    } = createArtifactMcpDb();
     const appWithDb = createMcpApp({ db, bearerToken: BEARER });
 
     const res = await appWithDb.fetch(
@@ -212,8 +237,22 @@ describe('createMcpApp', () => {
       storagePath: 'inline://launch-email.txt',
       sizeBytes: 14,
     });
+    expect(insertedAudit[0]).toMatchObject({
+      id: expect.any(String),
+      workspaceId: '00000000-0000-4000-8000-000000000001',
+      action: 'ARTIFACT_CREATED',
+      actor: 'workspace:00000000-0000-4000-8000-000000000001',
+      target: '00000000-0000-4000-8000-000000000030',
+      verdict: 'created',
+      metadata: expect.objectContaining({
+        evidenceType: 'artifact_created',
+        replayRef: 'artifact:00000000-0000-4000-8000-000000000030:1',
+        artifactId: '00000000-0000-4000-8000-000000000030',
+      }),
+    });
     expect(insertedEvidenceItems[0]).toMatchObject({
       workspaceId: '00000000-0000-4000-8000-000000000001',
+      auditEventId: (insertedAudit[0] as { id: string }).id,
       artifactId: '00000000-0000-4000-8000-000000000030',
       evidenceType: 'artifact_created',
       sourceType: 'mcp_server',
@@ -223,6 +262,11 @@ describe('createMcpApp', () => {
       contentHash: expect.stringMatching(/^sha256:/u),
       storageRef: 'inline://launch-email.txt',
       replayRef: 'artifact:00000000-0000-4000-8000-000000000030:1',
+    });
+    expect(updatedAudit[0]).toMatchObject({
+      metadata: expect.objectContaining({
+        evidenceItemId: '00000000-0000-4000-8000-000000000031',
+      }),
     });
     expect(payload).toEqual({
       id: '00000000-0000-4000-8000-000000000030',

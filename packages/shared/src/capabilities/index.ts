@@ -395,7 +395,7 @@ const capabilityRecords = validateCapabilityRecords([
       'Connector refresh background worker success and failure paths append sanitized evidence_items rows without token material and link them to CONNECTOR_REFRESH_* audit_log rows',
       'Workspace-scoped YC, Startup School, private YC, knowledge ingestion, and opportunity-cluster pipeline workers append redacted pipeline_worker evidence_items rows for success and failure',
       'YC scraper ingestion finalizers append redacted yc_scraper_ingestion evidence_items rows for parsed and failed workspace-scoped ingestion records without session, token, or raw error material',
-      'Orchestrator and MCP artifact creation append artifact_created evidence_items rows linked to artifact_id and replay refs',
+      'Orchestrator and MCP artifact creation append artifact_created evidence_items rows linked to artifact_id, replay refs, and ARTIFACT_CREATED audit_log rows',
       'Connector grant, revoke, token metadata, browser-session metadata, validation queue, OAuth initiation, callback, refresh, and session-delete routes append redacted evidence_items rows without token or session payloads',
       'Startup lifecycle persistence, scheduling, checkpoint snapshots, recovery plans, and node execution append evidence_items rows linked to mission/task state and replay refs',
       'Production eval run/result/evidence-reference writes append evidence_items rows and return evidenceItemIds from the eval API',
