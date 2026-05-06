@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { auditLog, evidenceItems, sessions, workspaceSettings, workspaces } from '@pilot/db/schema';
 import { workspaceRoutes } from '../../routes/workspace.js';
 import { createMockDeps, testApp, expectJson, mockWorkspace, mockMembership } from '../helpers.js';
 
@@ -118,12 +119,31 @@ describe('workspaceRoutes', () => {
         budgetConfig: {},
         modelConfig: {},
       };
-      const insertValues = vi.fn(() => ({
-        returning: vi.fn(async () => [created]),
-        then: (r: any) => r([created]),
-      }));
-      deps.db.insert = vi.fn(() => ({
-        values: insertValues,
+      const inserts: Array<{ table: unknown; value: unknown }> = [];
+      const updates: Array<{ table: unknown; value: unknown }> = [];
+      deps.db.insert = vi.fn((table: unknown) => ({
+        values: vi.fn((value: unknown) => {
+          inserts.push({ table, value });
+          return {
+            returning: vi.fn(async () => {
+              if (table === workspaceSettings) return [created];
+              if (table === evidenceItems) return [{ id: 'evidence-settings-1' }];
+              return [];
+            }),
+            then: (r: any) => r([]),
+          };
+        }),
+      })) as any;
+      deps.db.update = vi.fn((table: unknown) => ({
+        set: vi.fn((value: unknown) => {
+          updates.push({ table, value });
+          return {
+            where: vi.fn(() => ({
+              returning: vi.fn(async () => []),
+              then: (r: any) => r([]),
+            })),
+          };
+        }),
       })) as any;
 
       const { fetch } = testApp(workspaceRoutes, deps as any);
@@ -143,7 +163,12 @@ describe('workspaceRoutes', () => {
       expect(json).toHaveProperty('workspaceId', 'ws-1');
       expect((json as any).policyConfig.killSwitch).toBe(true);
       expect((json as any).policyConfig.contentBans).toEqual(['no external promises']);
-      expect(insertValues).toHaveBeenCalledWith(
+      expect(inserts.map((insert) => insert.table)).toEqual([
+        workspaceSettings,
+        auditLog,
+        evidenceItems,
+      ]);
+      expect(inserts.find((insert) => insert.table === workspaceSettings)?.value).toEqual(
         expect.objectContaining({
           workspaceId: 'ws-1',
           policyConfig: expect.objectContaining({
@@ -153,6 +178,36 @@ describe('workspaceRoutes', () => {
           }),
         }),
       );
+      const auditInsert = inserts.find((insert) => insert.table === auditLog)?.value as {
+        id: string;
+      };
+      expect(auditInsert).toMatchObject({
+        workspaceId: 'ws-1',
+        action: 'WORKSPACE_SETTINGS_CREATED',
+        target: 'ws-1',
+        verdict: 'allow',
+        metadata: {
+          evidenceType: 'workspace_settings_created',
+          changedSections: ['policyConfig'],
+          created: true,
+        },
+      });
+      expect(inserts.find((insert) => insert.table === evidenceItems)?.value).toMatchObject({
+        workspaceId: 'ws-1',
+        auditEventId: auditInsert.id,
+        evidenceType: 'workspace_settings_created',
+        sourceType: 'gateway_workspace_control',
+        metadata: {
+          workspaceId: 'ws-1',
+          changedSections: ['policyConfig'],
+          created: true,
+        },
+      });
+      expect(updates.find((update) => update.table === auditLog)?.value).toMatchObject({
+        metadata: {
+          evidenceItemId: 'evidence-settings-1',
+        },
+      });
     });
 
     it('updates existing settings (200)', async () => {
@@ -181,11 +236,23 @@ describe('workspaceRoutes', () => {
       })) as any;
 
       const updatedSettings = { ...existingSettings, policyConfig: { maxIterationBudget: 10 } };
-      deps.db.update = vi.fn(() => ({
+      const inserts: Array<{ table: unknown; value: unknown }> = [];
+      deps.db.insert = vi.fn((table: unknown) => ({
+        values: vi.fn((value: unknown) => {
+          inserts.push({ table, value });
+          return {
+            returning: vi.fn(async () =>
+              table === evidenceItems ? [{ id: 'evidence-settings-2' }] : [],
+            ),
+            then: (r: any) => r([]),
+          };
+        }),
+      })) as any;
+      deps.db.update = vi.fn((table: unknown) => ({
         set: vi.fn(() => ({
           where: vi.fn(() => ({
-            returning: vi.fn(async () => [updatedSettings]),
-            then: (r: any) => r([updatedSettings]),
+            returning: vi.fn(async () => (table === workspaceSettings ? [updatedSettings] : [])),
+            then: (r: any) => r([]),
           })),
         })),
       })) as any;
@@ -201,6 +268,46 @@ describe('workspaceRoutes', () => {
       );
       const json = await expectJson<typeof updatedSettings>(res, 200);
       expect(json.policyConfig.maxIterationBudget).toBe(10);
+      expect(inserts.find((insert) => insert.table === auditLog)?.value).toMatchObject({
+        workspaceId: 'ws-1',
+        action: 'WORKSPACE_SETTINGS_UPDATED',
+        metadata: {
+          evidenceType: 'workspace_settings_updated',
+          changedSections: ['policyConfig'],
+          created: false,
+        },
+      });
+    });
+
+    it('fails closed when settings evidence cannot be persisted', async () => {
+      const deps = createMockDeps();
+      let selectCallCount = 0;
+      deps.db.select = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => {
+              selectCallCount++;
+              return { then: (r: any) => r(selectCallCount === 1 ? [mockWorkspace()] : []) };
+            }),
+          })),
+        })),
+      })) as any;
+      deps.db.insert = vi.fn((table: unknown) => ({
+        values: vi.fn(() => ({
+          returning: vi.fn(async () => {
+            if (table === workspaceSettings) return [{ id: 'set-new', workspaceId: 'ws-1' }];
+            if (table === evidenceItems) throw new Error('evidence unavailable');
+            return [];
+          }),
+          then: (r: any) => r([]),
+        })),
+      })) as any;
+
+      const { fetch } = testApp(workspaceRoutes, deps as any);
+      const res = await fetch('PUT', '/ws-1/settings', { policyConfig: {} }, wsHeader);
+      const json = await expectJson<{ error: string }>(res, 500);
+
+      expect(json.error).toBe('Failed to update workspace settings');
     });
   });
 
@@ -218,11 +325,23 @@ describe('workspaceRoutes', () => {
     it('returns updated workspace on success', async () => {
       const deps = createMockDeps();
       const updated = mockWorkspace({ currentMode: 'launch' });
-      deps.db.update = vi.fn(() => ({
+      const inserts: Array<{ table: unknown; value: unknown }> = [];
+      deps.db.insert = vi.fn((table: unknown) => ({
+        values: vi.fn((value: unknown) => {
+          inserts.push({ table, value });
+          return {
+            returning: vi.fn(async () =>
+              table === evidenceItems ? [{ id: 'evidence-mode-1' }] : [],
+            ),
+            then: (r: any) => r([]),
+          };
+        }),
+      })) as any;
+      deps.db.update = vi.fn((table: unknown) => ({
         set: vi.fn(() => ({
           where: vi.fn(() => ({
-            returning: vi.fn(async () => [updated]),
-            then: (r: any) => r([updated]),
+            returning: vi.fn(async () => (table === workspaces ? [updated] : [])),
+            then: (r: any) => r([]),
           })),
         })),
       })) as any;
@@ -231,6 +350,51 @@ describe('workspaceRoutes', () => {
       const res = await fetch('PUT', '/ws-1/mode', { mode: 'launch' }, wsHeader);
       const json = await expectJson<{ id: string; currentMode: string }>(res, 200);
       expect(json.currentMode).toBe('launch');
+      expect(inserts.find((insert) => insert.table === auditLog)?.value).toMatchObject({
+        workspaceId: 'ws-1',
+        action: 'WORKSPACE_MODE_CHANGED',
+        target: 'ws-1',
+        metadata: {
+          evidenceType: 'workspace_mode_changed',
+          mode: 'launch',
+        },
+      });
+      expect(inserts.find((insert) => insert.table === evidenceItems)?.value).toMatchObject({
+        workspaceId: 'ws-1',
+        evidenceType: 'workspace_mode_changed',
+        sourceType: 'gateway_workspace_control',
+        metadata: {
+          mode: 'launch',
+        },
+      });
+    });
+
+    it('fails closed when mode evidence cannot be persisted', async () => {
+      const deps = createMockDeps();
+      const updated = mockWorkspace({ currentMode: 'build' });
+      deps.db.insert = vi.fn((table: unknown) => ({
+        values: vi.fn(() => ({
+          returning: vi.fn(async () => {
+            if (table === evidenceItems) throw new Error('evidence unavailable');
+            return [];
+          }),
+          then: (r: any) => r([]),
+        })),
+      })) as any;
+      deps.db.update = vi.fn((table: unknown) => ({
+        set: vi.fn(() => ({
+          where: vi.fn(() => ({
+            returning: vi.fn(async () => (table === workspaces ? [updated] : [])),
+            then: (r: any) => r([]),
+          })),
+        })),
+      })) as any;
+
+      const { fetch } = testApp(workspaceRoutes, deps as any);
+      const res = await fetch('PUT', '/ws-1/mode', { mode: 'build' }, wsHeader);
+      const json = await expectJson<{ error: string }>(res, 500);
+
+      expect(json.error).toBe('Failed to change workspace mode');
     });
 
     it('returns 404 when workspace not found', async () => {
@@ -263,13 +427,48 @@ describe('workspaceRoutes', () => {
     });
 
     it('returns 201 with inviteUrl on success', async () => {
-      const { fetch, deps } = testApp(workspaceRoutes);
+      const deps = createMockDeps();
       deps.db._setResult([mockWorkspace()]);
+      const inserts: Array<{ table: unknown; value: unknown }> = [];
+      deps.db.insert = vi.fn((table: unknown) => ({
+        values: vi.fn((value: unknown) => {
+          inserts.push({ table, value });
+          return {
+            returning: vi.fn(async () =>
+              table === evidenceItems ? [{ id: 'evidence-invite-1' }] : [],
+            ),
+            then: (r: any) => r([]),
+          };
+        }),
+      })) as any;
 
+      const { fetch } = testApp(workspaceRoutes, deps as any);
       const res = await fetch('POST', '/ws-1/invite', { role: 'member' }, wsHeader);
       const json = await expectJson<{ inviteUrl: string; role: string }>(res, 201);
       expect(json.inviteUrl).toContain('/invite/');
       expect(json.role).toBe('member');
+      expect(inserts.map((insert) => insert.table)).toEqual([sessions, auditLog, evidenceItems]);
+      expect(inserts.find((insert) => insert.table === auditLog)?.value).toMatchObject({
+        workspaceId: 'ws-1',
+        action: 'WORKSPACE_INVITE_CREATED',
+        target: 'ws-1',
+        metadata: {
+          evidenceType: 'workspace_invite_created',
+          role: 'member',
+          inviteTokenRedacted: true,
+        },
+      });
+      const evidenceInsert = inserts.find((insert) => insert.table === evidenceItems)?.value;
+      expect(evidenceInsert).toMatchObject({
+        workspaceId: 'ws-1',
+        evidenceType: 'workspace_invite_created',
+        sourceType: 'gateway_workspace_control',
+        metadata: {
+          role: 'member',
+          inviteTokenRedacted: true,
+        },
+      });
+      expect(JSON.stringify(evidenceInsert)).not.toContain(json.inviteUrl);
     });
   });
 });
