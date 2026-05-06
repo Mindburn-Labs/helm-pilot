@@ -8,7 +8,7 @@ function createBrokerDb(opts: { failEvidenceInsert?: boolean } = {}) {
   const insertedExecutions: unknown[] = [];
   const insertedEvidenceItems: unknown[] = [];
   const insertedAudit: unknown[] = [];
-  const updates: unknown[] = [];
+  const updates: Array<{ table: unknown; value: unknown; where?: unknown }> = [];
   const transactionInsertOrder: string[] = [];
 
   const captureInsert = (evidenceSink: unknown[], auditSink: unknown[]) =>
@@ -32,11 +32,17 @@ function createBrokerDb(opts: { failEvidenceInsert?: boolean } = {}) {
         return { returning: vi.fn(async () => []) };
       }),
     }));
-  const captureUpdate = (sink: unknown[]) =>
+  const captureUpdate = (sink: Array<{ table: unknown; value: unknown; where?: unknown }>) =>
     vi.fn((table: unknown) => ({
       set: vi.fn((value: unknown) => {
-        sink.push({ table, value });
-        return { where: vi.fn(async () => []) };
+        const update: { table: unknown; value: unknown; where?: unknown } = { table, value };
+        sink.push(update);
+        return {
+          where: vi.fn(async (where: unknown) => {
+            update.where = where;
+            return [];
+          }),
+        };
       }),
     }));
   const db = {
@@ -83,6 +89,21 @@ function createBrokerDb(opts: { failEvidenceInsert?: boolean } = {}) {
     updates,
     transactionInsertOrder,
   };
+}
+
+function queryChunkColumnNames(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap(queryChunkColumnNames);
+  }
+  if (!value || typeof value !== 'object') {
+    return [];
+  }
+  const record = value as { columnType?: unknown; name?: unknown; queryChunks?: unknown };
+  const ownName =
+    typeof record.name === 'string' && typeof record.columnType === 'string'
+      ? [record.name]
+      : [];
+  return [...ownName, ...queryChunkColumnNames(record.queryChunks)];
 }
 
 describe('ToolBroker', () => {
@@ -217,6 +238,10 @@ describe('ToolBroker', () => {
           }),
         }),
       ]),
+    );
+    const auditUpdate = updates.find((update) => update.table === auditLog);
+    expect(queryChunkColumnNames(auditUpdate?.where)).toEqual(
+      expect.arrayContaining(['workspace_id', 'id']),
     );
     expect(insertedAudit[0]).toMatchObject({
       id: expect.stringMatching(

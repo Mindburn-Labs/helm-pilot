@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { appendEvidenceItem } from '@pilot/db';
 import { actions, auditLog, toolExecutions } from '@pilot/db/schema';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { type Db } from '@pilot/db/client';
 import {
   markBrokeredToolContext,
@@ -225,7 +225,9 @@ export class ToolBroker {
               evidenceIds: persistedEvidenceIds,
             },
           })
-          .where(eq(auditLog.id, auditEventId));
+          .where(
+            and(eq(auditLog.workspaceId, context.workspaceId), eq(auditLog.id, auditEventId)),
+          );
 
         return evidenceItemId;
       });

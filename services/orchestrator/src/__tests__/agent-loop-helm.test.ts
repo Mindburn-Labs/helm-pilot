@@ -18,6 +18,7 @@ vi.mock('@pilot/shared/schemas', () => ({
 }));
 
 vi.mock('drizzle-orm', () => ({
+  and: vi.fn((...conditions: unknown[]) => ({ conditions })),
   eq: vi.fn((left: unknown, right: unknown) => ({ left, right })),
 }));
 
