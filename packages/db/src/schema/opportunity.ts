@@ -17,26 +17,30 @@ export const opportunities = pgTable('opportunities', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const opportunityScores = pgTable('opportunity_scores', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  opportunityId: uuid('opportunity_id')
-    .notNull()
-    .references(() => opportunities.id, { onDelete: 'cascade' }),
-  overallScore: real('overall_score'), // 0-100
-  founderFitScore: real('founder_fit_score'), // 0-100
-  marketSignal: real('market_signal'), // from LLM scoring
-  feasibility: real('feasibility'),
-  timing: real('timing'),
-  scoringMethod: text('scoring_method').notNull(), // 'heuristic', 'llm', 'hybrid'
-  policyDecisionId: text('policy_decision_id'),
-  policyVersion: text('policy_version'),
-  helmDocumentVersionPins: jsonb('helm_document_version_pins')
-    .$type<Record<string, string>>()
-    .notNull()
-    .default({}),
-  modelUsage: jsonb('model_usage').$type<Record<string, unknown>>().notNull().default({}),
-  scoredAt: timestamp('scored_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const opportunityScores = pgTable(
+  'opportunity_scores',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    opportunityId: uuid('opportunity_id')
+      .notNull()
+      .references(() => opportunities.id, { onDelete: 'cascade' }),
+    overallScore: real('overall_score'), // 0-100
+    founderFitScore: real('founder_fit_score'), // 0-100
+    marketSignal: real('market_signal'), // from LLM scoring
+    feasibility: real('feasibility'),
+    timing: real('timing'),
+    scoringMethod: text('scoring_method').notNull(), // 'heuristic', 'llm', 'hybrid'
+    policyDecisionId: text('policy_decision_id'),
+    policyVersion: text('policy_version'),
+    helmDocumentVersionPins: jsonb('helm_document_version_pins')
+      .$type<Record<string, string>>()
+      .notNull()
+      .default({}),
+    modelUsage: jsonb('model_usage').$type<Record<string, unknown>>().notNull().default({}),
+    scoredAt: timestamp('scored_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('opportunity_scores_policy_decision_idx').on(table.policyDecisionId)],
+);
 
 export const opportunityTags = pgTable('opportunity_tags', {
   id: uuid('id').primaryKey().defaultRandom(),
