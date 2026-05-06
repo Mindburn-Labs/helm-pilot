@@ -1,15 +1,15 @@
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { access, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { appendEvidenceItem } from '@pilot/db';
-import { computerActions } from '@pilot/db/schema';
+import { auditLog, computerActions } from '@pilot/db/schema';
 import type { Db } from '@pilot/db/client';
 import type { OperatorComputerUse } from '@pilot/shared/schemas';
 import type { OperatorComputerUseResult } from '@pilot/helm-client';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 const execFileAsync = promisify(execFile);
 const MAX_CAPTURE_BYTES = 256_000;
@@ -123,8 +123,44 @@ export async function executeSafeComputerUse(
   }
 
   const completion = await completeComputerUse(req);
+  const auditEventId = randomUUID();
   const evidenceItemId = await db.transaction(async (tx) => {
     const txDb = tx as unknown as ComputerUseTx;
+    const auditMetadata = {
+      computerActionId: record.id,
+      taskId: req.taskId ?? null,
+      actionId: req.actionId ?? null,
+      operation: req.operation,
+      environment: req.environment,
+      status: completion.status,
+      target: computerActionTarget(req),
+      helmDecisionId: governance.receipt.decisionId,
+      helmPolicyVersion: governance.receipt.policyVersion,
+      helmDocumentVersionPins: actionBase.helmDocumentVersionPins,
+      evidencePackId: record.evidencePackId ?? governance.evidencePackId ?? null,
+      exitCode: completion.exitCode ?? null,
+      durationMs: completion.durationMs ?? null,
+      outputHash: completion.outputHash ?? null,
+      executionBoundary: 'safe_local_or_sandbox_only_no_unrestricted_desktop',
+    };
+
+    await txDb.insert(auditLog).values({
+      id: auditEventId,
+      workspaceId: req.workspaceId,
+      action: 'OPERATOR_COMPUTER_USE',
+      actor: req.operatorId ? `operator:${req.operatorId}` : 'agent',
+      target: record.id,
+      verdict:
+        completion.status === 'completed'
+          ? 'allow'
+          : completion.status === 'denied'
+            ? 'deny'
+            : 'error',
+      reason:
+        completion.status === 'completed' ? null : (completion.stderr ?? 'computer action failed'),
+      metadata: auditMetadata,
+    });
+
     await txDb
       .update(computerActions)
       .set({
@@ -144,10 +180,11 @@ export async function executeSafeComputerUse(
       })
       .where(eq(computerActions.id, record.id));
 
-    return appendEvidenceItem(txDb, {
+    const persistedEvidenceItemId = await appendEvidenceItem(txDb, {
       workspaceId: req.workspaceId,
       taskId: req.taskId ?? null,
       actionId: req.actionId ?? null,
+      auditEventId,
       evidencePackId: record.evidencePackId ?? governance.evidencePackId ?? null,
       computerActionId: record.id,
       evidenceType: 'computer_action',
@@ -171,6 +208,18 @@ export async function executeSafeComputerUse(
         executionBoundary: 'safe_local_or_sandbox_only_no_unrestricted_desktop',
       },
     });
+
+    await txDb
+      .update(auditLog)
+      .set({
+        metadata: {
+          ...auditMetadata,
+          evidenceItemId: persistedEvidenceItemId,
+        },
+      })
+      .where(and(eq(auditLog.workspaceId, req.workspaceId), eq(auditLog.id, auditEventId)));
+
+    return persistedEvidenceItemId;
   });
 
   const evidenceIds = [
