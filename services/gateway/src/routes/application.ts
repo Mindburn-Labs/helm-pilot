@@ -1,8 +1,10 @@
 import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
-import { applications, applicationDrafts, applicationArtifacts } from '@pilot/db/schema';
+import { randomUUID } from 'node:crypto';
+import { appendEvidenceItem } from '@pilot/db';
+import { applications, applicationDrafts, applicationArtifacts, auditLog } from '@pilot/db/schema';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId, workspaceIdMismatch } from '../lib/workspace.js';
+import { getWorkspaceId, requireWorkspaceRole, workspaceIdMismatch } from '../lib/workspace.js';
 
 const VALID_STATUSES = [
   'draft',
@@ -31,6 +33,8 @@ export function applicationRoutes(deps: GatewayDeps) {
   app.post('/', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'create applications');
+    if (roleDenied) return roleDenied;
     const body = await c.req.json();
     if (workspaceIdMismatch(c, body.workspaceId)) {
       return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
@@ -42,19 +46,80 @@ export function applicationRoutes(deps: GatewayDeps) {
       return c.json({ error: 'workspaceId and targetProgram required' }, 400);
     }
 
-    const [created] = await deps.db
-      .insert(applications)
-      .values({
-        workspaceId,
-        name,
-        targetProgram,
-        deadline: body.deadline ? new Date(body.deadline) : undefined,
-        status: normalizeStatus(body.status) ?? 'draft',
-      })
-      .returning();
+    const created = await deps.db
+      .transaction(async (tx) => {
+        const [application] = await tx
+          .insert(applications)
+          .values({
+            workspaceId,
+            name,
+            targetProgram,
+            deadline: body.deadline ? new Date(body.deadline) : undefined,
+            status: normalizeStatus(body.status) ?? 'draft',
+          })
+          .returning();
 
-    if (!created) return c.json({ error: 'Failed to create application' }, 500);
-    return c.json(serializeApplication(created), 201);
+        if (!application) throw new Error('failed to create application');
+
+        const auditEventId = randomUUID();
+        const replayRef = `application:${workspaceId}:${application.id}:created`;
+        const auditMetadata = {
+          applicationId: application.id,
+          name,
+          targetProgram,
+          status: application.status,
+          deadlinePresent: Boolean(body.deadline),
+          evidenceContract: 'application_create_evidence_required',
+        };
+
+        await tx.insert(auditLog).values({
+          id: auditEventId,
+          workspaceId,
+          action: 'APPLICATION_CREATED',
+          actor: `user:${c.get('userId') ?? 'unknown'}`,
+          target: application.id,
+          verdict: 'allow',
+          metadata: {
+            evidenceType: 'application_created',
+            replayRef,
+            ...auditMetadata,
+          },
+        });
+
+        const evidenceItemId = await appendEvidenceItem(tx, {
+          workspaceId,
+          auditEventId,
+          evidenceType: 'application_created',
+          sourceType: 'gateway_application_route',
+          title: `Application created: ${targetProgram}`,
+          summary: 'Workspace application record was created.',
+          redactionState: 'none',
+          sensitivity: 'internal',
+          replayRef,
+          metadata: auditMetadata,
+        });
+
+        await tx
+          .update(auditLog)
+          .set({
+            metadata: {
+              evidenceType: 'application_created',
+              replayRef,
+              evidenceItemId,
+              ...auditMetadata,
+            },
+          })
+          .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.id, auditEventId)));
+
+        return { application, evidenceItemId };
+      })
+      .catch(() => null);
+
+    if (!created) return c.json({ error: 'Failed to persist application evidence' }, 500);
+    return c.json(
+      { ...serializeApplication(created.application), evidenceItemId: created.evidenceItemId },
+      201,
+    );
   });
 
   app.get('/:id', async (c) => {
