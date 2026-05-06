@@ -264,6 +264,17 @@ describe('commandCenterRoutes', () => {
           redactionState: 'redacted',
           observedAt: new Date('2026-05-05T08:04:00Z'),
         },
+        {
+          id: 'evidence-rollback-1',
+          workspaceId,
+          missionId,
+          evidenceType: 'startup_lifecycle_mission_rollback_applied',
+          sourceType: 'gateway_startup_lifecycle',
+          title: 'Startup lifecycle mission rollback: PMF Discovery',
+          replayRef: `mission:${missionId}:rollback:abc999`,
+          redactionState: 'redacted',
+          observedAt: new Date('2026-05-05T08:05:00Z'),
+        },
       ],
     ]);
 
@@ -280,6 +291,7 @@ describe('commandCenterRoutes', () => {
           checkpoints: Array<{ id: string; replayRef: string }>;
           recoveryPlans: Array<{ id: string; replayRef: string }>;
           recoveryApplies: Array<{ id: string; replayRef: string }>;
+          rollbacks: Array<{ id: string; replayRef: string }>;
         };
         orderedBy: string[];
       };
@@ -310,6 +322,10 @@ describe('commandCenterRoutes', () => {
     expect(body.graph.recovery.recoveryApplies[0]).toMatchObject({
       id: 'evidence-recovery-apply-1',
       replayRef: `mission:${missionId}:recovery-apply:fed789`,
+    });
+    expect(body.graph.recovery.rollbacks[0]).toMatchObject({
+      id: 'evidence-rollback-1',
+      replayRef: `mission:${missionId}:rollback:abc999`,
     });
     expect(body.graph.orderedBy).toContain('node.sortOrder');
     expect(body.graph.orderedBy).toContain('recoveryEvidence.observedAt');
