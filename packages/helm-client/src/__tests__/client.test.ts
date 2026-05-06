@@ -674,6 +674,19 @@ describe('HelmClient HELM admin endpoint action catalog', () => {
     });
 
     expect(result.obligationId).toBe('obl-1');
+    expect(result.governance).toMatchObject({
+      policyDecisionId: 'dec-obligation-gate',
+      policyVersion: 'founder-ops-v1',
+      evidencePackId: 'pack-obligation-gate',
+      helmDocumentVersionPins: {
+        helmAdminPolicy: 'founder-ops-v1',
+        HELM_OBLIGATION_CREATE: 'founder-ops-v1',
+      },
+      receipt: expect.objectContaining({
+        decisionId: 'dec-obligation-gate',
+        receiptId: 'rcpt-obligation-gate',
+      }),
+    });
     expect(onReceipt).toHaveBeenCalledWith(
       expect.objectContaining({ decisionId: 'dec-obligation-gate' }),
     );
@@ -690,6 +703,74 @@ describe('HelmClient HELM admin endpoint action catalog', () => {
       source: '@pilot/helm-client.createObligation',
     });
     expect(fetchMock.mock.calls[1]![0]).toBe('http://helm:8080/api/v1/obligation/create');
+  });
+
+  it('returns governance metadata when promoting memory after HELM preflight', async () => {
+    const onReceipt = vi.fn();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        makeResponse({
+          status: 200,
+          body: {
+            allow: true,
+            verdict: 'ALLOW',
+            receipt_id: 'rcpt-promote-gate',
+            decision_id: 'dec-promote-gate',
+            decision_hash: 'sha256:promote-gate',
+            policy_ref: 'founder-ops-v2',
+            evidence_pack_id: 'pack-promote-gate',
+          },
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeResponse({
+          status: 200,
+          body: { sharedMemoryId: 'shared-1', promotedAt: '2026-05-05T00:00:00.000Z' },
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    const client = new HelmClient({
+      baseUrl: 'http://helm:8080',
+      fetchImpl: fetchMock,
+      receiptPersistence: 'required_for_elevated',
+      onReceipt,
+    });
+
+    const result = await client.promoteMemory('ws-1', 'page-1');
+
+    expect(result.sharedMemoryId).toBe('shared-1');
+    expect(result.governance).toMatchObject({
+      policyDecisionId: 'dec-promote-gate',
+      policyVersion: 'founder-ops-v2',
+      evidencePackId: 'pack-promote-gate',
+      helmDocumentVersionPins: {
+        helmAdminPolicy: 'founder-ops-v2',
+        HELM_MEMORY_PROMOTE: 'founder-ops-v2',
+      },
+      receipt: expect.objectContaining({
+        decisionId: 'dec-promote-gate',
+        receiptId: 'rcpt-promote-gate',
+      }),
+    });
+    expect(onReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({ decisionId: 'dec-promote-gate' }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [evaluateUrl, evaluateInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(evaluateUrl).toBe('http://helm:8080/api/v1/evaluate');
+    const evaluateBody = JSON.parse(evaluateInit.body as string);
+    expect(evaluateBody.tool).toBe('HELM_MEMORY_PROMOTE');
+    expect(evaluateBody.effect_level).toBe('E3');
+    expect(evaluateBody.context).toMatchObject({
+      workspaceId: 'ws-1',
+      pageId: 'page-1',
+      endpoint: 'POST /api/v1/memory/promote',
+      endpointMode: 'governed_write',
+      source: '@pilot/helm-client.promoteMemory',
+    });
+    expect(fetchMock.mock.calls[1]![0]).toBe('http://helm:8080/api/v1/memory/promote');
   });
 
   it('fails closed before memory promotion when elevated receipts have no sink', async () => {
