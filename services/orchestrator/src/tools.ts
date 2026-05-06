@@ -1,5 +1,7 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { and, eq } from 'drizzle-orm';
 import { appendEvidenceItem } from '@pilot/db';
+import { auditLog } from '@pilot/db/schema';
 import type { Db } from '@pilot/db/client';
 import type { MemoryService } from '@pilot/memory';
 import {
@@ -1154,10 +1156,39 @@ export class ToolRegistry {
           sizeBytes: content?.length ?? 0,
           changelog: 'Initial version',
         });
+        const auditEventId = randomUUID();
+        const replayRef = `artifact:${artifact.id}:1`;
+        const evidenceMetadata = {
+          artifactType: type,
+          version: 1,
+          mimeType: 'text/plain',
+          sizeBytes: content?.length ?? 0,
+          storageMode: 'inline_artifact_metadata',
+          tool: 'create_artifact',
+        };
+        const auditMetadata = {
+          evidenceType: 'artifact_created',
+          replayRef,
+          artifactId: artifact.id,
+          taskId: taskId ?? null,
+          actionId: actionId ?? null,
+          ...evidenceMetadata,
+        };
+        await this.db.insert(auditLog).values({
+          id: auditEventId,
+          workspaceId,
+          action: 'ARTIFACT_CREATED',
+          actor: `workspace:${workspaceId}`,
+          target: artifact.id,
+          verdict: 'created',
+          reason: description ?? `Created ${type} artifact`,
+          metadata: auditMetadata,
+        });
         const evidenceItemId = await appendEvidenceItem(this.db, {
           workspaceId,
           taskId: taskId ?? null,
           actionId: actionId ?? null,
+          auditEventId,
           artifactId: artifact.id,
           evidenceType: 'artifact_created',
           sourceType: 'tool_registry',
@@ -1167,16 +1198,18 @@ export class ToolRegistry {
           sensitivity: 'internal',
           contentHash: content ? hashText(content) : null,
           storageRef: storagePath,
-          replayRef: `artifact:${artifact.id}:1`,
-          metadata: {
-            artifactType: type,
-            version: 1,
-            mimeType: 'text/plain',
-            sizeBytes: content?.length ?? 0,
-            storageMode: 'inline_artifact_metadata',
-            tool: 'create_artifact',
-          },
+          replayRef,
+          metadata: evidenceMetadata,
         });
+        await this.db
+          .update(auditLog)
+          .set({
+            metadata: {
+              ...auditMetadata,
+              evidenceItemId,
+            },
+          })
+          .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.id, auditEventId)));
         return {
           id: artifact.id,
           name: artifact.name,

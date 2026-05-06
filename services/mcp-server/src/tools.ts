@@ -1,5 +1,7 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { and, eq } from 'drizzle-orm';
 import { appendEvidenceItem } from '@pilot/db';
+import { auditLog } from '@pilot/db/schema';
 import { type Db } from '@pilot/db/client';
 import { type MemoryService } from '@pilot/memory';
 import type { McpTool, McpToolCallResult } from '@pilot/shared/mcp';
@@ -240,8 +242,35 @@ export const PILOT_MCP_TOOLS: ExposedTool[] = [
         sizeBytes: content.length,
         changelog: 'Initial version',
       });
+      const auditEventId = randomUUID();
+      const replayRef = `artifact:${row.id}:1`;
+      const evidenceMetadata = {
+        artifactType: atype,
+        version: 1,
+        mimeType: 'text/plain',
+        sizeBytes: content.length,
+        storageMode: 'inline_artifact_metadata',
+        tool: 'create_artifact',
+      };
+      const auditMetadata = {
+        evidenceType: 'artifact_created',
+        replayRef,
+        artifactId: row.id,
+        ...evidenceMetadata,
+      };
+      await db.insert(auditLog).values({
+        id: auditEventId,
+        workspaceId,
+        action: 'ARTIFACT_CREATED',
+        actor: `workspace:${workspaceId}`,
+        target: row.id,
+        verdict: 'created',
+        reason: description || `Created ${atype} artifact`,
+        metadata: auditMetadata,
+      });
       const evidenceItemId = await appendEvidenceItem(db, {
         workspaceId,
+        auditEventId,
         artifactId: row.id,
         evidenceType: 'artifact_created',
         sourceType: 'mcp_server',
@@ -251,16 +280,18 @@ export const PILOT_MCP_TOOLS: ExposedTool[] = [
         sensitivity: 'internal',
         contentHash: content ? hashText(content) : null,
         storageRef: storagePath,
-        replayRef: `artifact:${row.id}:1`,
-        metadata: {
-          artifactType: atype,
-          version: 1,
-          mimeType: 'text/plain',
-          sizeBytes: content.length,
-          storageMode: 'inline_artifact_metadata',
-          tool: 'create_artifact',
-        },
+        replayRef,
+        metadata: evidenceMetadata,
       });
+      await db
+        .update(auditLog)
+        .set({
+          metadata: {
+            ...auditMetadata,
+            evidenceItemId,
+          },
+        })
+        .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.id, auditEventId)));
       return text({ id: row.id, name: row.name, type: row.type, version: 1, evidenceItemId });
     },
   },
