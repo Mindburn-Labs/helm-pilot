@@ -422,7 +422,7 @@ describe('browserSessionRoutes', () => {
   });
 
   it('stores a HELM-approved redacted read-only browser observation', async () => {
-    const { db, inserts } = createBrowserDb([
+    const { db, inserts, updates } = createBrowserDb([
       [{ id: sessionId, workspaceId, allowedOrigins: ['https://www.ycombinator.com'] }],
       [
         {
@@ -524,6 +524,9 @@ describe('browserSessionRoutes', () => {
     const auditInsert = inserts.find((insert) => insert.table === auditLog)?.value as {
       id: string;
     };
+    const auditInsertIndex = inserts.findIndex((insert) => insert.table === auditLog);
+    const evidenceInsertIndex = inserts.findIndex((insert) => insert.table === evidenceItems);
+    expect(auditInsertIndex).toBeLessThan(evidenceInsertIndex);
     expect(auditInsert.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u,
     );
@@ -547,6 +550,11 @@ describe('browserSessionRoutes', () => {
       verdict: 'allow',
       metadata: {
         helmDocumentVersionPins: { browserReadPolicy: 'founder-ops-v1' },
+      },
+    });
+    expect(updates.find((update) => update.table === auditLog)?.value).toMatchObject({
+      metadata: {
+        evidenceItemId: 'evidence-item-1',
       },
     });
   });

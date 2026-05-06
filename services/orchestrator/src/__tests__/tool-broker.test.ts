@@ -9,11 +9,13 @@ function createBrokerDb(opts: { failEvidenceInsert?: boolean } = {}) {
   const insertedEvidenceItems: unknown[] = [];
   const insertedAudit: unknown[] = [];
   const updates: unknown[] = [];
+  const transactionInsertOrder: string[] = [];
 
   const captureInsert = (evidenceSink: unknown[], auditSink: unknown[]) =>
     vi.fn((table: unknown) => ({
       values: vi.fn((value: unknown) => {
         if (table === evidenceItems) {
+          transactionInsertOrder.push('evidence_items');
           evidenceSink.push(value);
           return {
             returning: vi.fn(async () => {
@@ -23,6 +25,7 @@ function createBrokerDb(opts: { failEvidenceInsert?: boolean } = {}) {
           };
         }
         if (table === auditLog) {
+          transactionInsertOrder.push('audit_log');
           auditSink.push(value);
           return Promise.resolve([]);
         }
@@ -71,7 +74,15 @@ function createBrokerDb(opts: { failEvidenceInsert?: boolean } = {}) {
     }),
   };
 
-  return { db, insertedActions, insertedExecutions, insertedEvidenceItems, insertedAudit, updates };
+  return {
+    db,
+    insertedActions,
+    insertedExecutions,
+    insertedEvidenceItems,
+    insertedAudit,
+    updates,
+    transactionInsertOrder,
+  };
 }
 
 describe('ToolBroker', () => {
@@ -83,6 +94,7 @@ describe('ToolBroker', () => {
       insertedEvidenceItems,
       insertedAudit,
       updates,
+      transactionInsertOrder,
     } = createBrokerDb();
     const registry = new ToolRegistry(db as never, undefined, { skipBuiltins: true });
     registry.register({
@@ -194,6 +206,16 @@ describe('ToolBroker', () => {
             completedAt: expect.any(Date),
           }),
         }),
+        expect.objectContaining({
+          table: auditLog,
+          value: expect.objectContaining({
+            metadata: expect.objectContaining({
+              evidenceItemId: 'evidence-item-1',
+              evidenceIds: ['00000000-0000-4000-8000-000000000004', 'evidence-item-1'],
+              toolExecutionId: 'tool-exec-1',
+            }),
+          }),
+        }),
       ]),
     );
     expect(insertedAudit[0]).toMatchObject({
@@ -205,11 +227,13 @@ describe('ToolBroker', () => {
       target: 'echo_tool',
       verdict: 'allow',
       metadata: expect.objectContaining({
-        evidenceItemId: 'evidence-item-1',
-        evidenceIds: ['00000000-0000-4000-8000-000000000004', 'evidence-item-1'],
+        evidenceIds: ['00000000-0000-4000-8000-000000000004'],
         toolExecutionId: 'tool-exec-1',
       }),
     });
+    expect(transactionInsertOrder.indexOf('audit_log')).toBeLessThan(
+      transactionInsertOrder.indexOf('evidence_items'),
+    );
     const auditEventId = (insertedAudit[0] as { id: string }).id;
     expect(insertedEvidenceItems[0]).toMatchObject({
       workspaceId: '00000000-0000-4000-8000-000000000001',
@@ -246,8 +270,8 @@ describe('ToolBroker', () => {
     });
   });
 
-  it('records failed tool result evidence before audit', async () => {
-    const { db, insertedEvidenceItems, insertedAudit } = createBrokerDb();
+  it('records failed tool audit rows before linked evidence', async () => {
+    const { db, insertedEvidenceItems, insertedAudit, transactionInsertOrder } = createBrokerDb();
     const registry = new ToolRegistry(db as never, undefined, { skipBuiltins: true });
     registry.register({
       name: 'failing_tool',
@@ -300,6 +324,9 @@ describe('ToolBroker', () => {
       verdict: 'error',
       reason: JSON.stringify({ error: 'blocked by external service' }),
     });
+    expect(transactionInsertOrder.indexOf('audit_log')).toBeLessThan(
+      transactionInsertOrder.indexOf('evidence_items'),
+    );
     expect(insertedEvidenceItems[0]).toMatchObject({
       auditEventId: (insertedAudit[0] as { id: string }).id,
     });
