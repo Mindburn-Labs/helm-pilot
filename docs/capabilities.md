@@ -2,7 +2,7 @@
 
 Source of truth: `packages/shared/src/capabilities/index.ts`.
 
-Registry revision: `2026-05-05T00:00:00.000Z`.
+Registry revision: `2026-05-06T00:00:00.000Z`.
 
 Production-ready capabilities: `0/18`.
 
@@ -10,7 +10,7 @@ This Gate 0 status document is intentionally conservative. Pilot must not claim 
 
 | Capability                   | State         | Production eval gate                                           | Primary blocker                                                                                                                  |
 | ---------------------------- | ------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `mission_runtime`            | `blocked`     | Full Startup Launch Eval and Multi-Agent Parallel Build Eval   | Mission execution is explicit bounded ready-node dispatch, not production-ready founder-off-grid DAG automation                  |
+| `mission_runtime`            | `prototype`   | Full Startup Launch Eval and Multi-Agent Parallel Build Eval   | Mission execution is explicit bounded ready-node dispatch, not production-ready founder-off-grid DAG automation                  |
 | `helm_receipts`              | `implemented` | HELM Governance Eval                                           | HELM Governance Eval has not promoted the capability to production_ready                                                         |
 | `workspace_rbac`             | `implemented` | HELM Governance Eval and Security RBAC Regression Suite        | HELM Governance Eval has not promoted the capability to production_ready                                                         |
 | `operator_scoping`           | `implemented` | Cross-Workspace Operator Rejection Regression                  | Cross-workspace operator rejection regression has not promoted the capability                                                    |
@@ -24,7 +24,7 @@ This Gate 0 status document is intentionally conservative. Pilot must not claim 
 | `subagent_lineage`           | `implemented` | Proof DAG Lineage Regression                                   | Proof DAG Lineage Regression has not promoted the capability to production_ready                                                 |
 | `approval_resume`            | `implemented` | Approval Resume Isolation Regression                           | Approval Resume Isolation Regression has not promoted the capability to production_ready                                         |
 | `evidence_ledger`            | `prototype`   | HELM Governance Eval and Recovery Eval                         | Core receipt/Tool Broker/browser/computer/connector/pipeline/ingestion/artifact/lifecycle/eval writers append evidence_items, replay endpoints exist, and Tool Broker blocks elevated tools without HELM metadata or evidence persistence, but non-workspace scheduled ingestion and legacy writer coverage is incomplete |
-| `command_center`             | `prototype`   | Command Center Real-State UX Eval                              | Real task/action/evidence/receipt/browser/computer rows are visible, but mission DAG autonomy is still blocked                   |
-| `startup_lifecycle`          | `prototype`   | Full Startup Launch Eval                                       | Lifecycle execution is explicit bounded dispatch, not a production-ready autonomous startup launch workflow                      |
+| `command_center`             | `prototype`   | Command Center Real-State UX Eval                              | Real task/action/evidence/receipt/browser/computer rows are visible, but mission DAG autonomy is still prototype-only            |
+| `startup_lifecycle`          | `prototype`   | Full Startup Launch Eval                                       | Lifecycle execution is explicit bounded dispatch with checkpoint/recovery/rollback controls, not production-ready automation     |
 | `founder_off_grid`           | `blocked`     | Founder-Off-Grid Eval                                          | Long-running delegated work lacks complete runtime, governance, recovery, and eval backing                                       |
 | `polsia_outperformance`      | `blocked`     | Polsia Outperformance Proof and Production Autonomy Eval Suite | Benchmark Lock `MIN-301` and external-world proof are incomplete                                                                 |

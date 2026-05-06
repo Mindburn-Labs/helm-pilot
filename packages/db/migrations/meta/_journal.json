@@ -225,6 +225,13 @@
       "when": 1778036400000,
       "tag": "0030_opportunity_score_governance_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1778040000000,
+      "tag": "0031_mission_runtime_checkpoints",
+      "breakpoints": true
     }
   ]
 }
