@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { appendEvidenceItem } from '@pilot/db';
 import { actions, auditLog, toolExecutions } from '@pilot/db/schema';
 import { eq } from 'drizzle-orm';
@@ -117,6 +117,7 @@ export class ToolBroker {
       ...collectEvidenceIds(sanitizedOutput),
     ]);
 
+    const auditEventId = randomUUID();
     const evidenceInput = {
       workspaceId: context.workspaceId,
       ventureId: context.ventureId ?? null,
@@ -125,6 +126,7 @@ export class ToolBroker {
       taskRunId: context.parentTaskRunId ?? null,
       actionId: action.id,
       toolExecutionId: execution.id,
+      auditEventId,
       evidenceType: status === 'completed' ? 'tool_execution_completed' : 'tool_execution_failed',
       sourceType: 'tool_broker',
       title: `Tool execution ${status}: ${toolName}`,
@@ -188,6 +190,7 @@ export class ToolBroker {
           .where(eq(actions.id, action.id));
 
         await db.insert(auditLog).values({
+          id: auditEventId,
           workspaceId: context.workspaceId,
           action: 'TOOL_EXECUTION',
           actor: actorType === 'operator' ? `operator:${context.operatorId}` : 'agent',

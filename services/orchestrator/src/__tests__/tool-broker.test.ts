@@ -197,6 +197,9 @@ describe('ToolBroker', () => {
       ]),
     );
     expect(insertedAudit[0]).toMatchObject({
+      id: expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u,
+      ),
       workspaceId: '00000000-0000-4000-8000-000000000001',
       action: 'TOOL_EXECUTION',
       target: 'echo_tool',
@@ -207,11 +210,13 @@ describe('ToolBroker', () => {
         toolExecutionId: 'tool-exec-1',
       }),
     });
+    const auditEventId = (insertedAudit[0] as { id: string }).id;
     expect(insertedEvidenceItems[0]).toMatchObject({
       workspaceId: '00000000-0000-4000-8000-000000000001',
       taskId: '00000000-0000-4000-8000-000000000002',
       actionId: 'action-1',
       toolExecutionId: 'tool-exec-1',
+      auditEventId,
       evidenceType: 'tool_execution_completed',
       sourceType: 'tool_broker',
       redactionState: 'redacted',
@@ -289,8 +294,14 @@ describe('ToolBroker', () => {
       }),
     });
     expect(insertedAudit[0]).toMatchObject({
+      id: expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u,
+      ),
       verdict: 'error',
       reason: JSON.stringify({ error: 'blocked by external service' }),
+    });
+    expect(insertedEvidenceItems[0]).toMatchObject({
+      auditEventId: (insertedAudit[0] as { id: string }).id,
     });
   });
 
