@@ -7,9 +7,11 @@ import {
   artifacts,
   auditLog,
   browserObservations,
+  capabilityPromotions,
   computerActions,
   evidenceItems,
   evidencePacks,
+  evalRuns,
   missionEdges,
   missionNodes,
   missions,
@@ -28,7 +30,9 @@ import {
   type CapabilityKey,
   type CapabilityRecord,
 } from '@pilot/shared/capabilities';
+import { getPilotProductionEvalSuite } from '@pilot/shared/eval';
 import {
+  CommandCenterEvalStatusResponseSchema,
   CommandCenterMissionGraphResponseSchema,
   CommandCenterProofDagResponseSchema,
   CommandCenterPermissionGraphResponseSchema,
@@ -501,6 +505,62 @@ export function commandCenterRoutes(deps: GatewayDeps) {
     return c.json(response, 200);
   });
 
+  app.get('/eval-status', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view eval status');
+    if (roleDenied) return roleDenied;
+
+    const capability = getCapabilityRecord('command_center');
+    if (!capability) return c.json({ error: 'capability registry incomplete' }, 500);
+
+    const runRows = await deps.db
+      .select()
+      .from(evalRuns)
+      .where(eq(evalRuns.workspaceId, workspaceId))
+      .orderBy(desc(evalRuns.createdAt), desc(evalRuns.id))
+      .limit(20);
+
+    const promotionRows = await deps.db
+      .select()
+      .from(capabilityPromotions)
+      .where(eq(capabilityPromotions.workspaceId, workspaceId))
+      .orderBy(desc(capabilityPromotions.createdAt), desc(capabilityPromotions.id))
+      .limit(20);
+
+    const scenarios = getPilotProductionEvalSuite().map((scenario) => ({
+      id: scenario.id,
+      name: scenario.name,
+      capabilityKeys: scenario.capabilityKeys,
+      requiredHelmPolicies: scenario.requiredHelmPolicies,
+      evidenceRequirements: scenario.evidenceRequirements,
+      auditRequirements: scenario.auditRequirements,
+      successCriteria: scenario.successCriteria,
+      failureCriteria: scenario.failureCriteria,
+    }));
+
+    const response = CommandCenterEvalStatusResponseSchema.parse({
+      workspaceId,
+      generatedAt: new Date().toISOString(),
+      productionReady: false,
+      capability,
+      promotionRule:
+        'A capability cannot be promoted to production_ready unless its mapped eval run passed with evidenceRefs, auditReceiptRefs, and completedAt; command-center eval status never mutates the registry.',
+      evals: {
+        scenarios,
+        recentRuns: runRows.map(sanitizeEvalRow),
+        promotions: promotionRows.map(sanitizeEvalRow),
+        orderedBy: ['evalRun.createdAt', 'capabilityPromotion.createdAt'],
+      },
+      blockers: [
+        'Eval status is read-only command-center introspection; it does not mark capabilities production_ready.',
+        ...capability.blockers,
+      ],
+    });
+
+    return c.json(response, 200);
+  });
+
   app.get('/computer-actions/replay', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
@@ -821,6 +881,23 @@ function sanitizeComputerReplayRow(row: unknown): Record<string, unknown> {
   record['fileDiff'] = previewText(
     typeof record['fileDiff'] === 'string' ? record['fileDiff'] : null,
   );
+  return record;
+}
+
+function sanitizeEvalRow(row: unknown): Record<string, unknown> {
+  const record = sanitizeGenericReplayRow(row);
+  for (const key of ['evidenceRefs', 'auditReceiptRefs']) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      record[key] = value.map((item) =>
+        typeof item === 'string' ? redactReplayText(item) : item,
+      );
+    }
+  }
+  for (const key of ['runRef', 'failureReason', 'summary']) {
+    const value = record[key];
+    if (typeof value === 'string') record[key] = redactReplayText(value);
+  }
   return record;
 }
 

@@ -124,6 +124,21 @@ export const CommandCenterMissionGraphResponseSchema = z.object({
   blockers: z.array(z.string().min(1)),
 });
 
+export const CommandCenterEvalStatusResponseSchema = z.object({
+  workspaceId: z.string().min(1),
+  generatedAt: z.string().datetime(),
+  productionReady: z.literal(false),
+  capability: CapabilityRecordSchema,
+  promotionRule: z.string().min(1),
+  evals: z.object({
+    scenarios: z.array(DurableRowSchema),
+    recentRuns: z.array(DurableRowSchema),
+    promotions: z.array(DurableRowSchema),
+    orderedBy: z.array(z.string().min(1)),
+  }),
+  blockers: z.array(z.string().min(1)),
+});
+
 export const CommandCenterReplayResponseSchema = z.object({
   workspaceId: z.string().min(1),
   replayRef: z.string().min(1),
@@ -146,5 +161,8 @@ export type CommandCenterPermissionGraphResponse = z.infer<
 >;
 export type CommandCenterMissionGraphResponse = z.infer<
   typeof CommandCenterMissionGraphResponseSchema
+>;
+export type CommandCenterEvalStatusResponse = z.infer<
+  typeof CommandCenterEvalStatusResponseSchema
 >;
 export type CommandCenterReplayResponse = z.infer<typeof CommandCenterReplayResponseSchema>;

@@ -409,6 +409,7 @@ const capabilityRecords = validateCapabilityRecords([
       'Gate 8 adds /api/command-center/proof-dag/:taskRunId for subagent proof DAG inspection without production promotion',
       'Gate 8 adds /api/command-center/permission-graph with workspace role, member, operator, tool-scope, policy-config-key, and governance capability edges without raw policy values',
       'Gate 8 adds /api/command-center/mission-graph backed by durable missions, mission_nodes, mission_edges, and mission_tasks rows without dispatching the DAG',
+      'Gate 10 adds /api/command-center/eval-status backed by durable eval_runs and capability_promotions rows without mutating the capability registry',
       'apps/web /command-center renders capability truth, blocked mission runtime, receipt chips, evidence drawers, browser/computer replay rows, subagent proof-DAG rows, and escalation state from the API',
     ],
     evalRequirement: 'Command Center Real-State UX Eval',
