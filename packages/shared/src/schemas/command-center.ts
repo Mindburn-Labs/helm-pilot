@@ -119,6 +119,10 @@ export const CommandCenterMissionGraphResponseSchema = z.object({
     nodes: z.array(DurableRowSchema),
     edges: z.array(DurableRowSchema),
     taskLinks: z.array(DurableRowSchema),
+    recovery: z.object({
+      checkpoints: z.array(DurableRowSchema),
+      recoveryPlans: z.array(DurableRowSchema),
+    }),
     orderedBy: z.array(z.string().min(1)),
   }),
   blockers: z.array(z.string().min(1)),

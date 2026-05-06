@@ -122,6 +122,10 @@ interface CommandCenterMissionGraphResponse {
     nodes: DurableRow[];
     edges: DurableRow[];
     taskLinks: DurableRow[];
+    recovery: {
+      checkpoints: DurableRow[];
+      recoveryPlans: DurableRow[];
+    };
     orderedBy: string[];
   };
   blockers: string[];
@@ -383,6 +387,12 @@ export default function CommandCenterPage() {
     const missions = Array.isArray(missionGraph.graph.missions) ? missionGraph.graph.missions : [];
     const nodes = Array.isArray(missionGraph.graph.nodes) ? missionGraph.graph.nodes : [];
     const edges = Array.isArray(missionGraph.graph.edges) ? missionGraph.graph.edges : [];
+    const checkpoints = Array.isArray(missionGraph.graph.recovery?.checkpoints)
+      ? missionGraph.graph.recovery.checkpoints
+      : [];
+    const recoveryPlans = Array.isArray(missionGraph.graph.recovery?.recoveryPlans)
+      ? missionGraph.graph.recovery.recoveryPlans
+      : [];
     return [
       ...missions.slice(0, 5).map((row) => ({
         id: String(row.id ?? row.missionKey ?? 'mission'),
@@ -406,6 +416,18 @@ export default function CommandCenterPage() {
         title: `${display(row.fromNodeKey, 'from')} -> ${display(row.toNodeKey, 'to')}`,
         meta: display(row.edgeKey, 'dependency'),
         detail: display(row.reason, 'No dependency reason recorded'),
+      })),
+      ...checkpoints.slice(0, 4).map((row) => ({
+        id: String(row.id ?? row.replayRef ?? 'checkpoint'),
+        title: display(row.title, 'Mission checkpoint'),
+        meta: `${display(row.evidenceType, 'checkpoint')} / ${display(row.redactionState, 'redacted')}`,
+        detail: display(row.replayRef, 'No checkpoint replay ref recorded'),
+      })),
+      ...recoveryPlans.slice(0, 4).map((row) => ({
+        id: String(row.id ?? row.replayRef ?? 'recovery-plan'),
+        title: display(row.title, 'Recovery plan'),
+        meta: `${display(row.evidenceType, 'recovery')} / ${display(row.redactionState, 'redacted')}`,
+        detail: display(row.replayRef, 'No recovery replay ref recorded'),
       })),
       ...missionGraph.blockers.slice(0, 2).map((blocker, index) => ({
         id: `mission-blocker-${index}`,
