@@ -224,6 +224,39 @@ describe('production eval suite', () => {
       status: 'failed',
     });
     expect(failedWithoutReason.success).toBe(false);
+
+    const passedWithFailedStep = RecordPilotEvalRunInputSchema.safeParse({
+      evalId: 'helm_governance',
+      status: 'passed',
+      evidenceRefs: ['evidence:helm'],
+      auditReceiptRefs: ['audit:helm'],
+      steps: [
+        {
+          stepKey: 'restricted-action-denial',
+          status: 'failed',
+          evidenceRefs: ['evidence:step'],
+          auditReceiptRefs: ['audit:step'],
+          completedAt: '2026-05-05T00:00:00.000Z',
+        },
+      ],
+    });
+    expect(passedWithFailedStep.success).toBe(false);
+
+    const passedWithIncompleteStep = RecordPilotEvalRunInputSchema.safeParse({
+      evalId: 'helm_governance',
+      status: 'passed',
+      evidenceRefs: ['evidence:helm'],
+      auditReceiptRefs: ['audit:helm'],
+      steps: [
+        {
+          stepKey: 'restricted-action-denial',
+          status: 'passed',
+          evidenceRefs: [],
+          auditReceiptRefs: ['audit:step'],
+        },
+      ],
+    });
+    expect(passedWithIncompleteStep.success).toBe(false);
   });
 
   it('executes a control-plane production eval and fails closed without proof coverage', () => {
@@ -277,5 +310,46 @@ describe('production eval suite', () => {
     expect(executed.run.status).toBe('passed');
     expect(executed.blockers).toEqual([]);
     expect(executed.run.metadata['executionMode']).toBe('control_plane_proof_check');
+  });
+
+  it('fails a control-plane eval when a submitted proof step failed or is incomplete', () => {
+    const scenario = getRequiredEvalForCapability('helm_receipts');
+    if (!scenario) throw new Error('helm_receipts eval missing');
+
+    const executed = executePilotProductionEval({
+      evalId: scenario.id,
+      capabilityKey: 'helm_receipts',
+      evidenceRefs: ['evidence:helm-governance'],
+      auditReceiptRefs: ['audit:helm-governance'],
+      evidenceCoverage: scenario.evidenceRequirements,
+      auditCoverage: scenario.auditRequirements,
+      completedAt: '2026-05-05T00:00:00.000Z',
+      steps: [
+        {
+          stepKey: 'restricted-action-denial',
+          status: 'failed',
+          evidenceRefs: ['evidence:step'],
+          auditReceiptRefs: ['audit:step'],
+          completedAt: '2026-05-05T00:00:00.000Z',
+        },
+        {
+          stepKey: 'receipt-persistence',
+          status: 'passed',
+          evidenceRefs: [],
+          auditReceiptRefs: ['audit:step-2'],
+        },
+      ],
+    });
+
+    expect(executed.run.status).toBe('failed');
+    expect(executed.blockers.join(' ')).toContain(
+      'Eval step restricted-action-denial status is failed',
+    );
+    expect(executed.blockers.join(' ')).toContain(
+      'Eval step receipt-persistence is missing evidence references',
+    );
+    expect(executed.blockers.join(' ')).toContain(
+      'Eval step receipt-persistence is missing completedAt',
+    );
   });
 });

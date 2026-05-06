@@ -340,6 +340,55 @@ describe('evalRoutes', () => {
     });
   });
 
+  it('rejects passed eval runs with failed or incomplete proof steps', async () => {
+    const { db, inserts } = createEvalDb();
+    const { fetch } = testApp(evalRoutes, createMockDeps({ db: db as never }));
+
+    const res = await fetch(
+      'POST',
+      '/runs',
+      {
+        evalId: 'helm_governance',
+        status: 'passed',
+        capabilityKey: 'helm_receipts',
+        evidenceRefs: ['evidence:helm-governance'],
+        auditReceiptRefs: ['audit:helm-governance'],
+        steps: [
+          {
+            stepKey: 'restricted-action-denial',
+            status: 'failed',
+            evidenceRefs: ['evidence:step'],
+            auditReceiptRefs: ['audit:step'],
+            completedAt: '2026-05-05T00:00:00.000Z',
+          },
+          {
+            stepKey: 'receipt-persistence',
+            status: 'passed',
+            evidenceRefs: [],
+            auditReceiptRefs: ['audit:step-2'],
+          },
+        ],
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      error: string;
+      details: { fieldErrors: Record<string, string[]> };
+    }>(res, 400);
+
+    expect(body.error).toBe('Validation failed');
+    expect(body.details.fieldErrors.steps.join(' ')).toContain(
+      'passed eval runs cannot include non-passed steps',
+    );
+    expect(body.details.fieldErrors.steps.join(' ')).toContain(
+      'passed eval run steps must include at least one evidence reference',
+    );
+    expect(body.details.fieldErrors.steps.join(' ')).toContain(
+      'passed eval run steps must include completedAt',
+    );
+    expect(inserts).toEqual([]);
+  });
+
   it('records scenario-wide eval packs without pinning them to the first capability only', async () => {
     const { db, inserts } = createEvalDb();
     const { fetch } = testApp(evalRoutes, createMockDeps({ db: db as never }));
@@ -578,6 +627,56 @@ describe('evalRoutes', () => {
         auditReceiptRef: 'audit:helm-governance',
       }),
     ]);
+  });
+
+  it('executes a production eval proof check as failed when any proof step fails', async () => {
+    const scenario = getRequiredEvalForCapability('helm_receipts');
+    if (!scenario) throw new Error('helm_receipts eval missing');
+    const { db, inserts } = createEvalDb();
+    const { fetch } = testApp(evalRoutes, createMockDeps({ db: db as never }));
+
+    const res = await fetch(
+      'POST',
+      '/execute',
+      {
+        evalId: scenario.id,
+        capabilityKey: 'helm_receipts',
+        evidenceRefs: ['evidence:helm-governance'],
+        auditReceiptRefs: ['audit:helm-governance'],
+        evidenceCoverage: scenario.evidenceRequirements,
+        auditCoverage: scenario.auditRequirements,
+        completedAt: '2026-05-05T00:00:00.000Z',
+        steps: [
+          {
+            stepKey: 'restricted-action-denial',
+            status: 'failed',
+            evidenceRefs: ['evidence:step'],
+            auditReceiptRefs: ['audit:step'],
+            completedAt: '2026-05-05T00:00:00.000Z',
+          },
+        ],
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      result: { passed: boolean; blockers: string[] };
+      blockerTask: { id: string; title: string };
+      promotions: Array<{ capabilityKey: string }>;
+      productionReadyRegistryMutation: boolean;
+    }>(res, 201);
+
+    expect(body.result.passed).toBe(false);
+    expect(body.result.blockers.join(' ')).toContain(
+      'Eval step restricted-action-denial status is failed',
+    );
+    expect(body.blockerTask.title).toContain('HELM Governance Eval');
+    expect(body.promotions).toEqual([]);
+    expect(body.productionReadyRegistryMutation).toBe(false);
+    expect(inserts.find((insert) => insert.table === evalRuns)?.value).toMatchObject({
+      status: 'failed',
+      capabilityKey: 'helm_receipts',
+    });
+    expect(inserts.find((insert) => insert.table === capabilityPromotions)).toBeUndefined();
   });
 
   it('blocks production promotion without a matching passed eval pack', async () => {
