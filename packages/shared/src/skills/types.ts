@@ -46,6 +46,17 @@ export const SkillDefinitionSchema = z.object({
 });
 export type SkillDefinition = z.infer<typeof SkillDefinitionSchema>;
 
+export const SkillInvocationInputSchema = z.object({
+  skillName: SkillDefinitionSchema.shape.name,
+  expectedVersion: z.string().min(1).optional(),
+  activationReason: z.enum(['explicit', 'auto', 'default']).default('default'),
+  score: z.number().nonnegative().default(0),
+  task: z.string().min(1).max(12000),
+  subagentName: z.string().min(1).optional(),
+  allowedTools: z.array(z.string().min(1)).default([]),
+});
+export type SkillInvocationInput = z.infer<typeof SkillInvocationInputSchema>;
+
 /** Result of matching skills to a subagent's task. */
 export interface SkillMatch {
   skill: SkillDefinition;
