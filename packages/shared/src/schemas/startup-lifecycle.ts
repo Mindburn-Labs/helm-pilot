@@ -299,6 +299,7 @@ export const AppliedStartupMissionRecoverySchema = z.object({
 export const MissionRuntimeCheckpointSchema = z.object({
   checkpointId: z.string().uuid(),
   checkpointKind: MissionRuntimeCheckpointKindSchema,
+  replayRef: z.string().min(1),
   missionId: z.string().uuid(),
   missionStatus: z.string().min(1),
   cursorNodeId: z.string().uuid().optional(),

@@ -42,8 +42,15 @@ function captureEvidenceAndMissionCheckpointInserts(deps: ReturnType<typeof crea
       return {
         values: vi.fn((value: unknown) => {
           insertedMissionRuntimeCheckpoints.push(value);
+          const id =
+            typeof value === 'object' &&
+            value !== null &&
+            'id' in value &&
+            typeof value.id === 'string'
+              ? value.id
+              : '00000000-0000-4000-8000-000000000291';
           return {
-            returning: vi.fn(async () => [{ id: '00000000-0000-4000-8000-000000000291' }]),
+            returning: vi.fn(async () => [{ id }]),
           };
         }),
       };
@@ -1073,6 +1080,20 @@ describe('startupLifecycleRoutes', () => {
         blockedTerminalNodeKeys: ['ideation', 'launch_engine'],
       }),
     });
+    const runtimeCheckpoint = insertedMissionRuntimeCheckpoints[0] as {
+      id: string;
+      metadata: { replayRef: string };
+    };
+    expect(runtimeCheckpoint.metadata.replayRef).toBe(
+      `mission:${missionId}:checkpoint:pre_recovery:${runtimeCheckpoint.id}`,
+    );
+    expect(insertedEvidenceItems[0]).toMatchObject({
+      replayRef: runtimeCheckpoint.metadata.replayRef,
+      metadata: expect.objectContaining({
+        checkpointId: runtimeCheckpoint.id,
+        checkpointKind: 'pre_recovery',
+      }),
+    });
     expect(insertedEvidenceItems[1]).toMatchObject({
       workspaceId,
       ventureId,
@@ -1085,7 +1106,7 @@ describe('startupLifecycleRoutes', () => {
         recoveryApplyId: body.recoveryApplyId,
         recoveryPlanReplayRef,
         recoveryPlanEvidenceItemId: '00000000-0000-4000-8000-000000000145',
-        runtimeCheckpointId: '00000000-0000-4000-8000-000000000291',
+        runtimeCheckpointId: runtimeCheckpoint.id,
         recoveredNodeKeys: ['ideation'],
         executionStarted: false,
         productionReady: false,
@@ -1100,7 +1121,7 @@ describe('startupLifecycleRoutes', () => {
           metadata: expect.objectContaining({
             lastRecoveryApply: expect.objectContaining({
               recoveryApplyId: body.recoveryApplyId,
-              runtimeCheckpointId: '00000000-0000-4000-8000-000000000291',
+              runtimeCheckpointId: runtimeCheckpoint.id,
               recoveredNodeKeys: ['ideation'],
             }),
           }),
@@ -1231,6 +1252,10 @@ describe('startupLifecycleRoutes', () => {
       checkpointKind: 'pre_recovery',
       blockedNodeIds: [blockedNodeId],
     });
+    const runtimeCheckpoint = insertedMissionRuntimeCheckpoints[0] as {
+      id: string;
+      metadata: { replayRef: string };
+    };
     expect(insertedEvidenceItems[1]).toMatchObject({
       workspaceId,
       ventureId,
@@ -1239,7 +1264,7 @@ describe('startupLifecycleRoutes', () => {
       summary: 'No mission nodes were eligible for recovery apply',
       metadata: expect.objectContaining({
         recoveredNodeKeys: [],
-        runtimeCheckpointId: '00000000-0000-4000-8000-000000000291',
+        runtimeCheckpointId: runtimeCheckpoint.id,
         skippedNodes: [
           expect.objectContaining({
             nodeKey: 'launch_engine',
@@ -1354,7 +1379,11 @@ describe('startupLifecycleRoutes', () => {
     );
     const body = await expectJson<{
       rollbackVersion: string;
-      checkpoint: { checkpointKind: string; rollbackPlan: { targetNodeKeys: string[] } };
+      checkpoint: {
+        checkpointId: string;
+        checkpointKind: string;
+        rollbackPlan: { targetNodeKeys: string[] };
+      };
       rolledBackNodes: Array<{ nodeId: string; nodeKey: string; waitingOn: string[] }>;
       missionStatus: string;
       evidenceItemIds: string[];
@@ -1387,7 +1416,7 @@ describe('startupLifecycleRoutes', () => {
     });
     expect(insertedEvidenceItems[1]).toMatchObject({
       evidenceType: 'startup_lifecycle_mission_rollback_applied',
-      replayRef: `mission:${missionId}:rollback:00000000-0000-4000-8000-000000000291`,
+      replayRef: `mission:${missionId}:rollback:${body.checkpoint.checkpointId}`,
     });
     expect(updates).toEqual(
       expect.arrayContaining([
@@ -1397,6 +1426,83 @@ describe('startupLifecycleRoutes', () => {
       ]),
     );
     expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
+  });
+
+  it('records unique runtime checkpoint replay refs for repeated rollback checkpoints', async () => {
+    const missionId = '00000000-0000-4000-8000-000000000190';
+    const failedNodeId = '00000000-0000-4000-8000-000000000191';
+
+    async function runRollbackCheckpoint(reason: string) {
+      const deps = createMockDeps();
+      const { insertedEvidenceItems, insertedMissionRuntimeCheckpoints } =
+        captureEvidenceAndMissionCheckpointInserts(deps);
+      const selectResults = [
+        [
+          {
+            id: missionId,
+            workspaceId,
+            ventureId: null,
+            title: 'Launch EvidenceOS',
+            status: 'blocked',
+          },
+        ],
+        [
+          {
+            id: failedNodeId,
+            workspaceId,
+            missionId,
+            nodeKey: 'ideation',
+            stage: 'ideation',
+            title: 'Venture hypothesis generation',
+            status: 'failed',
+            sortOrder: 0,
+          },
+        ],
+        [],
+        [],
+        [],
+      ];
+      let selectCall = 0;
+      const originalSelect = deps.db.select;
+      deps.db.select = vi.fn(() => {
+        deps.db._setResult(selectResults[selectCall] ?? []);
+        selectCall += 1;
+        return originalSelect();
+      }) as typeof deps.db.select;
+
+      const { fetch } = testApp(startupLifecycleRoutes, deps);
+      const res = await fetch('POST', `/missions/${missionId}/rollback`, { reason }, wsHeader);
+      await expectJson(res, 200);
+      return {
+        checkpoint: insertedMissionRuntimeCheckpoints[0] as {
+          id: string;
+          metadata: { replayRef: string };
+        },
+        checkpointEvidence: insertedEvidenceItems[0] as {
+          replayRef: string;
+          metadata: { checkpointId: string };
+        },
+      };
+    }
+
+    const first = await runRollbackCheckpoint('first rollback checkpoint');
+    const second = await runRollbackCheckpoint('second rollback checkpoint');
+
+    expect(first.checkpoint.id).not.toBe(second.checkpoint.id);
+    expect(first.checkpointEvidence.replayRef).toBe(first.checkpoint.metadata.replayRef);
+    expect(second.checkpointEvidence.replayRef).toBe(second.checkpoint.metadata.replayRef);
+    expect(first.checkpointEvidence.replayRef).toBe(
+      `mission:${missionId}:checkpoint:pre_rollback:${first.checkpoint.id}`,
+    );
+    expect(second.checkpointEvidence.replayRef).toBe(
+      `mission:${missionId}:checkpoint:pre_rollback:${second.checkpoint.id}`,
+    );
+    expect(first.checkpointEvidence.replayRef).not.toBe(second.checkpointEvidence.replayRef);
+    expect(first.checkpointEvidence.replayRef).not.toBe(
+      `mission:${missionId}:checkpoint:pre_rollback`,
+    );
+    expect(first.checkpointEvidence.metadata.checkpointId).toBe(first.checkpoint.id);
+    expect(second.checkpointEvidence.metadata.checkpointId).toBe(second.checkpoint.id);
   });
 
   it('executes a ready mission node through the governed task runtime without production promotion', async () => {

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { appendEvidenceItem } from '@pilot/db';
@@ -1694,6 +1694,13 @@ async function persistMissionRuntimeCheckpoint(
     recoveryPlan,
     rollbackPlan,
   });
+  const now = new Date();
+  const checkpointId = randomUUID();
+  const replayRef = missionRuntimeCheckpointReplayRef(
+    mission.id,
+    input.checkpointKind,
+    checkpointId,
+  );
   const evidenceItemId = await appendEvidenceItem(deps.db, {
     workspaceId,
     ventureId: mission.ventureId ?? null,
@@ -1705,19 +1712,20 @@ async function persistMissionRuntimeCheckpoint(
     redactionState: 'redacted',
     sensitivity: 'internal',
     contentHash,
-    replayRef: `mission:${mission.id}:checkpoint:${input.checkpointKind}`,
+    replayRef,
     metadata: {
       checkpointKind: input.checkpointKind,
+      checkpointId,
       missionStatus: mission.status,
       cursorNodeKey: snapshot.cursorNode?.nodeKey ?? null,
       reason: input.reason,
       productionReady: false,
     },
   });
-  const now = new Date();
   const [checkpoint] = await deps.db
     .insert(missionRuntimeCheckpoints)
     .values({
+      id: checkpointId,
       workspaceId,
       missionId: mission.id,
       checkpointKind: input.checkpointKind,
@@ -1738,6 +1746,7 @@ async function persistMissionRuntimeCheckpoint(
       metadata: {
         checkpointVersion: 'mission-runtime-checkpoint.v1',
         reason: input.reason,
+        replayRef,
         productionReady: false,
       },
       createdAt: now,
@@ -1746,10 +1755,14 @@ async function persistMissionRuntimeCheckpoint(
   if (!checkpoint?.id) {
     throw new Error('Mission runtime checkpoint was not persisted');
   }
+  if (checkpoint.id !== checkpointId) {
+    throw new Error('Mission runtime checkpoint id mismatch');
+  }
 
   return MissionRuntimeCheckpointSchema.parse({
     checkpointId: checkpoint.id,
     checkpointKind: input.checkpointKind,
+    replayRef,
     missionId: mission.id,
     missionStatus: mission.status,
     ...(snapshot.cursorNode?.id ? { cursorNodeId: snapshot.cursorNode.id } : {}),
@@ -1766,6 +1779,14 @@ async function persistMissionRuntimeCheckpoint(
     productionReady: false,
     createdAt: now.toISOString(),
   });
+}
+
+function missionRuntimeCheckpointReplayRef(
+  missionId: string,
+  checkpointKind: MissionRuntimeCheckpointKind,
+  checkpointId: string,
+) {
+  return `mission:${missionId}:checkpoint:${checkpointKind}:${checkpointId}`;
 }
 
 function buildRuntimeRecoveryPlan(snapshot: MissionRuntimeSnapshot): Record<string, unknown> {
