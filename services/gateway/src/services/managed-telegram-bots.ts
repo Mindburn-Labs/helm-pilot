@@ -23,7 +23,7 @@ import {
   type ManagedTelegramBotResponseMode,
   ManagedTelegramBotSettingsInput,
 } from '@pilot/shared/schemas';
-import { type LlmProvider } from '@pilot/shared/llm';
+import { type LlmProvider, type LlmResult } from '@pilot/shared/llm';
 import { type SecretKind } from '@pilot/shared/secrets';
 
 const DEFAULT_WELCOME = 'Welcome. Join the launch list or send a support message.';
@@ -34,6 +34,7 @@ const CHILD_BOT_CACHE_TTL_MS = 5 * 60 * 1000;
 export const TELEGRAM_MANAGED_ACTIONS = {
   CLAIM: 'TELEGRAM_MANAGED_BOT_CLAIM',
   SET_WEBHOOK: 'TELEGRAM_CHILD_SET_WEBHOOK',
+  DRAFT_SUPPORT: 'TELEGRAM_SUPPORT_DRAFT',
   SEND_MESSAGE: 'TELEGRAM_CHILD_SEND_MESSAGE',
   ROTATE_TOKEN: 'TELEGRAM_CHILD_ROTATE_TOKEN',
   DISABLE: 'TELEGRAM_CHILD_DISABLE',
@@ -44,6 +45,8 @@ type ManagedTelegramGovernanceMetadata = ReturnType<typeof managedTelegramGovern
 
 export function managedTelegramActionEffectLevel(action: string): ManagedTelegramEffectLevel {
   switch (action) {
+    case TELEGRAM_MANAGED_ACTIONS.DRAFT_SUPPORT:
+      return 'E1';
     case TELEGRAM_MANAGED_ACTIONS.SEND_MESSAGE:
       return 'E2';
     case TELEGRAM_MANAGED_ACTIONS.CLAIM:
@@ -62,6 +65,10 @@ function isElevatedManagedTelegramAction(effectLevel: ManagedTelegramEffectLevel
 
 type ManagedBotRow = typeof managedTelegramBots.$inferSelect;
 type ManagedMessageRow = typeof managedTelegramBotMessages.$inferSelect;
+type ManagedTelegramSupportDraft = {
+  text: string;
+  governanceMetadata: Record<string, unknown>;
+};
 
 export class ManagedTelegramBotError extends Error {
   constructor(
@@ -690,8 +697,9 @@ export class ManagedTelegramBotService {
         telegramFirstName: from.first_name ?? null,
         inboundText: text,
         inboundMessageId: inbound.message_id,
-        aiDraft: draft,
+        aiDraft: draft?.text ?? null,
         replyStatus: row.responseMode === 'intake_only' ? 'none' : 'drafted',
+        governanceMetadata: draft ? { supportDraft: draft.governanceMetadata } : {},
       })
       .returning();
 
@@ -710,10 +718,10 @@ export class ManagedTelegramBotService {
           resource: `telegram-managed-message:${message.id}`,
           context: { managedBotId: row.id, messageId: message.id, autonomous: true },
         });
-        const sent = await ctx.reply(draft);
+        const sent = await ctx.reply(draft.text);
         await this.markMessageSent(
           message,
-          draft,
+          draft.text,
           String(sent.message_id),
           governed
             ? managedTelegramGovernanceMetadata(TELEGRAM_MANAGED_ACTIONS.SEND_MESSAGE, governed)
@@ -725,7 +733,7 @@ export class ManagedTelegramBotService {
       }
     }
 
-    await this.requestReplyApproval(message, draft);
+    await this.requestReplyApproval(message, draft.text);
   }
 
   private async retryExistingBotActivation(row: ManagedBotRow) {
@@ -777,18 +785,35 @@ export class ManagedTelegramBotService {
     await this.supportNotifier(row.workspaceId, message.id, row.telegramBotUsername);
   }
 
-  private async buildSupportDraft(row: ManagedBotRow, inboundText: string) {
+  private async buildSupportDraft(
+    row: ManagedBotRow,
+    inboundText: string,
+  ): Promise<ManagedTelegramSupportDraft> {
     if (!this.opts.llm) {
-      return 'Thanks for reaching out. I am looking into this and will follow up shortly.';
+      return deterministicSupportDraft('llm_not_configured');
     }
     try {
       const prompt =
         `Draft a concise Telegram support reply for ${row.telegramBotName}.\n` +
         `Do not promise timelines or make unsupported claims.\n\nCustomer message:\n${inboundText}`;
-      const result = await this.opts.llm.complete(prompt);
-      return result.trim().slice(0, 4096);
-    } catch {
-      return 'Thanks for reaching out. I am looking into this and will follow up shortly.';
+      const result = await this.opts.llm.completeWithUsage(prompt);
+      if (requiresProductionGovernedSupportDrafts() && !result.governance) {
+        throw new ManagedTelegramBotError(
+          'HELM-governed LLM metadata is required for production Telegram support drafts',
+          503,
+        );
+      }
+      const text = result.content.trim().slice(0, 4096);
+      if (!text) throw new Error('LLM returned an empty support draft');
+      return {
+        text,
+        governanceMetadata: managedTelegramSupportDraftMetadata(result),
+      };
+    } catch (err) {
+      if (requiresProductionGovernedSupportDrafts()) {
+        throw err;
+      }
+      return deterministicSupportDraft(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -1075,6 +1100,52 @@ function managedTelegramGovernanceMetadata(action: string, governed: EvaluateRes
       documentVersionPins: helmDocumentVersionPins,
     },
   };
+}
+
+function managedTelegramSupportDraftMetadata(result: LlmResult) {
+  const helmDocumentVersionPins = result.governance?.policyVersion
+    ? managedTelegramHelmDocumentVersionPins(result.governance.policyVersion)
+    : {};
+  return {
+    surface: 'managed_telegram',
+    action: TELEGRAM_MANAGED_ACTIONS.DRAFT_SUPPORT,
+    method: 'llm',
+    policyDecisionId: result.governance?.decisionId ?? null,
+    policyVersion: result.governance?.policyVersion ?? null,
+    helmDocumentVersionPins,
+    modelUsage: result.usage ?? null,
+    credentialBoundary: 'no_raw_credentials_or_session_payloads_in_prompt',
+    policyPin: result.governance
+      ? {
+          policyDecisionId: result.governance.decisionId,
+          policyVersion: result.governance.policyVersion,
+          decisionRequired: true,
+          documentVersionPins: helmDocumentVersionPins,
+        }
+      : null,
+  };
+}
+
+function deterministicSupportDraft(fallbackReason: string): ManagedTelegramSupportDraft {
+  return {
+    text: 'Thanks for reaching out. I am looking into this and will follow up shortly.',
+    governanceMetadata: {
+      surface: 'managed_telegram',
+      action: TELEGRAM_MANAGED_ACTIONS.DRAFT_SUPPORT,
+      method: 'deterministic_fallback',
+      fallbackReason,
+      policyDecisionId: null,
+      policyVersion: null,
+      helmDocumentVersionPins: {},
+      modelUsage: null,
+      credentialBoundary: 'no_raw_credentials_or_session_payloads_in_prompt',
+      policyPin: null,
+    },
+  };
+}
+
+function requiresProductionGovernedSupportDrafts(): boolean {
+  return process.env['NODE_ENV'] === 'production' && process.env['HELM_FAIL_CLOSED'] !== '0';
 }
 
 function managedTelegramHelmDocumentVersionPins(policyVersion: string): Record<string, string> {
