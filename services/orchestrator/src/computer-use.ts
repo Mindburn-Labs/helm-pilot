@@ -49,7 +49,8 @@ const DENIED_COMMAND_WORDS = new Set([
   'dd',
 ]);
 
-type ComputerUseDb = Pick<Db, 'insert' | 'update'>;
+type ComputerUseTx = Pick<Db, 'insert' | 'update'>;
+type ComputerUseDb = ComputerUseTx & Pick<Db, 'transaction'>;
 
 interface Completion {
   status: 'completed' | 'denied' | 'failed';
@@ -122,51 +123,54 @@ export async function executeSafeComputerUse(
   }
 
   const completion = await completeComputerUse(req);
-  await db
-    .update(computerActions)
-    .set({
-      status: completion.status,
-      stdout: completion.stdout ?? null,
-      stderr: completion.stderr ?? null,
-      exitCode: completion.exitCode ?? null,
-      durationMs: completion.durationMs ?? null,
-      fileDiff: completion.fileDiff ?? null,
-      outputHash: completion.outputHash ?? null,
-      metadata: {
-        ...actionBase.metadata,
-        ...(completion.metadata ?? {}),
-        evidenceContract: 'computer_safe_action_v1',
-      },
-      completedAt: new Date(),
-    })
-    .where(eq(computerActions.id, record.id));
+  const evidenceItemId = await db.transaction(async (tx) => {
+    const txDb = tx as unknown as ComputerUseTx;
+    await txDb
+      .update(computerActions)
+      .set({
+        status: completion.status,
+        stdout: completion.stdout ?? null,
+        stderr: completion.stderr ?? null,
+        exitCode: completion.exitCode ?? null,
+        durationMs: completion.durationMs ?? null,
+        fileDiff: completion.fileDiff ?? null,
+        outputHash: completion.outputHash ?? null,
+        metadata: {
+          ...actionBase.metadata,
+          ...(completion.metadata ?? {}),
+          evidenceContract: 'computer_safe_action_v1',
+        },
+        completedAt: new Date(),
+      })
+      .where(eq(computerActions.id, record.id));
 
-  const evidenceItemId = await appendEvidenceItem(db, {
-    workspaceId: req.workspaceId,
-    taskId: req.taskId ?? null,
-    actionId: req.actionId ?? null,
-    evidencePackId: record.evidencePackId ?? governance.evidencePackId ?? null,
-    computerActionId: record.id,
-    evidenceType: 'computer_action',
-    sourceType: 'computer_operator',
-    title: `Computer ${req.operation}: ${computerActionTarget(req)}`,
-    summary:
-      completion.status === 'completed' ? req.objective : (completion.stderr ?? req.objective),
-    redactionState: 'redacted',
-    sensitivity: 'sensitive',
-    contentHash: completion.outputHash ?? null,
-    replayRef: `computer:${record.id}:${record.replayIndex ?? 0}`,
-    metadata: {
-      operation: req.operation,
-      environment: req.environment,
-      status: completion.status,
-      helmDecisionId: governance.receipt.decisionId,
-      helmPolicyVersion: governance.receipt.policyVersion,
-      helmDocumentVersionPins: actionBase.helmDocumentVersionPins,
-      exitCode: completion.exitCode ?? null,
-      durationMs: completion.durationMs ?? null,
-      executionBoundary: 'safe_local_or_sandbox_only_no_unrestricted_desktop',
-    },
+    return appendEvidenceItem(txDb, {
+      workspaceId: req.workspaceId,
+      taskId: req.taskId ?? null,
+      actionId: req.actionId ?? null,
+      evidencePackId: record.evidencePackId ?? governance.evidencePackId ?? null,
+      computerActionId: record.id,
+      evidenceType: 'computer_action',
+      sourceType: 'computer_operator',
+      title: `Computer ${req.operation}: ${computerActionTarget(req)}`,
+      summary:
+        completion.status === 'completed' ? req.objective : (completion.stderr ?? req.objective),
+      redactionState: 'redacted',
+      sensitivity: 'sensitive',
+      contentHash: completion.outputHash ?? null,
+      replayRef: `computer:${record.id}:${record.replayIndex ?? 0}`,
+      metadata: {
+        operation: req.operation,
+        environment: req.environment,
+        status: completion.status,
+        helmDecisionId: governance.receipt.decisionId,
+        helmPolicyVersion: governance.receipt.policyVersion,
+        helmDocumentVersionPins: actionBase.helmDocumentVersionPins,
+        exitCode: completion.exitCode ?? null,
+        durationMs: completion.durationMs ?? null,
+        executionBoundary: 'safe_local_or_sandbox_only_no_unrestricted_desktop',
+      },
+    });
   });
 
   const evidenceIds = [
