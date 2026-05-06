@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { auditLog, evidenceItems, tasks } from '@pilot/db/schema';
 import { taskRoutes } from '../../routes/task.js';
 import { createMockDeps, testApp, expectJson, mockTask } from '../helpers.js';
 
@@ -106,13 +107,23 @@ describe('taskRoutes', () => {
     it('returns 201 on successful creation', async () => {
       const deps = createMockDeps();
       const created = mockTask({ workspaceId: VALID_UUID, title: 'Build MVP' });
-      deps.db.insert = vi.fn(() => ({
-        values: vi.fn(() => ({
-          returning: vi.fn(async () => [created]),
-          onConflictDoNothing: vi.fn(() => ({ returning: vi.fn(async () => [created]) })),
-          onConflictDoUpdate: vi.fn(() => ({ returning: vi.fn(async () => [created]) })),
-          then: (r: any) => r([created]),
-        })),
+      const inserts: Array<{ table: unknown; value: unknown }> = [];
+      deps.db.insert = vi.fn((table: unknown) => ({
+        values: vi.fn((value: unknown) => {
+          inserts.push({ table, value });
+          return {
+            returning: vi.fn(async () =>
+              table === tasks
+                ? [created]
+                : table === evidenceItems
+                  ? [{ id: 'evidence-task-1' }]
+                  : [],
+            ),
+            onConflictDoNothing: vi.fn(() => ({ returning: vi.fn(async () => [created]) })),
+            onConflictDoUpdate: vi.fn(() => ({ returning: vi.fn(async () => [created]) })),
+            then: (r: any) => r([]),
+          };
+        }),
       })) as any;
 
       const { fetch } = testApp(taskRoutes, deps as any);
@@ -129,6 +140,57 @@ describe('taskRoutes', () => {
       const json = await expectJson<{ id: string; title: string }>(res, 201);
       expect(json.id).toBe('task-1');
       expect(json.title).toBe('Build MVP');
+      expect(inserts.findIndex((insert) => insert.table === auditLog)).toBeLessThan(
+        inserts.findIndex((insert) => insert.table === evidenceItems),
+      );
+      const auditInsert = inserts.find((insert) => insert.table === auditLog);
+      const evidenceInsert = inserts.find((insert) => insert.table === evidenceItems);
+      expect(auditInsert?.value).toMatchObject({
+        workspaceId: VALID_UUID,
+        action: 'TASK_CREATED',
+        target: 'task-1',
+        metadata: expect.objectContaining({
+          taskId: 'task-1',
+          evidenceContract: 'task_create_evidence_required',
+        }),
+      });
+      expect(evidenceInsert?.value).toMatchObject({
+        workspaceId: VALID_UUID,
+        taskId: 'task-1',
+        auditEventId: (auditInsert?.value as { id?: string } | undefined)?.id,
+        evidenceType: 'task_created',
+        sourceType: 'gateway_task_route',
+        replayRef: 'task:task-1:created',
+      });
+    });
+
+    it('fails task creation when task evidence cannot be persisted', async () => {
+      const deps = createMockDeps();
+      const created = mockTask({ workspaceId: VALID_UUID, title: 'Build MVP' });
+      deps.db.insert = vi.fn((table: unknown) => ({
+        values: vi.fn(() => ({
+          returning: vi.fn(async () => {
+            if (table === tasks) return [created];
+            if (table === evidenceItems) throw new Error('evidence unavailable');
+            return [];
+          }),
+          then: (r: any) => r([]),
+        })),
+      })) as any;
+
+      const { fetch } = testApp(taskRoutes, deps as any);
+      const res = await fetch(
+        'POST',
+        '/',
+        {
+          workspaceId: VALID_UUID,
+          title: 'Build MVP',
+          mode: 'build',
+        },
+        wsHeader,
+      );
+
+      expect(res.status).toBe(500);
     });
 
     it('calls orchestrator.runTask when autoRun is true', async () => {
