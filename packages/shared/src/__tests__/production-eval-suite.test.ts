@@ -94,6 +94,29 @@ describe('production eval suite', () => {
     expect(passed.matchedEvalId).toBe('full_startup_launch');
   });
 
+  it('treats capability-less eval runs as scenario-wide proof for covered capabilities', () => {
+    const capability = getCapabilityRecord('startup_lifecycle');
+    if (!capability) throw new Error('startup_lifecycle capability missing');
+
+    const passed = checkCapabilityPromotionReadiness({
+      capability,
+      runs: [
+        {
+          evalId: 'full_startup_launch',
+          workspaceId,
+          status: 'passed',
+          evidenceRefs: ['evidence:startup-launch'],
+          auditReceiptRefs: ['audit:startup-launch'],
+          metadata: {},
+          completedAt: '2026-05-05T00:00:00.000Z',
+        },
+      ],
+    });
+
+    expect(passed.canPromote).toBe(true);
+    expect(passed.matchedEvalId).toBe('full_startup_launch');
+  });
+
   it('requires every mapped eval before evidence ledger promotion is eligible', () => {
     const capability = getCapabilityRecord('evidence_ledger');
     if (!capability) throw new Error('evidence_ledger capability missing');

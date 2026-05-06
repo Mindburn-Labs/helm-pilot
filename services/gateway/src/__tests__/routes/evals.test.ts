@@ -340,6 +340,80 @@ describe('evalRoutes', () => {
     });
   });
 
+  it('records scenario-wide eval packs without pinning them to the first capability only', async () => {
+    const { db, inserts } = createEvalDb();
+    const { fetch } = testApp(evalRoutes, createMockDeps({ db: db as never }));
+
+    const res = await fetch(
+      'POST',
+      '/runs',
+      {
+        evalId: 'full_startup_launch',
+        status: 'passed',
+        evidenceRefs: ['evidence:startup-launch'],
+        auditReceiptRefs: ['audit:startup-launch'],
+        completedAt: '2026-05-05T00:00:00.000Z',
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      capabilityKey?: string;
+      promotionChecks: Array<{
+        canPromote: boolean;
+        capability: { key: string };
+        blockers: string[];
+      }>;
+      promotions: Array<{ capabilityKey: string; promotedState: string; status: string }>;
+      productionReadyRegistryMutation: boolean;
+    }>(res, 201);
+
+    expect(body.capabilityKey).toBeUndefined();
+    expect(body.productionReadyRegistryMutation).toBe(false);
+    expect(body.promotionChecks).toEqual([
+      expect.objectContaining({
+        canPromote: false,
+        capability: expect.objectContaining({ key: 'mission_runtime' }),
+      }),
+      expect.objectContaining({
+        canPromote: true,
+        capability: expect.objectContaining({ key: 'startup_lifecycle' }),
+      }),
+    ]);
+    expect(body.promotionChecks[0]?.blockers.join(' ')).toContain(
+      'Multi-Agent Parallel Build Eval',
+    );
+    expect(body.promotions).toEqual([
+      expect.objectContaining({
+        capabilityKey: 'startup_lifecycle',
+        promotedState: 'production_ready',
+        status: 'eligible',
+      }),
+    ]);
+    expect(inserts.find((insert) => insert.table === evalRuns)?.value).toMatchObject({
+      evalId: 'full_startup_launch',
+      status: 'passed',
+      capabilityKey: null,
+    });
+    expect(inserts.find((insert) => insert.table === evalResults)?.value).toMatchObject({
+      evalId: 'full_startup_launch',
+      capabilityKey: null,
+      passed: true,
+    });
+    expect(
+      inserts.filter((insert) => insert.table === evidenceItems).map((insert) => insert.value),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            evalId: 'full_startup_launch',
+            capabilityKey: null,
+            capabilityKeys: ['mission_runtime', 'startup_lifecycle'],
+          }),
+        }),
+      ]),
+    );
+  });
+
   it('fails closed without committing eval promotion state when evidence persistence fails', async () => {
     const { db, inserts } = createEvalDb([], { failEvidenceInsertAt: 1 });
     const { fetch } = testApp(evalRoutes, createMockDeps({ db: db as never }));
@@ -537,6 +611,45 @@ describe('evalRoutes', () => {
           evidenceRefs: ['evidence:startup-launch'],
           auditReceiptRefs: ['audit:startup-launch'],
           metadata: {},
+          completedAt: new Date('2026-05-05T00:00:00.000Z'),
+        },
+      ],
+    ]);
+    const { fetch } = testApp(evalRoutes, createMockDeps({ db: db as never }));
+    const res = await fetch(
+      'POST',
+      '/promotion-check',
+      {
+        capabilityKey: 'startup_lifecycle',
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      check: {
+        canPromote: boolean;
+        matchedEvalId: string;
+        evidenceRefs: string[];
+        auditReceiptRefs: string[];
+      };
+    }>(res, 200);
+
+    expect(body.check.canPromote).toBe(true);
+    expect(body.check.matchedEvalId).toBe('full_startup_launch');
+    expect(body.check.evidenceRefs).toEqual(['evidence:startup-launch']);
+    expect(body.check.auditReceiptRefs).toEqual(['audit:startup-launch']);
+  });
+
+  it('uses persisted scenario-wide eval runs for every covered capability', async () => {
+    const { db } = createEvalDb([
+      [
+        {
+          evalId: 'full_startup_launch',
+          workspaceId,
+          status: 'passed',
+          capabilityKey: null,
+          evidenceRefs: ['evidence:startup-launch'],
+          auditReceiptRefs: ['audit:startup-launch'],
+          metadata: { capabilityKeys: ['mission_runtime', 'startup_lifecycle'] },
           completedAt: new Date('2026-05-05T00:00:00.000Z'),
         },
       ],

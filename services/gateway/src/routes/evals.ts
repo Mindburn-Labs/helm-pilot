@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { appendEvidenceItem } from '@pilot/db';
 import {
@@ -26,6 +26,7 @@ import {
   checkCapabilityPromotionReadiness,
   executePilotProductionEval,
   getPilotProductionEvalSuite,
+  getRequiredEvalsForCapability,
   type PilotEvalRunRecord,
   type RecordPilotEvalRunInput,
 } from '@pilot/shared/eval';
@@ -98,6 +99,20 @@ function evalCapabilityMismatch(evalId: string, capabilityKey?: CapabilityKey) {
   };
 }
 
+function capabilityRunScope(capabilityKey: CapabilityKey): SQL {
+  const requiredEvalIds = getRequiredEvalsForCapability(capabilityKey).map(
+    (scenario) => scenario.id,
+  );
+  const explicitCapabilityRun = eq(evalRuns.capabilityKey, capabilityKey);
+  const scenarioWideRequiredEval =
+    requiredEvalIds.length > 0
+      ? and(isNull(evalRuns.capabilityKey), inArray(evalRuns.evalId, requiredEvalIds))
+      : undefined;
+  return scenarioWideRequiredEval
+    ? (or(explicitCapabilityRun, scenarioWideRequiredEval) ?? explicitCapabilityRun)
+    : explicitCapabilityRun;
+}
+
 async function persistEvalRun(
   deps: GatewayDeps,
   workspaceId: string,
@@ -105,7 +120,6 @@ async function persistEvalRun(
   extraResponse: Record<string, unknown> = {},
 ) {
   const scenario = getPilotProductionEvalSuite().find((item) => item.id === input.evalId);
-  const defaultCapabilityKey = scenario?.capabilityKeys[0];
   const completedAt =
     input.completedAt ??
     (input.status === 'passed' || input.status === 'failed' ? new Date().toISOString() : undefined);
@@ -138,7 +152,7 @@ async function persistEvalRun(
         workspaceId,
         evalId: input.evalId,
         status: input.status,
-        capabilityKey: input.capabilityKey ?? defaultCapabilityKey ?? null,
+        capabilityKey: input.capabilityKey ?? null,
         runRef: input.runRef ?? null,
         failureReason: input.failureReason ?? input.summary ?? null,
         evidenceRefs: input.evidenceRefs,
@@ -202,8 +216,8 @@ async function persistEvalRun(
           evalRunId: created.id,
           evalId: input.evalId,
           status: input.status,
-          capabilityKey:
-            created.capabilityKey ?? input.capabilityKey ?? defaultCapabilityKey ?? null,
+          capabilityKey: created.capabilityKey ?? input.capabilityKey ?? null,
+          capabilityKeys: scenario?.capabilityKeys ?? [],
           evidenceRefs: input.evidenceRefs,
           auditReceiptRefs: input.auditReceiptRefs,
           executionMode: extraResponse['executionMode'] ?? null,
@@ -226,8 +240,8 @@ async function persistEvalRun(
           metadata: {
             evalRunId: created.id,
             evalId: input.evalId,
-            capabilityKey:
-              created.capabilityKey ?? input.capabilityKey ?? defaultCapabilityKey ?? null,
+            capabilityKey: created.capabilityKey ?? input.capabilityKey ?? null,
+            capabilityKeys: scenario?.capabilityKeys ?? [],
             evidenceRef,
             auditReceiptRef: input.auditReceiptRefs[index] ?? null,
           },
@@ -251,9 +265,7 @@ async function persistEvalRun(
         const persistedRows = await db
           .select()
           .from(evalRuns)
-          .where(
-            and(eq(evalRuns.workspaceId, workspaceId), eq(evalRuns.capabilityKey, capability.key)),
-          )
+          .where(and(eq(evalRuns.workspaceId, workspaceId), capabilityRunScope(capability.key)))
           .orderBy(desc(evalRuns.createdAt))
           .limit(25);
         const persistedRuns = persistedRows
@@ -278,8 +290,7 @@ async function persistEvalRun(
           workspaceId,
           evalRunId: created.id,
           evalId: input.evalId,
-          capabilityKey:
-            created.capabilityKey ?? input.capabilityKey ?? defaultCapabilityKey ?? null,
+          capabilityKey: created.capabilityKey ?? input.capabilityKey ?? null,
           status: input.status,
           passed,
           summary: input.summary ?? input.failureReason ?? null,
@@ -306,8 +317,8 @@ async function persistEvalRun(
               status: input.status,
               passed,
               blockers,
-              capabilityKey:
-                created.capabilityKey ?? input.capabilityKey ?? defaultCapabilityKey ?? null,
+              capabilityKey: created.capabilityKey ?? input.capabilityKey ?? null,
+              capabilityKeys: scenario?.capabilityKeys ?? [],
             },
           }),
         );
@@ -331,6 +342,7 @@ async function persistEvalRun(
             evalId: input.evalId,
             evalRunId: created.id,
             capabilityKey: created.capabilityKey ?? input.capabilityKey ?? null,
+            capabilityKeys: scenario?.capabilityKeys ?? [],
           },
         })
         .returning();
@@ -406,7 +418,7 @@ export function evalRoutes(deps: GatewayDeps) {
     const clauses = [eq(evalRuns.workspaceId, workspaceId)];
     if (parsed.data.evalId) clauses.push(eq(evalRuns.evalId, parsed.data.evalId));
     if (parsed.data.capabilityKey) {
-      clauses.push(eq(evalRuns.capabilityKey, parsed.data.capabilityKey));
+      clauses.push(capabilityRunScope(parsed.data.capabilityKey));
     }
     if (parsed.data.status) clauses.push(eq(evalRuns.status, parsed.data.status));
 
@@ -500,10 +512,7 @@ export function evalRoutes(deps: GatewayDeps) {
       .select()
       .from(evalRuns)
       .where(
-        and(
-          eq(evalRuns.workspaceId, workspaceId),
-          eq(evalRuns.capabilityKey, parsed.data.capabilityKey as CapabilityKey),
-        ),
+        and(eq(evalRuns.workspaceId, workspaceId), capabilityRunScope(parsed.data.capabilityKey)),
       )
       .orderBy(desc(evalRuns.createdAt))
       .limit(25);

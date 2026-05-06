@@ -540,11 +540,11 @@ Return the Gate 10 production autonomy eval suite. Requires at least the workspa
 
 ### GET /api/evals/runs
 
-List durable eval run records for the authenticated workspace. Requires at least the workspace `partner` role. Returned rows are workspace-scoped and normalized for promotion checks.
+List durable eval run records for the authenticated workspace. Requires at least the workspace `partner` role. Returned rows are workspace-scoped and normalized for promotion checks. Filtering by `capabilityKey` includes explicit runs for that capability plus scenario-wide runs whose eval scenario maps to the requested capability.
 
 ### POST /api/evals/runs
 
-Record a durable eval run with status, capability key, evidence references, audit receipt references, optional run reference, step metadata, failure reason, summary, and completion metadata. Requires at least the workspace `partner` role. Failed runs create blocker tasks. Passed runs may create `capability_promotions` eligibility rows, but the route does not mutate the shared capability registry or mark anything `production_ready`.
+Record a durable eval run with status, optional capability key, evidence references, audit receipt references, optional run reference, step metadata, failure reason, summary, and completion metadata. Requires at least the workspace `partner` role. When `capabilityKey` is omitted, the eval run is scenario-wide and may satisfy every capability mapped to that eval scenario, subject to each capability's full eval requirements. Failed runs create blocker tasks. Passed runs may create `capability_promotions` eligibility rows, but the route does not mutate the shared capability registry or mark anything `production_ready`.
 
 ### POST /api/evals/execute
 
