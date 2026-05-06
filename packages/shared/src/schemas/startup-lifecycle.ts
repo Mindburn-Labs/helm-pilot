@@ -105,7 +105,11 @@ export const ApplyStartupMissionRecoveryInputSchema = z.object({
   reason: z.string().min(1).max(500).optional(),
 });
 
-export const MissionRuntimeCheckpointKindSchema = z.enum(['pre_recovery', 'pre_rollback']);
+export const MissionRuntimeCheckpointKindSchema = z.enum([
+  'manual_checkpoint',
+  'pre_recovery',
+  'pre_rollback',
+]);
 
 export const RollbackStartupMissionInputSchema = z.object({
   workspaceId: z.string().uuid(),
@@ -333,9 +337,7 @@ export type ScheduleStartupMissionInput = z.infer<typeof ScheduleStartupMissionI
 export type ExecuteStartupMissionNodeInput = z.infer<typeof ExecuteStartupMissionNodeInputSchema>;
 export type ExecuteStartupMissionInput = z.infer<typeof ExecuteStartupMissionInputSchema>;
 export type CheckpointStartupMissionInput = z.infer<typeof CheckpointStartupMissionInputSchema>;
-export type PlanStartupMissionRecoveryInput = z.infer<
-  typeof PlanStartupMissionRecoveryInputSchema
->;
+export type PlanStartupMissionRecoveryInput = z.infer<typeof PlanStartupMissionRecoveryInputSchema>;
 export type ApplyStartupMissionRecoveryInput = z.infer<
   typeof ApplyStartupMissionRecoveryInputSchema
 >;

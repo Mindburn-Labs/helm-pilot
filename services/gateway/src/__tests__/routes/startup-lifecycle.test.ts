@@ -43,9 +43,7 @@ function captureEvidenceAndMissionCheckpointInserts(deps: ReturnType<typeof crea
         values: vi.fn((value: unknown) => {
           insertedMissionRuntimeCheckpoints.push(value);
           return {
-            returning: vi.fn(async () => [
-              { id: '00000000-0000-4000-8000-000000000291' },
-            ]),
+            returning: vi.fn(async () => [{ id: '00000000-0000-4000-8000-000000000291' }]),
           };
         }),
       };
@@ -357,7 +355,8 @@ describe('startupLifecycleRoutes', () => {
 
   it('checkpoints a mission DAG as durable evidence without recovery promotion', async () => {
     const deps = createMockDeps();
-    const insertedEvidenceItems = captureEvidenceItemInserts(deps);
+    const { insertedEvidenceItems, insertedMissionRuntimeCheckpoints } =
+      captureEvidenceAndMissionCheckpointInserts(deps);
     const missionId = '00000000-0000-4000-8000-000000000070';
     const ventureId = '00000000-0000-4000-8000-000000000071';
     const founderNodeId = '00000000-0000-4000-8000-000000000072';
@@ -474,7 +473,7 @@ describe('startupLifecycleRoutes', () => {
     expect(body.status).toBe('checkpointed_not_recovered');
     expect(body.missionStatus).toBe('scheduled_not_executing');
     expect(body.replayRef).toContain(`mission:${missionId}:checkpoint:`);
-    expect(body.evidenceItemIds).toEqual(['00000000-0000-4000-8000-000000000091']);
+    expect(body.evidenceItemIds).toEqual(['00000000-0000-4000-8000-000000000191']);
     expect(body.snapshot).toMatchObject({
       missionId,
       status: 'scheduled_not_executing',
@@ -522,6 +521,46 @@ describe('startupLifecycleRoutes', () => {
           edges: [expect.objectContaining({ fromNodeKey: 'founder_onboarding' })],
           taskLinks: [expect.objectContaining({ id: taskLinkId, taskId })],
           reason: 'before executing ready nodes',
+        }),
+        productionReady: false,
+      }),
+    });
+    expect(insertedMissionRuntimeCheckpoints[0]).toMatchObject({
+      workspaceId,
+      missionId,
+      checkpointKind: 'manual_checkpoint',
+      checkpointStatus: 'recorded',
+      missionStatus: 'scheduled_not_executing',
+      cursorNodeId: ideationNodeId,
+      cursorNodeKey: 'ideation',
+      nodeStatusCounts: {
+        completed: 1,
+        ready: 1,
+        pending: 1,
+      },
+      readyNodeIds: [ideationNodeId],
+      blockedNodeIds: [],
+      failedNodeIds: [],
+      awaitingApprovalNodeIds: [],
+      taskRunCheckpointRefs: [],
+      recoveryPlan: expect.objectContaining({
+        recoveryVersion: 'mission-recovery.v1',
+        recoverableReadyNodeKeys: ['launch_engine'],
+      }),
+      rollbackPlan: {},
+      evidenceItemId: '00000000-0000-4000-8000-000000000191',
+      metadata: expect.objectContaining({
+        checkpointVersion: 'mission-runtime-checkpoint.v1',
+        sourceCheckpointVersion: 'mission-checkpoint.v1',
+        checkpointId: body.checkpointId,
+        replayRef: body.replayRef,
+        snapshot: expect.objectContaining({
+          mission: expect.objectContaining({ id: missionId }),
+          nodes: [
+            expect.objectContaining({ id: founderNodeId, nodeKey: 'founder_onboarding' }),
+            expect.objectContaining({ id: ideationNodeId, nodeKey: 'ideation' }),
+            expect.objectContaining({ id: launchNodeId, nodeKey: 'launch_engine' }),
+          ],
         }),
         productionReady: false,
       }),
@@ -718,6 +757,135 @@ describe('startupLifecycleRoutes', () => {
       }),
     });
     expect(deps.db.update).toHaveBeenCalled();
+    expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
+  });
+
+  it('plans mission recovery from a durable runtime checkpoint when evidence lookup misses', async () => {
+    const deps = createMockDeps();
+    const insertedEvidenceItems = captureEvidenceItemInserts(deps);
+    const missionId = '00000000-0000-4000-8000-000000000180';
+    const ventureId = '00000000-0000-4000-8000-000000000181';
+    const founderNodeId = '00000000-0000-4000-8000-000000000182';
+    const ideationNodeId = '00000000-0000-4000-8000-000000000183';
+    const checkpointReplayRef = `mission:${missionId}:checkpoint:def456`;
+    const checkpointId = 'mission-checkpoint:def456';
+    const checkpointEvidenceItemId = '00000000-0000-4000-8000-000000000184';
+    const selectResults = [
+      [
+        {
+          id: missionId,
+          workspaceId,
+          ventureId,
+          title: 'Recover EvidenceOS',
+          status: 'blocked',
+          productionReady: false,
+          metadata: {
+            lastCheckpoint: {
+              checkpointId,
+              replayRef: checkpointReplayRef,
+            },
+          },
+        },
+      ],
+      [],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000185',
+          workspaceId,
+          missionId,
+          checkpointKind: 'manual_checkpoint',
+          checkpointStatus: 'recorded',
+          missionStatus: 'scheduled_not_executing',
+          evidenceItemId: checkpointEvidenceItemId,
+          metadata: {
+            checkpointVersion: 'mission-runtime-checkpoint.v1',
+            sourceCheckpointVersion: 'mission-checkpoint.v1',
+            checkpointId,
+            replayRef: checkpointReplayRef,
+            snapshot: {
+              nodes: [
+                { id: founderNodeId, nodeKey: 'founder_onboarding', status: 'completed' },
+                { id: ideationNodeId, nodeKey: 'ideation', status: 'ready' },
+              ],
+            },
+            productionReady: false,
+          },
+        },
+      ],
+      [
+        {
+          id: founderNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'founder_onboarding',
+          stage: 'founder_onboarding',
+          title: 'Founder DNA and access charter',
+          status: 'completed',
+          sortOrder: 0,
+        },
+        {
+          id: ideationNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'ideation',
+          stage: 'ideation',
+          title: 'Venture hypothesis generation',
+          status: 'failed',
+          sortOrder: 1,
+        },
+      ],
+      [],
+      [],
+    ];
+    let selectCall = 0;
+    const originalSelect = deps.db.select;
+    deps.db.select = vi.fn(() => {
+      deps.db._setResult(selectResults[selectCall] ?? []);
+      selectCall += 1;
+      return originalSelect();
+    }) as typeof deps.db.select;
+
+    const { fetch } = testApp(startupLifecycleRoutes, deps);
+    const res = await fetch(
+      'POST',
+      `/missions/${missionId}/recovery-plan`,
+      { reason: 'recover from persisted runtime checkpoint' },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      checkpointId: string;
+      checkpointReplayRef: string;
+      evidenceItemIds: string[];
+      plan: {
+        changedNodeKeys: string[];
+        failedNodeKeys: string[];
+        checkpointNodeStatuses: Record<string, string>;
+      };
+    }>(res, 200);
+
+    expect(body.checkpointId).toBe(checkpointId);
+    expect(body.checkpointReplayRef).toBe(checkpointReplayRef);
+    expect(body.plan.changedNodeKeys).toEqual(['ideation']);
+    expect(body.plan.failedNodeKeys).toEqual(['ideation']);
+    expect(body.plan.checkpointNodeStatuses).toMatchObject({
+      founder_onboarding: 'completed',
+      ideation: 'ready',
+    });
+    expect(insertedEvidenceItems[0]).toMatchObject({
+      workspaceId,
+      ventureId,
+      missionId,
+      evidenceType: 'startup_lifecycle_recovery_plan',
+      metadata: expect.objectContaining({
+        checkpointId,
+        checkpointReplayRef,
+        snapshot: expect.objectContaining({
+          checkpoint: expect.objectContaining({
+            evidenceItemId: checkpointEvidenceItemId,
+          }),
+        }),
+      }),
+    });
     expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
   });
 

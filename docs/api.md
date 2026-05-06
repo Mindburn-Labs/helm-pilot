@@ -512,11 +512,11 @@ Inspect a persisted lifecycle mission, identify dependency-ready pending nodes, 
 
 ### POST /api/startup-lifecycle/missions/:missionId/checkpoint
 
-Persist a redacted snapshot of the current mission, node, edge, and task-link state as `startup_lifecycle_mission_checkpoint` evidence. Requires at least the workspace `partner` role. The response is `checkpointed_not_recovered`; this route records the replayable checkpoint snapshot and latest checkpoint pointer on the mission, but it does not itself recover, roll back, continue execution, or promote mission runtime to `production_ready`.
+Persist a redacted snapshot of the current mission, node, edge, and task-link state as `startup_lifecycle_mission_checkpoint` evidence and a linked `manual_checkpoint` row in `mission_runtime_checkpoints`. Requires at least the workspace `partner` role. The response is `checkpointed_not_recovered`; this route records the replayable checkpoint snapshot and latest checkpoint pointer on the mission, but it does not itself recover, roll back, continue execution, or promote mission runtime to `production_ready`.
 
 ### POST /api/startup-lifecycle/missions/:missionId/recovery-plan
 
-Compare the latest mission checkpoint snapshot with current mission, node, edge, and task-link state, then persist a `startup_lifecycle_recovery_plan` evidence item. Requires at least the workspace `partner` role. The response is `planned_not_executed`; this route reports changed, blocked, failed, approval-waiting, and ready nodes plus recommended next actions, but it does not execute recovery or promote mission runtime to `production_ready`.
+Compare the latest mission checkpoint snapshot with current mission, node, edge, and task-link state, then persist a `startup_lifecycle_recovery_plan` evidence item. If the checkpoint evidence lookup misses, the planner falls back to the latest linked `manual_checkpoint` runtime row before declaring no checkpoint context. Requires at least the workspace `partner` role. The response is `planned_not_executed`; this route reports changed, blocked, failed, approval-waiting, and ready nodes plus recommended next actions, but it does not execute recovery or promote mission runtime to `production_ready`.
 
 ### POST /api/startup-lifecycle/missions/:missionId/recover
 

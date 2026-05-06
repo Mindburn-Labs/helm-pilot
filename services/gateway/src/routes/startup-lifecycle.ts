@@ -393,6 +393,28 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
     const checkpointId = `mission-checkpoint:${contentHash.slice('sha256:'.length, 23)}`;
     const replayRef = `mission:${mission.id}:checkpoint:${checkpointId.split(':')[1]}`;
     const checkpointedAt = new Date();
+    const readyNodeIds = nodeRows.filter((node) => node.status === 'ready').map((node) => node.id);
+    const blockedNodeIds = nodeRows
+      .filter((node) => node.status === 'blocked')
+      .map((node) => node.id);
+    const failedNodeIds = nodeRows
+      .filter((node) => node.status === 'failed')
+      .map((node) => node.id);
+    const awaitingApprovalNodeIds = nodeRows
+      .filter((node) => node.status === 'awaiting_approval')
+      .map((node) => node.id);
+    const cursorNode = nodeRows.find((node) =>
+      ['running', 'ready', 'awaiting_approval', 'blocked', 'failed'].includes(node.status),
+    );
+    const runtimeSnapshot: MissionRuntimeSnapshot = {
+      mission,
+      nodes: nodeRows,
+      edges: edgeRows,
+      taskLinks,
+      taskRunCheckpointRefs: [],
+      nodeStatusCounts: nodeStatuses,
+      ...(cursorNode ? { cursorNode } : {}),
+    };
 
     const evidenceItemId = await appendEvidenceItem(_deps.db, {
       workspaceId,
@@ -419,6 +441,41 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
         productionReady: false,
       },
     });
+    const [runtimeCheckpoint] = await _deps.db
+      .insert(missionRuntimeCheckpoints)
+      .values({
+        workspaceId,
+        missionId: mission.id,
+        checkpointKind: 'manual_checkpoint',
+        checkpointStatus: 'recorded',
+        missionStatus: mission.status,
+        cursorNodeId: cursorNode?.id ?? null,
+        cursorNodeKey: cursorNode?.nodeKey ?? null,
+        nodeStatusCounts: nodeStatuses,
+        readyNodeIds,
+        blockedNodeIds,
+        failedNodeIds,
+        awaitingApprovalNodeIds,
+        taskRunCheckpointRefs: [],
+        recoveryPlan: buildRuntimeRecoveryPlan(runtimeSnapshot),
+        rollbackPlan: {},
+        evidenceItemId,
+        contentHash,
+        metadata: {
+          checkpointVersion: 'mission-runtime-checkpoint.v1',
+          sourceCheckpointVersion: 'mission-checkpoint.v1',
+          checkpointId,
+          replayRef,
+          reason: parsed.data.reason ?? null,
+          snapshot,
+          productionReady: false,
+        },
+        createdAt: checkpointedAt,
+      })
+      .returning({ id: missionRuntimeCheckpoints.id });
+    if (!runtimeCheckpoint?.id) {
+      throw new Error('Manual mission runtime checkpoint was not persisted');
+    }
 
     await _deps.db
       .update(missions)
@@ -493,8 +550,8 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
 
     const missionMetadata = jsonRecord(mission.metadata);
     const lastCheckpoint = jsonRecord(missionMetadata['lastCheckpoint']);
-    const checkpointId = stringValue(lastCheckpoint['checkpointId']);
-    const checkpointReplayRef = stringValue(lastCheckpoint['replayRef']);
+    let checkpointId = stringValue(lastCheckpoint['checkpointId']);
+    let checkpointReplayRef = stringValue(lastCheckpoint['replayRef']);
     const [checkpointEvidence] = checkpointReplayRef
       ? await _deps.db
           .select()
@@ -508,6 +565,30 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
           .orderBy(desc(evidenceItems.observedAt), desc(evidenceItems.id))
           .limit(1)
       : [];
+    const [checkpointRuntimeRow] = !checkpointEvidence
+      ? await _deps.db
+          .select()
+          .from(missionRuntimeCheckpoints)
+          .where(
+            and(
+              eq(missionRuntimeCheckpoints.workspaceId, workspaceId),
+              eq(missionRuntimeCheckpoints.missionId, mission.id),
+              eq(missionRuntimeCheckpoints.checkpointKind, 'manual_checkpoint'),
+            ),
+          )
+          .orderBy(desc(missionRuntimeCheckpoints.createdAt), desc(missionRuntimeCheckpoints.id))
+          .limit(1)
+      : [];
+    const checkpointRuntimeMetadata = jsonRecord(checkpointRuntimeRow?.metadata);
+    checkpointId =
+      checkpointId ??
+      stringValue(checkpointRuntimeMetadata['checkpointId']) ??
+      checkpointRuntimeRow?.id ??
+      null;
+    checkpointReplayRef =
+      checkpointReplayRef ?? stringValue(checkpointRuntimeMetadata['replayRef']);
+    const checkpointEvidenceItemId =
+      stringValue(lastCheckpoint['evidenceItemId']) ?? checkpointRuntimeRow?.evidenceItemId ?? null;
 
     const nodeRows = await _deps.db
       .select()
@@ -526,7 +607,9 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
       .orderBy(missionTasks.createdAt);
 
     const currentNodeStatuses = nodeStatusMap(nodeRows);
-    const checkpointNodeStatuses = checkpointStatusMap(checkpointEvidence?.metadata);
+    const checkpointNodeStatuses = checkpointStatusMap(
+      checkpointEvidence?.metadata ?? checkpointRuntimeRow?.metadata,
+    );
     const plan = buildMissionRecoveryPlan({
       currentNodeStatuses,
       checkpointNodeStatuses,
@@ -542,7 +625,7 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
       checkpoint: {
         checkpointId,
         replayRef: checkpointReplayRef,
-        evidenceItemId: stringValue(lastCheckpoint['evidenceItemId']),
+        evidenceItemId: checkpointEvidenceItemId,
       },
       current: {
         nodes: nodeRows.map((node) => ({
@@ -851,9 +934,7 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
       recoveryApplyVersion: 'mission-recovery-apply.v1',
       productionReady: false,
       status:
-        recoveredNodes.length > 0
-          ? 'recovery_applied_not_executed'
-          : 'recovery_noop_not_executed',
+        recoveredNodes.length > 0 ? 'recovery_applied_not_executed' : 'recovery_noop_not_executed',
       missionStatus,
       recoveryPlanReplayRef: recoveryEvidence.replayRef,
       executionStarted: false,
