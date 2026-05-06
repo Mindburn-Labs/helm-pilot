@@ -256,6 +256,7 @@ export interface ObligationResult {
   obligationId: string;
   registeredAt: string;
   expiresAt?: string;
+  governance?: HelmAdminWriteGovernance;
 }
 
 export interface BoundaryCheckResult {
@@ -280,6 +281,15 @@ export interface MemoryListResult {
 export interface MemoryPromoteResult {
   sharedMemoryId: string;
   promotedAt: string;
+  governance?: HelmAdminWriteGovernance;
+}
+
+export interface HelmAdminWriteGovernance {
+  receipt: HelmReceipt;
+  evidencePackId?: string;
+  policyDecisionId: string;
+  policyVersion: string;
+  helmDocumentVersionPins: Record<string, string>;
 }
 
 export interface ContextBundle {

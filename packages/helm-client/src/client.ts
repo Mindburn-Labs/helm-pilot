@@ -16,6 +16,7 @@ import type {
   BoundaryCheckResult,
   MemoryListResult,
   MemoryPromoteResult,
+  HelmAdminWriteGovernance,
   ContextBundleListResult,
   EconomicChargesResult,
   EconomicAllocationsResult,
@@ -456,7 +457,7 @@ export class HelmClient {
   /** Register a post-decision obligation (e.g. retain PHI access log for 2190 days). */
   async createObligation(req: ObligationRequest): Promise<ObligationResult> {
     const classification = HELM_ADMIN_ENDPOINT_ACTION_CATALOG.createObligation;
-    await this.evaluateAdminEndpointWrite({
+    const governance = await this.evaluateAdminEndpointWrite({
       classification,
       workspaceId: req.workspaceId,
       resource: `${req.workspaceId}:${req.decisionId}:${req.obligation}`,
@@ -469,7 +470,8 @@ export class HelmClient {
       headers: { 'Content-Type': 'application/json', ...this.adminHeaders() },
       body: JSON.stringify(req),
     });
-    return (await response.json()) as ObligationResult;
+    const body = (await response.json()) as ObligationResult;
+    return { ...body, governance: adminWriteGovernanceMetadata(classification, governance) };
   }
 
   /** Sandbox / boundary violation status check. */
@@ -491,7 +493,7 @@ export class HelmClient {
   /** Promote a workspace-scoped page into shared HELM memory. */
   async promoteMemory(workspaceId: string, pageId: string): Promise<MemoryPromoteResult> {
     const classification = HELM_ADMIN_ENDPOINT_ACTION_CATALOG.promoteMemory;
-    await this.evaluateAdminEndpointWrite({
+    const governance = await this.evaluateAdminEndpointWrite({
       classification,
       workspaceId,
       resource: `${workspaceId}:${pageId}`,
@@ -504,7 +506,8 @@ export class HelmClient {
       headers: { 'Content-Type': 'application/json', ...this.adminHeaders() },
       body: JSON.stringify({ workspaceId, pageId }),
     });
-    return (await response.json()) as MemoryPromoteResult;
+    const body = (await response.json()) as MemoryPromoteResult;
+    return { ...body, governance: adminWriteGovernanceMetadata(classification, governance) };
   }
 
   /** Reusable context snapshots available to the workspace. */
@@ -810,6 +813,24 @@ function receiptFromEvaluateBody(
     principal: ctx.principal,
     reason: body.reason_code ?? body.reason ?? body.error,
     signedBlob: body.signed_blob ?? body.signedBlob ?? body.signature,
+  };
+}
+
+function adminWriteGovernanceMetadata(
+  classification:
+    | typeof HELM_ADMIN_ENDPOINT_ACTION_CATALOG.createObligation
+    | typeof HELM_ADMIN_ENDPOINT_ACTION_CATALOG.promoteMemory,
+  result: EvaluateResult,
+): HelmAdminWriteGovernance {
+  return {
+    receipt: result.receipt,
+    evidencePackId: result.evidencePackId,
+    policyDecisionId: result.receipt.decisionId,
+    policyVersion: result.receipt.policyVersion,
+    helmDocumentVersionPins: {
+      helmAdminPolicy: result.receipt.policyVersion,
+      [classification.action]: result.receipt.policyVersion,
+    },
   };
 }
 
