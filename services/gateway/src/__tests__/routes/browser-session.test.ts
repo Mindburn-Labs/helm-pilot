@@ -31,11 +31,17 @@ function createBrowserAccessHelmClient(decisionId = 'dec-browser-access') {
   };
 }
 
-function createBrowserDb(selectResults: unknown[][] = []) {
+function createBrowserDb(
+  selectResults: unknown[][] = [],
+  options: { failOnInsertTable?: unknown } = {},
+) {
   const inserts: Array<{ table: unknown; value: unknown }> = [];
   const updates: Array<{ table: unknown; value: unknown }> = [];
 
-  const db = {
+  const createDbFacade = (
+    insertSink: Array<{ table: unknown; value: unknown }>,
+    updateSink: Array<{ table: unknown; value: unknown }>,
+  ) => ({
     select: vi.fn(() => ({
       from: vi.fn(() => {
         const chain = {
@@ -49,9 +55,12 @@ function createBrowserDb(selectResults: unknown[][] = []) {
     })),
     insert: vi.fn((table: unknown) => ({
       values: vi.fn((value: unknown) => {
-        inserts.push({ table, value });
+        insertSink.push({ table, value });
         return {
           returning: vi.fn(async () => {
+            if (options.failOnInsertTable === table) {
+              throw new Error('forced insert failure');
+            }
             if (table === browserSessions) {
               return [{ id: sessionId, workspaceId, status: 'active' }];
             }
@@ -92,13 +101,26 @@ function createBrowserDb(selectResults: unknown[][] = []) {
     })),
     update: vi.fn((table: unknown) => ({
       set: vi.fn((value: unknown) => {
-        updates.push({ table, value });
+        updateSink.push({ table, value });
         return {
           where: vi.fn(async () => []),
         };
       }),
     })),
     execute: vi.fn(async () => [{ '?column?': 1 }]),
+  });
+
+  const db = {
+    ...createDbFacade(inserts, updates),
+    transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
+      const stagedInserts: Array<{ table: unknown; value: unknown }> = [];
+      const stagedUpdates: Array<{ table: unknown; value: unknown }> = [];
+      const tx = createDbFacade(stagedInserts, stagedUpdates);
+      const result = await callback(tx);
+      inserts.push(...stagedInserts);
+      updates.push(...stagedUpdates);
+      return result;
+    }),
     _setResult: vi.fn(),
     _reset: vi.fn(),
   };
@@ -520,6 +542,53 @@ describe('browserSessionRoutes', () => {
         helmDocumentVersionPins: { browserReadPolicy: 'founder-ops-v1' },
       },
     });
+  });
+
+  it('fails closed without committing browser observation rows when evidence persistence fails', async () => {
+    const { db, inserts } = createBrowserDb(
+      [
+        [{ id: sessionId, workspaceId, allowedOrigins: ['https://www.ycombinator.com'] }],
+        [
+          {
+            id: grantId,
+            sessionId,
+            workspaceId,
+            allowedOrigins: ['https://www.ycombinator.com'],
+            grantedToType: 'agent',
+          },
+        ],
+      ],
+      { failOnInsertTable: evidenceItems },
+    );
+    const helmClient = {
+      evaluateOperatorBrowserRead: vi.fn(async () => ({
+        status: 'approved_for_read',
+        evidencePackId,
+        receipt: { decisionId: 'dec-browser', policyVersion: 'founder-ops-v1' },
+      })),
+    };
+    const deps = createMockDeps({ db: db as never, helmClient: helmClient as never });
+    const { fetch } = testApp(browserSessionRoutes, deps);
+
+    const res = await fetch(
+      'POST',
+      '/observations',
+      {
+        workspaceId,
+        sessionId,
+        grantId,
+        taskId,
+        url: 'https://www.ycombinator.com/account',
+        title: 'YC Account',
+        domSnapshot: '<main>YC account</main>',
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{ error: string }>(res, 500);
+
+    expect(body.error).toContain('failed to persist governed browser observation evidence');
+    expect(helmClient.evaluateOperatorBrowserRead).toHaveBeenCalled();
+    expect(inserts).toEqual([]);
   });
 
   it('fails closed when storing an observation without HELM', async () => {

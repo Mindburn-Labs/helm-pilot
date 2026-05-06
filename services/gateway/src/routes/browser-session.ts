@@ -76,44 +76,54 @@ export function browserSessionRoutes(deps: GatewayDeps) {
     if (governed instanceof Response) return governed;
     const governanceMetadata = browserAccessGovernanceMetadata('session_create', governed);
 
-    const [session] = await deps.db
-      .insert(browserSessions)
-      .values({
-        workspaceId: parsed.data.workspaceId,
-        userId: (c.get('userId') as string | undefined) ?? null,
-        name: parsed.data.name,
-        browser: parsed.data.browser,
-        profileLabel: parsed.data.profileLabel,
-        allowedOrigins: normalizeOrigins(parsed.data.allowedOrigins),
-        policyDecisionId: governed.receipt.decisionId,
-        policyVersion: governed.receipt.policyVersion,
-        helmDocumentVersionPins: governanceMetadata.policyPin.documentVersionPins,
-        evidencePackId: governed.evidencePackId ?? null,
-        metadata: {
-          ...redactRecord(parsed.data.metadata),
-          credentialBoundary: 'session_use_only_no_cookie_or_password_export',
-          governance: governanceMetadata,
-        },
-      })
-      .returning({
-        id: browserSessions.id,
-        workspaceId: browserSessions.workspaceId,
-        status: browserSessions.status,
-      });
+    let session;
+    try {
+      session = await deps.db.transaction(async (tx) => {
+        const db = tx as unknown as typeof deps.db;
+        const [created] = await db
+          .insert(browserSessions)
+          .values({
+            workspaceId: parsed.data.workspaceId,
+            userId: (c.get('userId') as string | undefined) ?? null,
+            name: parsed.data.name,
+            browser: parsed.data.browser,
+            profileLabel: parsed.data.profileLabel,
+            allowedOrigins: normalizeOrigins(parsed.data.allowedOrigins),
+            policyDecisionId: governed.receipt.decisionId,
+            policyVersion: governed.receipt.policyVersion,
+            helmDocumentVersionPins: governanceMetadata.policyPin.documentVersionPins,
+            evidencePackId: governed.evidencePackId ?? null,
+            metadata: {
+              ...redactRecord(parsed.data.metadata),
+              credentialBoundary: 'session_use_only_no_cookie_or_password_export',
+              governance: governanceMetadata,
+            },
+          })
+          .returning({
+            id: browserSessions.id,
+            workspaceId: browserSessions.workspaceId,
+            status: browserSessions.status,
+          });
 
-    await deps.db.insert(auditLog).values({
-      workspaceId: parsed.data.workspaceId,
-      action: 'BROWSER_SESSION_CREATED',
-      actor: `user:${(c.get('userId') as string | undefined) ?? 'unknown'}`,
-      target: session?.id ?? null,
-      verdict: 'allow',
-      metadata: {
-        browser: parsed.data.browser,
-        allowedOrigins: normalizeOrigins(parsed.data.allowedOrigins),
-        credentialBoundary: 'no_raw_credentials',
-        governance: governanceMetadata,
-      },
-    });
+        await db.insert(auditLog).values({
+          workspaceId: parsed.data.workspaceId,
+          action: 'BROWSER_SESSION_CREATED',
+          actor: `user:${(c.get('userId') as string | undefined) ?? 'unknown'}`,
+          target: created?.id ?? null,
+          verdict: 'allow',
+          metadata: {
+            browser: parsed.data.browser,
+            allowedOrigins: normalizeOrigins(parsed.data.allowedOrigins),
+            credentialBoundary: 'no_raw_credentials',
+            governance: governanceMetadata,
+          },
+        });
+
+        return created;
+      });
+    } catch {
+      return c.json({ error: 'failed to persist governed browser session' }, 500);
+    }
 
     return c.json({ session }, 201);
   });
@@ -184,45 +194,55 @@ export function browserSessionRoutes(deps: GatewayDeps) {
     if (governed instanceof Response) return governed;
     const governanceMetadata = browserAccessGovernanceMetadata('session_grant', governed);
 
-    const [grant] = await deps.db
-      .insert(browserSessionGrants)
-      .values({
-        workspaceId: parsed.data.workspaceId,
-        sessionId,
-        taskId: parsed.data.taskId,
-        ventureId: parsed.data.ventureId,
-        missionId: parsed.data.missionId,
-        grantedToType: parsed.data.grantedToType,
-        grantedToId: parsed.data.grantedToId,
-        scope: parsed.data.scope,
-        allowedOrigins: grantOrigins,
-        policyDecisionId: governed.receipt.decisionId,
-        policyVersion: governed.receipt.policyVersion,
-        helmDocumentVersionPins: governanceMetadata.policyPin.documentVersionPins,
-        evidencePackId: governed.evidencePackId ?? null,
-        expiresAt: parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : null,
-      })
-      .returning({
-        id: browserSessionGrants.id,
-        workspaceId: browserSessionGrants.workspaceId,
-        sessionId: browserSessionGrants.sessionId,
-        scope: browserSessionGrants.scope,
-        status: browserSessionGrants.status,
-      });
+    let grant;
+    try {
+      grant = await deps.db.transaction(async (tx) => {
+        const db = tx as unknown as typeof deps.db;
+        const [created] = await db
+          .insert(browserSessionGrants)
+          .values({
+            workspaceId: parsed.data.workspaceId,
+            sessionId,
+            taskId: parsed.data.taskId,
+            ventureId: parsed.data.ventureId,
+            missionId: parsed.data.missionId,
+            grantedToType: parsed.data.grantedToType,
+            grantedToId: parsed.data.grantedToId,
+            scope: parsed.data.scope,
+            allowedOrigins: grantOrigins,
+            policyDecisionId: governed.receipt.decisionId,
+            policyVersion: governed.receipt.policyVersion,
+            helmDocumentVersionPins: governanceMetadata.policyPin.documentVersionPins,
+            evidencePackId: governed.evidencePackId ?? null,
+            expiresAt: parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : null,
+          })
+          .returning({
+            id: browserSessionGrants.id,
+            workspaceId: browserSessionGrants.workspaceId,
+            sessionId: browserSessionGrants.sessionId,
+            scope: browserSessionGrants.scope,
+            status: browserSessionGrants.status,
+          });
 
-    await deps.db.insert(auditLog).values({
-      workspaceId: parsed.data.workspaceId,
-      action: 'BROWSER_SESSION_GRANTED',
-      actor: `user:${(c.get('userId') as string | undefined) ?? 'unknown'}`,
-      target: grant?.id ?? sessionId,
-      verdict: 'allow',
-      metadata: {
-        sessionId,
-        scope: parsed.data.scope,
-        allowedOrigins: grantOrigins,
-        governance: governanceMetadata,
-      },
-    });
+        await db.insert(auditLog).values({
+          workspaceId: parsed.data.workspaceId,
+          action: 'BROWSER_SESSION_GRANTED',
+          actor: `user:${(c.get('userId') as string | undefined) ?? 'unknown'}`,
+          target: created?.id ?? sessionId,
+          verdict: 'allow',
+          metadata: {
+            sessionId,
+            scope: parsed.data.scope,
+            allowedOrigins: grantOrigins,
+            governance: governanceMetadata,
+          },
+        });
+
+        return created;
+      });
+    } catch {
+      return c.json({ error: 'failed to persist governed browser session grant' }, 500);
+    }
 
     return c.json({ grant }, 201);
   });
@@ -234,28 +254,37 @@ export function browserSessionRoutes(deps: GatewayDeps) {
     if (roleDenied) return roleDenied;
     const sessionId = c.req.param('sessionId');
 
-    await deps.db
-      .update(browserSessions)
-      .set({ status: 'revoked', revokedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(browserSessions.id, sessionId), eq(browserSessions.workspaceId, workspaceId)));
-    await deps.db
-      .update(browserSessionGrants)
-      .set({ status: 'revoked', revokedAt: new Date() })
-      .where(
-        and(
-          eq(browserSessionGrants.sessionId, sessionId),
-          eq(browserSessionGrants.workspaceId, workspaceId),
-          eq(browserSessionGrants.status, 'active'),
-        ),
-      );
+    try {
+      await deps.db.transaction(async (tx) => {
+        const db = tx as unknown as typeof deps.db;
+        await db
+          .update(browserSessions)
+          .set({ status: 'revoked', revokedAt: new Date(), updatedAt: new Date() })
+          .where(
+            and(eq(browserSessions.id, sessionId), eq(browserSessions.workspaceId, workspaceId)),
+          );
+        await db
+          .update(browserSessionGrants)
+          .set({ status: 'revoked', revokedAt: new Date() })
+          .where(
+            and(
+              eq(browserSessionGrants.sessionId, sessionId),
+              eq(browserSessionGrants.workspaceId, workspaceId),
+              eq(browserSessionGrants.status, 'active'),
+            ),
+          );
 
-    await deps.db.insert(auditLog).values({
-      workspaceId,
-      action: 'BROWSER_SESSION_REVOKED',
-      actor: `user:${(c.get('userId') as string | undefined) ?? 'unknown'}`,
-      target: sessionId,
-      verdict: 'allow',
-    });
+        await db.insert(auditLog).values({
+          workspaceId,
+          action: 'BROWSER_SESSION_REVOKED',
+          actor: `user:${(c.get('userId') as string | undefined) ?? 'unknown'}`,
+          target: sessionId,
+          verdict: 'allow',
+        });
+      });
+    } catch {
+      return c.json({ error: 'failed to persist browser session revocation' }, 500);
+    }
 
     return c.json({ revoked: true, sessionId });
   });
@@ -302,123 +331,138 @@ export function browserSessionRoutes(deps: GatewayDeps) {
     const helmDocumentVersionPins = browserHelmDocumentVersionPins(
       evaluation.receipt.policyVersion,
     );
-    const [browserAction] = await deps.db
-      .insert(browserActions)
-      .values({
-        workspaceId: parsed.data.workspaceId,
-        sessionId: parsed.data.sessionId,
-        grantId: parsed.data.grantId,
-        taskId: parsed.data.taskId,
-        toolActionId: parsed.data.actionId,
-        actionType: 'read_extract',
-        objective: parsed.data.objective,
-        url: parsed.data.url,
-        origin: url.origin,
-        status: 'completed',
-        policyDecisionId: evaluation.receipt.decisionId,
-        policyVersion: evaluation.receipt.policyVersion,
-        helmDocumentVersionPins,
-        evidencePackId: evaluation.evidencePackId ?? null,
-        completedAt: new Date(),
-        metadata: {
-          helmDecisionId: evaluation.receipt.decisionId,
-          helmPolicyVersion: evaluation.receipt.policyVersion,
-          helmDocumentVersionPins,
-          credentialBoundary: 'read_only_no_cookie_or_password_export',
-        },
-      })
-      .returning({
-        id: browserActions.id,
-        replayIndex: browserActions.replayIndex,
-        evidencePackId: browserActions.evidencePackId,
+    let persisted;
+    try {
+      persisted = await deps.db.transaction(async (tx) => {
+        const db = tx as unknown as typeof deps.db;
+        const [createdAction] = await db
+          .insert(browserActions)
+          .values({
+            workspaceId: parsed.data.workspaceId,
+            sessionId: parsed.data.sessionId,
+            grantId: parsed.data.grantId,
+            taskId: parsed.data.taskId,
+            toolActionId: parsed.data.actionId,
+            actionType: 'read_extract',
+            objective: parsed.data.objective,
+            url: parsed.data.url,
+            origin: url.origin,
+            status: 'completed',
+            policyDecisionId: evaluation.receipt.decisionId,
+            policyVersion: evaluation.receipt.policyVersion,
+            helmDocumentVersionPins,
+            evidencePackId: evaluation.evidencePackId ?? null,
+            completedAt: new Date(),
+            metadata: {
+              helmDecisionId: evaluation.receipt.decisionId,
+              helmPolicyVersion: evaluation.receipt.policyVersion,
+              helmDocumentVersionPins,
+              credentialBoundary: 'read_only_no_cookie_or_password_export',
+            },
+          })
+          .returning({
+            id: browserActions.id,
+            replayIndex: browserActions.replayIndex,
+            evidencePackId: browserActions.evidencePackId,
+          });
+
+        const [createdObservation] = await db
+          .insert(browserObservations)
+          .values({
+            workspaceId: parsed.data.workspaceId,
+            sessionId: parsed.data.sessionId,
+            grantId: parsed.data.grantId,
+            browserActionId: createdAction?.id ?? null,
+            taskId: parsed.data.taskId,
+            actionId: parsed.data.actionId,
+            evidencePackId: evaluation.evidencePackId ?? null,
+            url: parsed.data.url,
+            origin: url.origin,
+            title: parsed.data.title,
+            objective: parsed.data.objective,
+            domHash: parsed.data.domSnapshot ? hashText(redacted.text) : null,
+            screenshotHash: parsed.data.screenshotHash ?? null,
+            screenshotRef: parsed.data.screenshotRef ?? null,
+            redactedDomSnapshot: redacted.text || null,
+            extractedData: redactJson(parsed.data.extractedData),
+            redactions,
+            replayIndex: createdAction?.replayIndex ?? 0,
+            metadata: {
+              ...redactRecord(parsed.data.metadata),
+              helmDecisionId: evaluation.receipt.decisionId,
+              helmPolicyVersion: evaluation.receipt.policyVersion,
+              helmDocumentVersionPins,
+              credentialBoundary: 'read_only_no_cookie_or_password_export',
+            },
+          })
+          .returning({
+            id: browserObservations.id,
+            workspaceId: browserObservations.workspaceId,
+            sessionId: browserObservations.sessionId,
+            grantId: browserObservations.grantId,
+            domHash: browserObservations.domHash,
+            evidencePackId: browserObservations.evidencePackId,
+          });
+
+        const createdEvidenceItemId = await appendEvidenceItem(db, {
+          workspaceId: parsed.data.workspaceId,
+          taskId: parsed.data.taskId ?? null,
+          actionId: parsed.data.actionId ?? null,
+          evidencePackId: evaluation.evidencePackId ?? null,
+          browserObservationId: createdObservation?.id ?? null,
+          evidenceType: 'browser_observation',
+          sourceType: 'gateway_browser_session',
+          title: `Browser read: ${parsed.data.title ?? url.hostname}`,
+          summary: parsed.data.objective ?? `Read-only browser extraction from ${url.origin}`,
+          redactionState: redactions.length > 0 ? 'redacted' : 'clean',
+          sensitivity: 'sensitive',
+          contentHash: createdObservation?.domHash ?? parsed.data.screenshotHash ?? null,
+          storageRef: parsed.data.screenshotRef ?? null,
+          replayRef: `browser:${parsed.data.sessionId}:${createdAction?.replayIndex ?? 0}`,
+          metadata: {
+            sessionId: parsed.data.sessionId,
+            grantId: parsed.data.grantId,
+            browserActionId: createdAction?.id ?? null,
+            url: parsed.data.url,
+            origin: url.origin,
+            helmDecisionId: evaluation.receipt.decisionId,
+            helmPolicyVersion: evaluation.receipt.policyVersion,
+            helmDocumentVersionPins,
+            credentialBoundary: 'read_only_no_cookie_or_password_export',
+            redactions,
+          },
+        });
+
+        await db.insert(auditLog).values({
+          workspaceId: parsed.data.workspaceId,
+          action: 'BROWSER_OBSERVATION_CAPTURED',
+          actor: `browser:${parsed.data.sessionId}`,
+          target: createdObservation?.id ?? parsed.data.url,
+          verdict: 'allow',
+          metadata: {
+            grantId: parsed.data.grantId,
+            browserActionId: createdAction?.id ?? null,
+            url: parsed.data.url,
+            origin: url.origin,
+            helmDecisionId: evaluation.receipt.decisionId,
+            helmPolicyVersion: evaluation.receipt.policyVersion,
+            helmDocumentVersionPins,
+            evidencePackId: evaluation.evidencePackId ?? null,
+            evidenceItemId: createdEvidenceItemId,
+            redactions,
+          },
+        });
+
+        return {
+          browserAction: createdAction,
+          observation: createdObservation,
+          evidenceItemId: createdEvidenceItemId,
+        };
       });
-
-    const [observation] = await deps.db
-      .insert(browserObservations)
-      .values({
-        workspaceId: parsed.data.workspaceId,
-        sessionId: parsed.data.sessionId,
-        grantId: parsed.data.grantId,
-        browserActionId: browserAction?.id ?? null,
-        taskId: parsed.data.taskId,
-        actionId: parsed.data.actionId,
-        evidencePackId: evaluation.evidencePackId ?? null,
-        url: parsed.data.url,
-        origin: url.origin,
-        title: parsed.data.title,
-        objective: parsed.data.objective,
-        domHash: parsed.data.domSnapshot ? hashText(redacted.text) : null,
-        screenshotHash: parsed.data.screenshotHash ?? null,
-        screenshotRef: parsed.data.screenshotRef ?? null,
-        redactedDomSnapshot: redacted.text || null,
-        extractedData: redactJson(parsed.data.extractedData),
-        redactions,
-        replayIndex: browserAction?.replayIndex ?? 0,
-        metadata: {
-          ...redactRecord(parsed.data.metadata),
-          helmDecisionId: evaluation.receipt.decisionId,
-          helmPolicyVersion: evaluation.receipt.policyVersion,
-          helmDocumentVersionPins,
-          credentialBoundary: 'read_only_no_cookie_or_password_export',
-        },
-      })
-      .returning({
-        id: browserObservations.id,
-        workspaceId: browserObservations.workspaceId,
-        sessionId: browserObservations.sessionId,
-        grantId: browserObservations.grantId,
-        domHash: browserObservations.domHash,
-        evidencePackId: browserObservations.evidencePackId,
-      });
-
-    const evidenceItemId = await appendEvidenceItem(deps.db, {
-      workspaceId: parsed.data.workspaceId,
-      taskId: parsed.data.taskId ?? null,
-      actionId: parsed.data.actionId ?? null,
-      evidencePackId: evaluation.evidencePackId ?? null,
-      browserObservationId: observation?.id ?? null,
-      evidenceType: 'browser_observation',
-      sourceType: 'gateway_browser_session',
-      title: `Browser read: ${parsed.data.title ?? url.hostname}`,
-      summary: parsed.data.objective ?? `Read-only browser extraction from ${url.origin}`,
-      redactionState: redactions.length > 0 ? 'redacted' : 'clean',
-      sensitivity: 'sensitive',
-      contentHash: observation?.domHash ?? parsed.data.screenshotHash ?? null,
-      storageRef: parsed.data.screenshotRef ?? null,
-      replayRef: `browser:${parsed.data.sessionId}:${browserAction?.replayIndex ?? 0}`,
-      metadata: {
-        sessionId: parsed.data.sessionId,
-        grantId: parsed.data.grantId,
-        browserActionId: browserAction?.id ?? null,
-        url: parsed.data.url,
-        origin: url.origin,
-        helmDecisionId: evaluation.receipt.decisionId,
-        helmPolicyVersion: evaluation.receipt.policyVersion,
-        helmDocumentVersionPins,
-        credentialBoundary: 'read_only_no_cookie_or_password_export',
-        redactions,
-      },
-    });
-
-    await deps.db.insert(auditLog).values({
-      workspaceId: parsed.data.workspaceId,
-      action: 'BROWSER_OBSERVATION_CAPTURED',
-      actor: `browser:${parsed.data.sessionId}`,
-      target: observation?.id ?? parsed.data.url,
-      verdict: 'allow',
-      metadata: {
-        grantId: parsed.data.grantId,
-        browserActionId: browserAction?.id ?? null,
-        url: parsed.data.url,
-        origin: url.origin,
-        helmDecisionId: evaluation.receipt.decisionId,
-        helmPolicyVersion: evaluation.receipt.policyVersion,
-        helmDocumentVersionPins,
-        evidencePackId: evaluation.evidencePackId ?? null,
-        evidenceItemId,
-        redactions,
-      },
-    });
+    } catch {
+      return c.json({ error: 'failed to persist governed browser observation evidence' }, 500);
+    }
+    const { browserAction, observation, evidenceItemId } = persisted;
 
     return c.json(
       {
