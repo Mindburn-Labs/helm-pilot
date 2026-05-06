@@ -293,6 +293,7 @@ const capabilityRecords = validateCapabilityRecords([
     evidence: [
       'Gate 7 adds computer_actions evidence rows for terminal_command, file_read, file_write, and dev_server_status operations',
       'operator.computer_use requires Tool Broker action lineage, HELM OPERATOR_COMPUTER_USE approval, restricted path deny rules, and command allowlisting before execution',
+      'operator.computer_use safe action evidence_items now link to OPERATOR_COMPUTER_USE audit_log rows through audit_event_id with audit-before-evidence FK ordering',
     ],
     evalRequirement: 'Safe Computer/Sandbox Action Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,
@@ -387,6 +388,7 @@ const capabilityRecords = validateCapabilityRecords([
       'Tool Broker and gateway browser observation writers persist audit_log rows before evidence_items rows that reference audit_event_id, then backfill audit metadata with the evidence item id',
       'Tool Broker refuses medium, high, and restricted tool manifests before action persistence or execution unless HELM policy decision metadata is present, and marks elevated tool executions failed if evidence_items persistence fails before completion',
       'Gateway browser observation evidence_items now link to their BROWSER_OBSERVATION_CAPTURED audit_log rows through audit_event_id',
+      'Safe computer action evidence_items now link to OPERATOR_COMPUTER_USE audit_log rows through audit_event_id',
       'Connector refresh background worker success and failure paths append sanitized evidence_items rows without token material',
       'Workspace-scoped YC, Startup School, private YC, knowledge ingestion, and opportunity-cluster pipeline workers append redacted pipeline_worker evidence_items rows for success and failure',
       'YC scraper ingestion finalizers append redacted yc_scraper_ingestion evidence_items rows for parsed and failed workspace-scoped ingestion records without session, token, or raw error material',

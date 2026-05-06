@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { artifactVersions, artifacts, computerActions, evidenceItems } from '@pilot/db/schema';
+import {
+  artifactVersions,
+  artifacts,
+  auditLog,
+  computerActions,
+  evidenceItems,
+} from '@pilot/db/schema';
 import { getCapabilityRecord } from '@pilot/shared/capabilities';
 import { SkillRegistry, type SkillDefinition } from '@pilot/shared/skills';
 import {
@@ -51,7 +57,10 @@ function brokeredToolContext(overrides: Partial<ToolExecutionContext> = {}): Too
 function createComputerActionDb(options: { failEvidenceInsert?: boolean } = {}) {
   const insertedComputerActions: unknown[] = [];
   const insertedEvidenceItems: unknown[] = [];
+  const insertedAudit: unknown[] = [];
   const updatedComputerActions: unknown[] = [];
+  const updatedAudit: unknown[] = [];
+  const transactionInsertOrder: string[] = [];
   const originalInsert = vi.fn((table: unknown) => ({
     values: vi.fn((value: unknown) => {
       if (table === computerActions) {
@@ -67,6 +76,10 @@ function createComputerActionDb(options: { failEvidenceInsert?: boolean } = {}) 
           ]),
         };
       }
+      if (table === auditLog) {
+        insertedAudit.push(value);
+        return {};
+      }
       if (table === evidenceItems) {
         insertedEvidenceItems.push(value);
         return {
@@ -80,11 +93,17 @@ function createComputerActionDb(options: { failEvidenceInsert?: boolean } = {}) 
       return { returning: vi.fn(async () => []) };
     }),
   }));
-  const captureEvidenceInsert = (sink: unknown[]) =>
+  const captureEvidenceInsert = (evidenceSink: unknown[], auditSink: unknown[]) =>
     vi.fn((table: unknown) => ({
       values: vi.fn((value: unknown) => {
+        if (table === auditLog) {
+          transactionInsertOrder.push('audit_log');
+          auditSink.push(value);
+          return {};
+        }
         if (table === evidenceItems) {
-          sink.push(value);
+          transactionInsertOrder.push('evidence_items');
+          evidenceSink.push(value);
           return {
             returning: vi.fn(async () => {
               if (options.failEvidenceInsert) throw new Error('evidence ledger unavailable');
@@ -99,30 +118,43 @@ function createComputerActionDb(options: { failEvidenceInsert?: boolean } = {}) 
         return originalInsert(table).values(value);
       }),
     }));
-  const captureComputerActionUpdate = (sink: unknown[]) =>
+  const captureComputerActionUpdate = (computerActionSink: unknown[], auditSink: unknown[]) =>
     vi.fn((table: unknown) => ({
       set: vi.fn((value: unknown) => {
-        if (table === computerActions) sink.push(value);
+        if (table === computerActions) computerActionSink.push(value);
+        if (table === auditLog) auditSink.push(value);
         return { where: vi.fn(async () => []) };
       }),
     }));
   const db = {
     insert: originalInsert,
-    update: captureComputerActionUpdate(updatedComputerActions),
+    update: captureComputerActionUpdate(updatedComputerActions, updatedAudit),
     transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
       const stagedEvidenceItems: unknown[] = [];
       const stagedComputerActionUpdates: unknown[] = [];
+      const stagedAudit: unknown[] = [];
+      const stagedAuditUpdates: unknown[] = [];
       const tx = {
-        insert: captureEvidenceInsert(stagedEvidenceItems),
-        update: captureComputerActionUpdate(stagedComputerActionUpdates),
+        insert: captureEvidenceInsert(stagedEvidenceItems, stagedAudit),
+        update: captureComputerActionUpdate(stagedComputerActionUpdates, stagedAuditUpdates),
       };
       const result = await callback(tx);
+      insertedAudit.push(...stagedAudit);
       insertedEvidenceItems.push(...stagedEvidenceItems);
       updatedComputerActions.push(...stagedComputerActionUpdates);
+      updatedAudit.push(...stagedAuditUpdates);
       return result;
     }),
   };
-  return { db, insertedComputerActions, insertedEvidenceItems, updatedComputerActions };
+  return {
+    db,
+    insertedComputerActions,
+    insertedEvidenceItems,
+    insertedAudit,
+    updatedComputerActions,
+    updatedAudit,
+    transactionInsertOrder,
+  };
 }
 
 function createArtifactDb() {
@@ -861,8 +893,15 @@ describe('ToolRegistry', () => {
     });
 
     it('uses HELM, executes an allowlisted local command, and persists evidence', async () => {
-      const { db, insertedComputerActions, insertedEvidenceItems, updatedComputerActions } =
-        createComputerActionDb();
+      const {
+        db,
+        insertedComputerActions,
+        insertedEvidenceItems,
+        insertedAudit,
+        updatedComputerActions,
+        updatedAudit,
+        transactionInsertOrder,
+      } = createComputerActionDb();
       const helmClient = {
         evaluateOperatorComputerUse: vi.fn(async () => ({
           status: 'approved_for_execution',
@@ -927,10 +966,31 @@ describe('ToolRegistry', () => {
         exitCode: 0,
         outputHash: expect.stringMatching(/^sha256:/u),
       });
+      expect(insertedAudit[0]).toMatchObject({
+        id: expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u,
+        ),
+        workspaceId,
+        action: 'OPERATOR_COMPUTER_USE',
+        actor: `operator:${operatorId}`,
+        target: '00000000-0000-4000-8000-000000000010',
+        verdict: 'allow',
+        metadata: expect.objectContaining({
+          computerActionId: '00000000-0000-4000-8000-000000000010',
+          operation: 'terminal_command',
+          status: 'completed',
+          helmDocumentVersionPins: { computerUsePolicy: 'founder-ops-v1' },
+        }),
+      });
+      expect(transactionInsertOrder.indexOf('audit_log')).toBeLessThan(
+        transactionInsertOrder.indexOf('evidence_items'),
+      );
+      const auditEventId = (insertedAudit[0] as { id: string }).id;
       expect(insertedEvidenceItems[0]).toMatchObject({
         workspaceId,
         taskId,
         actionId,
+        auditEventId,
         evidencePackId,
         computerActionId: '00000000-0000-4000-8000-000000000010',
         evidenceType: 'computer_action',
@@ -939,6 +999,11 @@ describe('ToolRegistry', () => {
         replayRef: 'computer:00000000-0000-4000-8000-000000000010:0',
         metadata: {
           helmDocumentVersionPins: { computerUsePolicy: 'founder-ops-v1' },
+        },
+      });
+      expect(updatedAudit[0]).toMatchObject({
+        metadata: {
+          evidenceItemId: '00000000-0000-4000-8000-000000000011',
         },
       });
       expect(result).toMatchObject({
@@ -1109,8 +1174,14 @@ describe('ToolRegistry', () => {
     });
 
     it('does not mark a computer action complete when final evidence persistence fails', async () => {
-      const { db, insertedComputerActions, insertedEvidenceItems, updatedComputerActions } =
-        createComputerActionDb({ failEvidenceInsert: true });
+      const {
+        db,
+        insertedComputerActions,
+        insertedEvidenceItems,
+        insertedAudit,
+        updatedComputerActions,
+        updatedAudit,
+      } = createComputerActionDb({ failEvidenceInsert: true });
       const helmClient = {
         evaluateOperatorComputerUse: vi.fn(async () => ({
           status: 'approved_for_execution',
@@ -1149,6 +1220,8 @@ describe('ToolRegistry', () => {
       expect(insertedComputerActions).toHaveLength(1);
       expect(updatedComputerActions).toEqual([]);
       expect(insertedEvidenceItems).toEqual([]);
+      expect(insertedAudit).toEqual([]);
+      expect(updatedAudit).toEqual([]);
       expect(result).toEqual({ error: 'evidence ledger unavailable' });
     });
 
