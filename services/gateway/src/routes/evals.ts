@@ -208,7 +208,8 @@ async function persistEvalRun(
         metadata: {
           evalRunId: created.id,
           evalId: input.evalId,
-          capabilityKey: created.capabilityKey ?? input.capabilityKey ?? defaultCapabilityKey ?? null,
+          capabilityKey:
+            created.capabilityKey ?? input.capabilityKey ?? defaultCapabilityKey ?? null,
           evidenceRef,
           auditReceiptRef: input.auditReceiptRefs[index] ?? null,
         },
@@ -220,17 +221,37 @@ async function persistEvalRun(
   let blockerTask: unknown;
   const promotions = [];
   const runRecord = toPilotEvalRunRecord(created);
-  const promotionChecks = passed
-    ? (input.capabilityKey ? [input.capabilityKey] : (scenario?.capabilityKeys ?? []))
-        .map((capabilityKey) => getCapabilityRecord(capabilityKey))
-        .filter((capability): capability is CapabilityRecord => Boolean(capability))
-        .map((capability) =>
-          checkCapabilityPromotionReadiness({
-            capability,
-            runs: [{ ...runRecord, capabilityKey: capability.key }],
-          }),
+  const promotionChecks = [];
+  if (passed) {
+    const promotionCapabilities = (
+      input.capabilityKey ? [input.capabilityKey] : (scenario?.capabilityKeys ?? [])
+    )
+      .map((capabilityKey) => getCapabilityRecord(capabilityKey))
+      .filter((capability): capability is CapabilityRecord => Boolean(capability));
+
+    for (const capability of promotionCapabilities) {
+      const persistedRows = await deps.db
+        .select()
+        .from(evalRuns)
+        .where(
+          and(eq(evalRuns.workspaceId, workspaceId), eq(evalRuns.capabilityKey, capability.key)),
         )
-    : [];
+        .orderBy(desc(evalRuns.createdAt))
+        .limit(25);
+      const persistedRuns = persistedRows
+        .map(toPilotEvalRunRecord)
+        .filter(
+          (run) => run.evalId !== runRecord.evalId || run.completedAt !== runRecord.completedAt,
+        );
+
+      promotionChecks.push(
+        checkCapabilityPromotionReadiness({
+          capability,
+          runs: [{ ...runRecord, capabilityKey: capability.key }, ...persistedRuns],
+        }),
+      );
+    }
+  }
 
   if (terminal) {
     const [createdResult] = await deps.db
@@ -341,7 +362,7 @@ export function evalRoutes(deps: GatewayDeps) {
     return c.json({
       workspaceId,
       productionReadyPromotionRule:
-        'A capability cannot be promoted to production_ready unless its mapped eval run passed with evidenceRefs, auditReceiptRefs, and completedAt.',
+        'A capability cannot be promoted to production_ready unless every required eval run passed with evidenceRefs, auditReceiptRefs, and completedAt.',
       scenarios: getPilotProductionEvalSuite(),
     });
   });

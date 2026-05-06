@@ -5,6 +5,7 @@ import {
   executePilotProductionEval,
   getPilotProductionEvalSuite,
   getRequiredEvalForCapability,
+  getRequiredEvalsForCapability,
   RecordPilotEvalRunInputSchema,
 } from '../eval/index.js';
 
@@ -40,6 +41,13 @@ describe('production eval suite', () => {
     for (const key of capabilityKeyValues) {
       expect(getRequiredEvalForCapability(key)?.id, key).toBeTruthy();
     }
+  });
+
+  it('uses explicit required eval mappings for ambiguous capability ownership', () => {
+    expect(getRequiredEvalsForCapability('evidence_ledger').map((scenario) => scenario.id)).toEqual(
+      ['helm_governance', 'recovery'],
+    );
+    expect(getRequiredEvalForCapability('computer_use')?.id).toBe('safe_computer_sandbox_action');
   });
 
   it('blocks promotion without a matching passed eval run, evidence, and audit receipt', () => {
@@ -84,6 +92,90 @@ describe('production eval suite', () => {
 
     expect(passed.canPromote).toBe(true);
     expect(passed.matchedEvalId).toBe('full_startup_launch');
+  });
+
+  it('requires every mapped eval before evidence ledger promotion is eligible', () => {
+    const capability = getCapabilityRecord('evidence_ledger');
+    if (!capability) throw new Error('evidence_ledger capability missing');
+
+    const onlyHelm = checkCapabilityPromotionReadiness({
+      capability,
+      runs: [
+        {
+          evalId: 'helm_governance',
+          workspaceId,
+          status: 'passed',
+          capabilityKey: 'evidence_ledger',
+          evidenceRefs: ['evidence:helm'],
+          auditReceiptRefs: ['audit:helm'],
+          metadata: {},
+          completedAt: '2026-05-05T00:00:00.000Z',
+        },
+      ],
+    });
+
+    expect(onlyHelm.canPromote).toBe(false);
+    expect(onlyHelm.requiredEvals).toEqual(['HELM Governance Eval', 'Recovery Eval']);
+    expect(onlyHelm.blockers.join(' ')).toContain('Recovery Eval');
+
+    const bothRequired = checkCapabilityPromotionReadiness({
+      capability,
+      runs: [
+        {
+          evalId: 'helm_governance',
+          workspaceId,
+          status: 'passed',
+          capabilityKey: 'evidence_ledger',
+          evidenceRefs: ['evidence:helm'],
+          auditReceiptRefs: ['audit:helm'],
+          metadata: {},
+          completedAt: '2026-05-05T00:00:00.000Z',
+        },
+        {
+          evalId: 'recovery',
+          workspaceId,
+          status: 'passed',
+          capabilityKey: 'evidence_ledger',
+          evidenceRefs: ['evidence:recovery'],
+          auditReceiptRefs: ['audit:recovery'],
+          metadata: {},
+          completedAt: '2026-05-05T00:00:01.000Z',
+        },
+      ],
+    });
+
+    expect(bothRequired.canPromote).toBe(true);
+    expect(bothRequired.matchedEvalIds).toEqual(['helm_governance', 'recovery']);
+    expect(bothRequired.evidenceRefs).toEqual(['evidence:helm', 'evidence:recovery']);
+    expect(bothRequired.auditReceiptRefs).toEqual(['audit:helm', 'audit:recovery']);
+  });
+
+  it('does not promote mission runtime from the startup launch eval alone', () => {
+    const capability = getCapabilityRecord('mission_runtime');
+    if (!capability) throw new Error('mission_runtime capability missing');
+
+    const check = checkCapabilityPromotionReadiness({
+      capability,
+      runs: [
+        {
+          evalId: 'full_startup_launch',
+          workspaceId,
+          status: 'passed',
+          capabilityKey: 'mission_runtime',
+          evidenceRefs: ['evidence:startup-launch'],
+          auditReceiptRefs: ['audit:startup-launch'],
+          metadata: {},
+          completedAt: '2026-05-05T00:00:00.000Z',
+        },
+      ],
+    });
+
+    expect(check.canPromote).toBe(false);
+    expect(check.requiredEvals).toEqual([
+      'Full Startup Launch Eval',
+      'Multi-Agent Parallel Build Eval',
+    ]);
+    expect(check.blockers.join(' ')).toContain('Multi-Agent Parallel Build Eval');
   });
 
   it('validates recordable eval runs before promotion checks can use them', () => {
