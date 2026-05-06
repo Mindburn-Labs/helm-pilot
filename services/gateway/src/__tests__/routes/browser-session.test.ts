@@ -129,7 +129,7 @@ function createBrowserDb(
 
 describe('browserSessionRoutes', () => {
   it('creates a browser session without storing credentials', async () => {
-    const { db, inserts } = createBrowserDb();
+    const { db, inserts, updates } = createBrowserDb();
     const helmClient = createBrowserAccessHelmClient('dec-browser-session-create');
     const deps = createMockDeps({ db: db as never, helmClient: helmClient as never });
     const { fetch } = testApp(browserSessionRoutes, deps);
@@ -185,15 +185,67 @@ describe('browserSessionRoutes', () => {
     expect(JSON.stringify(inserts.map((insert) => insert.value))).not.toMatch(
       /super-secret|refreshToken|sessionData/iu,
     );
-    expect(inserts.find((insert) => insert.table === auditLog)?.value).toMatchObject({
+    const auditInsert = inserts.find((insert) => insert.table === auditLog)?.value as {
+      id: string;
+    };
+    const auditInsertIndex = inserts.findIndex((insert) => insert.table === auditLog);
+    const evidenceInsertIndex = inserts.findIndex((insert) => insert.table === evidenceItems);
+    expect(auditInsertIndex).toBeLessThan(evidenceInsertIndex);
+    expect(auditInsert).toMatchObject({
       action: 'BROWSER_SESSION_CREATED',
       verdict: 'allow',
       metadata: {
+        evidenceType: 'browser_session_created',
+        replayRef: `browser-session:${sessionId}:created`,
         governance: {
           policyDecisionId: 'dec-browser-session-create',
         },
       },
     });
+    expect(inserts.find((insert) => insert.table === evidenceItems)?.value).toMatchObject({
+      workspaceId,
+      auditEventId: auditInsert.id,
+      evidencePackId,
+      evidenceType: 'browser_session_created',
+      sourceType: 'gateway_browser_session',
+      redactionState: 'redacted',
+      sensitivity: 'restricted',
+      replayRef: `browser-session:${sessionId}:created`,
+      metadata: {
+        credentialBoundary: 'no_raw_credentials',
+        governance: {
+          policyDecisionId: 'dec-browser-session-create',
+        },
+      },
+    });
+    expect(updates.find((update) => update.table === auditLog)?.value).toMatchObject({
+      metadata: {
+        evidenceItemId: 'evidence-item-1',
+      },
+    });
+  });
+
+  it('fails closed without committing browser session rows when control evidence persistence fails', async () => {
+    const { db, inserts } = createBrowserDb([], { failOnInsertTable: evidenceItems });
+    const helmClient = createBrowserAccessHelmClient('dec-browser-session-create');
+    const deps = createMockDeps({ db: db as never, helmClient: helmClient as never });
+    const { fetch } = testApp(browserSessionRoutes, deps);
+
+    const res = await fetch(
+      'POST',
+      '/',
+      {
+        workspaceId,
+        name: 'Founder Chrome',
+        browser: 'chrome',
+        allowedOrigins: ['https://www.ycombinator.com'],
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{ error: string }>(res, 500);
+
+    expect(body.error).toContain('failed to persist governed browser session');
+    expect(inserts).toEqual([]);
   });
 
   it('fails closed when creating a browser session without HELM', async () => {
@@ -259,7 +311,7 @@ describe('browserSessionRoutes', () => {
   });
 
   it('stores HELM governance when granting browser session access', async () => {
-    const { db, inserts } = createBrowserDb([
+    const { db, inserts, updates } = createBrowserDb([
       [{ id: sessionId, workspaceId, allowedOrigins: ['https://www.ycombinator.com'] }],
     ]);
     const helmClient = createBrowserAccessHelmClient('dec-browser-session-grant');
@@ -309,13 +361,90 @@ describe('browserSessionRoutes', () => {
       },
       evidencePackId,
     });
-    expect(inserts.find((insert) => insert.table === auditLog)?.value).toMatchObject({
+    const auditInsert = inserts.find((insert) => insert.table === auditLog)?.value as {
+      id: string;
+    };
+    const auditInsertIndex = inserts.findIndex((insert) => insert.table === auditLog);
+    const evidenceInsertIndex = inserts.findIndex((insert) => insert.table === evidenceItems);
+    expect(auditInsertIndex).toBeLessThan(evidenceInsertIndex);
+    expect(auditInsert).toMatchObject({
       action: 'BROWSER_SESSION_GRANTED',
       verdict: 'allow',
       metadata: {
+        evidenceType: 'browser_session_granted',
+        replayRef: `browser-session:${sessionId}:grant:${grantId}`,
         governance: {
           policyDecisionId: 'dec-browser-session-grant',
         },
+      },
+    });
+    expect(inserts.find((insert) => insert.table === evidenceItems)?.value).toMatchObject({
+      workspaceId,
+      taskId,
+      auditEventId: auditInsert.id,
+      evidencePackId,
+      evidenceType: 'browser_session_granted',
+      sourceType: 'gateway_browser_session',
+      redactionState: 'redacted',
+      sensitivity: 'restricted',
+      replayRef: `browser-session:${sessionId}:grant:${grantId}`,
+      metadata: {
+        sessionId,
+        grantId,
+        scope: 'read_extract',
+        governance: {
+          policyDecisionId: 'dec-browser-session-grant',
+        },
+      },
+    });
+    expect(updates.find((update) => update.table === auditLog)?.value).toMatchObject({
+      metadata: {
+        evidenceItemId: 'evidence-item-1',
+      },
+    });
+  });
+
+  it('records audit-linked evidence when revoking a browser session', async () => {
+    const { db, inserts, updates } = createBrowserDb();
+    const deps = createMockDeps({ db: db as never });
+    const { fetch } = testApp(browserSessionRoutes, deps);
+
+    const res = await fetch('DELETE', `/${sessionId}`, undefined, wsHeader);
+    const body = await expectJson<{ revoked: boolean; sessionId: string }>(res, 200);
+
+    expect(body).toEqual({ revoked: true, sessionId });
+    const auditInsert = inserts.find((insert) => insert.table === auditLog)?.value as {
+      id: string;
+    };
+    const auditInsertIndex = inserts.findIndex((insert) => insert.table === auditLog);
+    const evidenceInsertIndex = inserts.findIndex((insert) => insert.table === evidenceItems);
+    expect(auditInsertIndex).toBeLessThan(evidenceInsertIndex);
+    expect(auditInsert).toMatchObject({
+      workspaceId,
+      action: 'BROWSER_SESSION_REVOKED',
+      target: sessionId,
+      verdict: 'allow',
+      metadata: {
+        evidenceType: 'browser_session_revoked',
+        replayRef: `browser-session:${sessionId}:revoked`,
+      },
+    });
+    expect(inserts.find((insert) => insert.table === evidenceItems)?.value).toMatchObject({
+      workspaceId,
+      auditEventId: auditInsert.id,
+      evidenceType: 'browser_session_revoked',
+      sourceType: 'gateway_browser_session',
+      redactionState: 'redacted',
+      sensitivity: 'restricted',
+      replayRef: `browser-session:${sessionId}:revoked`,
+      metadata: {
+        sessionId,
+        credentialBoundary: 'no_raw_credentials',
+      },
+    });
+    expect(updates.find((update) => update.table === auditLog)?.value).toMatchObject({
+      metadata: {
+        evidenceItemId: 'evidence-item-1',
       },
     });
   });
