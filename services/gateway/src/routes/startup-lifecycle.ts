@@ -12,6 +12,8 @@ import {
   ventures,
 } from '@pilot/db/schema';
 import {
+  CheckpointedStartupMissionSchema,
+  CheckpointStartupMissionInputSchema,
   CompileStartupLifecycleInputSchema,
   ExecutedStartupMissionSchema,
   ExecutedStartupMissionNodeSchema,
@@ -298,6 +300,153 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
     });
 
     return c.json(response, 201);
+  });
+
+  app.post('/missions/:missionId/checkpoint', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'checkpoint startup lifecycle mission');
+    if (roleDenied) return roleDenied;
+
+    const raw = await c.req.json().catch(() => ({}));
+    if (workspaceIdMismatch(c, (raw as { workspaceId?: string }).workspaceId)) {
+      return c.json({ error: 'workspaceId does not match authenticated workspace' }, 403);
+    }
+
+    const parsed = CheckpointStartupMissionInputSchema.safeParse({
+      ...(raw as Record<string, unknown>),
+      workspaceId,
+      missionId: c.req.param('missionId'),
+    });
+    if (!parsed.success) {
+      return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
+    }
+
+    const [mission] = await _deps.db
+      .select()
+      .from(missions)
+      .where(and(eq(missions.id, parsed.data.missionId), eq(missions.workspaceId, workspaceId)))
+      .limit(1);
+    if (!mission) return c.json({ error: 'Mission not found' }, 404);
+
+    const nodeRows = await _deps.db
+      .select()
+      .from(missionNodes)
+      .where(and(eq(missionNodes.missionId, mission.id), eq(missionNodes.workspaceId, workspaceId)))
+      .orderBy(missionNodes.sortOrder);
+    const edgeRows = await _deps.db
+      .select()
+      .from(missionEdges)
+      .where(and(eq(missionEdges.missionId, mission.id), eq(missionEdges.workspaceId, workspaceId)))
+      .orderBy(missionEdges.edgeKey);
+    const taskLinks = await _deps.db
+      .select()
+      .from(missionTasks)
+      .where(and(eq(missionTasks.missionId, mission.id), eq(missionTasks.workspaceId, workspaceId)))
+      .orderBy(missionTasks.createdAt);
+
+    const nodeStatuses = countNodeStatuses(nodeRows);
+    const snapshot = {
+      mission: {
+        id: mission.id,
+        status: mission.status,
+        autonomyMode: mission.autonomyMode,
+        capabilityState: mission.capabilityState,
+        productionReady: mission.productionReady,
+      },
+      nodes: nodeRows.map((node) => ({
+        id: node.id,
+        nodeKey: node.nodeKey,
+        status: node.status,
+        stage: node.stage,
+        sortOrder: node.sortOrder,
+      })),
+      edges: edgeRows.map((edge) => ({
+        id: edge.id,
+        edgeKey: edge.edgeKey,
+        fromNodeKey: edge.fromNodeKey,
+        toNodeKey: edge.toNodeKey,
+      })),
+      taskLinks: taskLinks.map((link) => ({
+        id: link.id,
+        nodeId: link.nodeId,
+        taskId: link.taskId,
+        role: link.role,
+      })),
+      reason: parsed.data.reason ?? null,
+    };
+    const contentHash = hashJson(snapshot);
+    const checkpointId = `mission-checkpoint:${contentHash.slice('sha256:'.length, 23)}`;
+    const replayRef = `mission:${mission.id}:checkpoint:${checkpointId.split(':')[1]}`;
+    const checkpointedAt = new Date();
+
+    const evidenceItemId = await appendEvidenceItem(_deps.db, {
+      workspaceId,
+      ventureId: mission.ventureId ?? null,
+      missionId: mission.id,
+      evidenceType: 'startup_lifecycle_mission_checkpoint',
+      sourceType: 'gateway_startup_lifecycle',
+      title: `Startup lifecycle mission checkpoint: ${mission.title}`,
+      summary: parsed.data.reason ?? `Checkpoint for mission status ${mission.status}`,
+      redactionState: 'redacted',
+      sensitivity: 'internal',
+      contentHash,
+      replayRef,
+      observedAt: checkpointedAt,
+      metadata: {
+        checkpointVersion: 'mission-checkpoint.v1',
+        checkpointId,
+        missionStatus: mission.status,
+        nodeCount: nodeRows.length,
+        edgeCount: edgeRows.length,
+        taskLinkCount: taskLinks.length,
+        nodeStatuses,
+        productionReady: false,
+      },
+    });
+
+    await _deps.db
+      .update(missions)
+      .set({
+        metadata: {
+          ...jsonRecord(mission.metadata),
+          lastCheckpoint: {
+            checkpointId,
+            evidenceItemId,
+            replayRef,
+            contentHash,
+            checkpointedAt: checkpointedAt.toISOString(),
+          },
+        },
+        updatedAt: checkpointedAt,
+      })
+      .where(and(eq(missions.id, mission.id), eq(missions.workspaceId, workspaceId)));
+
+    const response = CheckpointedStartupMissionSchema.parse({
+      workspaceId,
+      missionId: mission.id,
+      checkpointId,
+      checkpointVersion: 'mission-checkpoint.v1',
+      productionReady: false,
+      status: 'checkpointed_not_recovered',
+      missionStatus: mission.status,
+      replayRef,
+      evidenceItemIds: [evidenceItemId],
+      snapshot: {
+        missionId: mission.id,
+        status: mission.status,
+        nodeCount: nodeRows.length,
+        edgeCount: edgeRows.length,
+        taskLinkCount: taskLinks.length,
+        nodeStatuses,
+      },
+      blockers: [
+        'Mission checkpoint snapshots are durable evidence only; recovery and rollback executors remain blocked.',
+        'Full Startup Launch Eval has not promoted mission_runtime or startup_lifecycle to production_ready.',
+      ],
+    });
+
+    return c.json(response, 200);
   });
 
   app.post('/missions/:missionId/schedule', async (c) => {
@@ -841,6 +990,19 @@ function persistedMissionBlockers(blockers: readonly string[]): string[] {
     'Mission DAG is persisted but not executing through the runtime yet',
     'Lifecycle nodes are not yet dispatched as governed action/tool/evidence workflows',
   ];
+}
+
+function countNodeStatuses(nodes: Array<typeof missionNodes.$inferSelect>): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const node of nodes) {
+    counts[node.status] = (counts[node.status] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function jsonRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
 }
 
 function missionNodeExecutionContext(

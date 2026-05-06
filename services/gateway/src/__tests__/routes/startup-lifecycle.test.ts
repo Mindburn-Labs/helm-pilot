@@ -323,6 +323,166 @@ describe('startupLifecycleRoutes', () => {
     expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
   });
 
+  it('checkpoints a mission DAG as durable evidence without recovery promotion', async () => {
+    const deps = createMockDeps();
+    const insertedEvidenceItems = captureEvidenceItemInserts(deps);
+    const missionId = '00000000-0000-4000-8000-000000000070';
+    const ventureId = '00000000-0000-4000-8000-000000000071';
+    const founderNodeId = '00000000-0000-4000-8000-000000000072';
+    const ideationNodeId = '00000000-0000-4000-8000-000000000073';
+    const launchNodeId = '00000000-0000-4000-8000-000000000074';
+    const taskLinkId = '00000000-0000-4000-8000-000000000075';
+    const taskId = '00000000-0000-4000-8000-000000000076';
+    const selectResults = [
+      [
+        {
+          id: missionId,
+          workspaceId,
+          ventureId,
+          title: 'Launch EvidenceOS',
+          status: 'scheduled_not_executing',
+          autonomyMode: 'review',
+          capabilityState: 'prototype',
+          productionReady: false,
+          metadata: { existing: 'value' },
+        },
+      ],
+      [
+        {
+          id: founderNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'founder_onboarding',
+          stage: 'founder_onboarding',
+          title: 'Founder DNA and access charter',
+          status: 'completed',
+          sortOrder: 0,
+        },
+        {
+          id: ideationNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'ideation',
+          stage: 'ideation',
+          title: 'Venture hypothesis generation',
+          status: 'ready',
+          sortOrder: 1,
+        },
+        {
+          id: launchNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'launch_engine',
+          stage: 'infrastructure_deployment',
+          title: 'Launch readiness',
+          status: 'pending',
+          sortOrder: 2,
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000077',
+          workspaceId,
+          missionId,
+          edgeKey: 'founder_onboarding->ideation',
+          fromNodeKey: 'founder_onboarding',
+          toNodeKey: 'ideation',
+        },
+      ],
+      [
+        {
+          id: taskLinkId,
+          workspaceId,
+          missionId,
+          nodeId: ideationNodeId,
+          taskId,
+          role: 'startup_lifecycle_node',
+        },
+      ],
+    ];
+    let selectCall = 0;
+    const originalSelect = deps.db.select;
+    deps.db.select = vi.fn(() => {
+      deps.db._setResult(selectResults[selectCall] ?? []);
+      selectCall += 1;
+      return originalSelect();
+    }) as typeof deps.db.select;
+
+    const { fetch } = testApp(startupLifecycleRoutes, deps);
+    const res = await fetch(
+      'POST',
+      `/missions/${missionId}/checkpoint`,
+      { reason: 'before executing ready nodes' },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      missionId: string;
+      checkpointId: string;
+      checkpointVersion: string;
+      productionReady: boolean;
+      status: string;
+      missionStatus: string;
+      replayRef: string;
+      evidenceItemIds: string[];
+      snapshot: {
+        missionId: string;
+        status: string;
+        nodeCount: number;
+        edgeCount: number;
+        taskLinkCount: number;
+        nodeStatuses: Record<string, number>;
+      };
+      blockers: string[];
+    }>(res, 200);
+
+    expect(body.missionId).toBe(missionId);
+    expect(body.checkpointId).toMatch(/^mission-checkpoint:[a-f0-9]+$/);
+    expect(body.checkpointVersion).toBe('mission-checkpoint.v1');
+    expect(body.productionReady).toBe(false);
+    expect(body.status).toBe('checkpointed_not_recovered');
+    expect(body.missionStatus).toBe('scheduled_not_executing');
+    expect(body.replayRef).toContain(`mission:${missionId}:checkpoint:`);
+    expect(body.evidenceItemIds).toEqual(['00000000-0000-4000-8000-000000000091']);
+    expect(body.snapshot).toMatchObject({
+      missionId,
+      status: 'scheduled_not_executing',
+      nodeCount: 3,
+      edgeCount: 1,
+      taskLinkCount: 1,
+      nodeStatuses: {
+        completed: 1,
+        ready: 1,
+        pending: 1,
+      },
+    });
+    expect(body.blockers.join(' ')).toContain('recovery and rollback');
+    expect(insertedEvidenceItems[0]).toMatchObject({
+      workspaceId,
+      ventureId,
+      missionId,
+      evidenceType: 'startup_lifecycle_mission_checkpoint',
+      sourceType: 'gateway_startup_lifecycle',
+      redactionState: 'redacted',
+      replayRef: body.replayRef,
+      metadata: expect.objectContaining({
+        checkpointVersion: 'mission-checkpoint.v1',
+        checkpointId: body.checkpointId,
+        missionStatus: 'scheduled_not_executing',
+        nodeCount: 3,
+        edgeCount: 1,
+        taskLinkCount: 1,
+        nodeStatuses: {
+          completed: 1,
+          ready: 1,
+          pending: 1,
+        },
+        productionReady: false,
+      }),
+    });
+    expect(deps.db.update).toHaveBeenCalled();
+    expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
+  });
+
   it('executes a ready mission node through the governed task runtime without production promotion', async () => {
     const deps = createMockDeps();
     const insertedEvidenceItems = captureEvidenceItemInserts(deps);
