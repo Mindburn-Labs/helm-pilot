@@ -1701,57 +1701,62 @@ async function persistMissionRuntimeCheckpoint(
     input.checkpointKind,
     checkpointId,
   );
-  const evidenceItemId = await appendEvidenceItem(deps.db, {
-    workspaceId,
-    ventureId: mission.ventureId ?? null,
-    missionId: mission.id,
-    evidenceType: 'startup_lifecycle_mission_checkpoint',
-    sourceType: 'gateway_startup_lifecycle',
-    title: `Mission runtime checkpoint: ${mission.title}`,
-    summary: `${input.checkpointKind} checkpoint for mission ${mission.id}`,
-    redactionState: 'redacted',
-    sensitivity: 'internal',
-    contentHash,
-    replayRef,
-    metadata: {
-      checkpointKind: input.checkpointKind,
-      checkpointId,
-      missionStatus: mission.status,
-      cursorNodeKey: snapshot.cursorNode?.nodeKey ?? null,
-      reason: input.reason,
-      productionReady: false,
-    },
-  });
-  const [checkpoint] = await deps.db
-    .insert(missionRuntimeCheckpoints)
-    .values({
-      id: checkpointId,
+  const { checkpoint, evidenceItemId } = await deps.db.transaction(async (tx) => {
+    const db = tx as unknown as typeof deps.db;
+    const persistedEvidenceItemId = await appendEvidenceItem(db, {
       workspaceId,
+      ventureId: mission.ventureId ?? null,
       missionId: mission.id,
-      checkpointKind: input.checkpointKind,
-      checkpointStatus: 'recorded',
-      missionStatus: mission.status,
-      cursorNodeId: snapshot.cursorNode?.id ?? null,
-      cursorNodeKey: snapshot.cursorNode?.nodeKey ?? null,
-      nodeStatusCounts: snapshot.nodeStatusCounts,
-      readyNodeIds,
-      blockedNodeIds,
-      failedNodeIds,
-      awaitingApprovalNodeIds,
-      taskRunCheckpointRefs: snapshot.taskRunCheckpointRefs,
-      recoveryPlan,
-      rollbackPlan,
-      evidenceItemId,
+      evidenceType: 'startup_lifecycle_mission_checkpoint',
+      sourceType: 'gateway_startup_lifecycle',
+      title: `Mission runtime checkpoint: ${mission.title}`,
+      summary: `${input.checkpointKind} checkpoint for mission ${mission.id}`,
+      redactionState: 'redacted',
+      sensitivity: 'internal',
       contentHash,
+      replayRef,
       metadata: {
-        checkpointVersion: 'mission-runtime-checkpoint.v1',
+        checkpointKind: input.checkpointKind,
+        checkpointId,
+        missionStatus: mission.status,
+        cursorNodeKey: snapshot.cursorNode?.nodeKey ?? null,
         reason: input.reason,
-        replayRef,
         productionReady: false,
       },
-      createdAt: now,
-    })
-    .returning({ id: missionRuntimeCheckpoints.id });
+    });
+    const [persistedCheckpoint] = await db
+      .insert(missionRuntimeCheckpoints)
+      .values({
+        id: checkpointId,
+        workspaceId,
+        missionId: mission.id,
+        checkpointKind: input.checkpointKind,
+        checkpointStatus: 'recorded',
+        missionStatus: mission.status,
+        cursorNodeId: snapshot.cursorNode?.id ?? null,
+        cursorNodeKey: snapshot.cursorNode?.nodeKey ?? null,
+        nodeStatusCounts: snapshot.nodeStatusCounts,
+        readyNodeIds,
+        blockedNodeIds,
+        failedNodeIds,
+        awaitingApprovalNodeIds,
+        taskRunCheckpointRefs: snapshot.taskRunCheckpointRefs,
+        recoveryPlan,
+        rollbackPlan,
+        evidenceItemId: persistedEvidenceItemId,
+        contentHash,
+        metadata: {
+          checkpointVersion: 'mission-runtime-checkpoint.v1',
+          reason: input.reason,
+          replayRef,
+          productionReady: false,
+        },
+        createdAt: now,
+      })
+      .returning({ id: missionRuntimeCheckpoints.id });
+
+    return { checkpoint: persistedCheckpoint, evidenceItemId: persistedEvidenceItemId };
+  });
   if (!checkpoint?.id) {
     throw new Error('Mission runtime checkpoint was not persisted');
   }
