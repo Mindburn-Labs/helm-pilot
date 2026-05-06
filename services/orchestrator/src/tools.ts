@@ -816,6 +816,7 @@ export class ToolRegistry {
           policyDecisionId: policyDecisionId ?? null,
           policyVersion: policyVersion ?? null,
           helmDocumentVersionPins: helmDocumentVersionPins ?? {},
+          modelUsage: {},
         });
         await this.db
           .update(opportunities)

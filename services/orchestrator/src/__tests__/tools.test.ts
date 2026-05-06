@@ -1266,6 +1266,7 @@ describe('ToolRegistry', () => {
           policyDecisionId: 'dec-score-tool',
           policyVersion: 'local:tool-broker:evidence_v1:E1',
           helmDocumentVersionPins: { toolAccessPolicy: 'local:tool-broker:evidence_v1:E1' },
+          modelUsage: {},
         }),
       );
       expect(updateSet).toHaveBeenCalledWith({ status: 'scored' });

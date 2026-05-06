@@ -135,6 +135,31 @@ describe('scoreWithLlm', () => {
     });
   });
 
+  it('propagates model usage and HELM governance metadata', async () => {
+    const llm: LlmProvider = {
+      complete: vi.fn(async () => sampleLlmResponse),
+      completeWithUsage: vi.fn(async () => ({
+        content: sampleLlmResponse,
+        usage: { tokensIn: 100, tokensOut: 50, model: 'test-model' },
+        governance: {
+          decisionId: 'dec-score',
+          verdict: 'ALLOW' as const,
+          policyVersion: 'founder-ops-v1',
+          principal: 'workspace:ws-1/operator:scoring',
+        },
+      })),
+    };
+
+    const result = await scoreWithLlm(llm, validInput);
+
+    expect(result.usage).toEqual({ tokensIn: 100, tokensOut: 50, model: 'test-model' });
+    expect(result.governance).toMatchObject({
+      decisionId: 'dec-score',
+      verdict: 'ALLOW',
+      policyVersion: 'founder-ops-v1',
+    });
+  });
+
   it('throws on unparseable response', async () => {
     await expect(scoreWithLlm(mockLlm('not json'), validInput)).rejects.toThrow(/unparseable/);
   });
