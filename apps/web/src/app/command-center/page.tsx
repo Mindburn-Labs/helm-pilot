@@ -152,7 +152,7 @@ const navItems = [
   { label: 'Ventures', href: '/discover' },
   { label: 'Missions', href: '/command-center' },
   { label: 'Agents', href: '/workspace-agents' },
-  { label: 'Browser/Computer', href: '/command-center#sessions' },
+  { label: 'Browser/Computer', href: '/browser-computer' },
   { label: 'Artifacts', href: '/command-center#artifacts' },
   { label: 'Evidence', href: '/command-center#evidence' },
   { label: 'Growth', href: '/launch' },
@@ -465,8 +465,7 @@ export default function CommandCenterPage() {
           id: 'eval-status-loading',
           title: 'Eval gates',
           meta: evalStatusError ?? 'loading',
-          detail:
-            evalStatusError ?? 'Waiting for durable eval status from the command-center API.',
+          detail: evalStatusError ?? 'Waiting for durable eval status from the command-center API.',
         },
       ];
     }
