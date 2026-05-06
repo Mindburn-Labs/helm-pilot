@@ -4,6 +4,7 @@ import { and, eq, isNull, lt } from 'drizzle-orm';
 import { appendEvidenceItem } from '@pilot/db';
 import { type Db } from '@pilot/db/client';
 import {
+  auditLog,
   opportunityScores,
   opportunities,
   tasks,
@@ -13,7 +14,7 @@ import {
   founderProfiles,
   founderStrengths,
 } from '@pilot/db/schema';
-import { scoreOpportunity } from '@pilot/shared/scoring';
+import { scoreOpportunity, type ScoringResult } from '@pilot/shared/scoring';
 import { type MemoryService } from '@pilot/memory';
 import { type LlmProvider } from '@pilot/shared/llm';
 import {
@@ -115,6 +116,10 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
       }
 
       try {
+        if (!deps.llm && requiresProductionGovernedScoring()) {
+          throw new Error('LLM provider is required for production opportunity scoring');
+        }
+
         const result = await scoreOpportunity(
           {
             title: opp.title,
@@ -133,6 +138,7 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
           },
           deps.llm,
         );
+        assertProductionScoreGovernance(result);
 
         await deps.db.insert(opportunityScores).values({
           opportunityId,
@@ -142,12 +148,21 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
           feasibility: result.feasibility,
           timing: result.timing,
           scoringMethod: result.method,
+          policyDecisionId: result.governance?.decisionId ?? null,
+          policyVersion: result.governance?.policyVersion ?? null,
+          helmDocumentVersionPins: opportunityScoreDocumentPins(result),
+          modelUsage: result.usage ? { ...result.usage } : {},
         });
 
         await deps.db
           .update(opportunities)
           .set({ status: 'scored' })
           .where(eq(opportunities.id, opportunityId));
+
+        await appendOpportunityScoreGovernanceEvidence({
+          opportunity: opp,
+          result,
+        });
 
         log.info(
           {
@@ -164,6 +179,55 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
       }
     }
   });
+
+  async function appendOpportunityScoreGovernanceEvidence(input: {
+    opportunity: typeof opportunities.$inferSelect;
+    result: ScoringResult;
+  }): Promise<void> {
+    const workspaceId = input.opportunity.workspaceId;
+    if (!workspaceId) return;
+
+    const helmDocumentVersionPins = opportunityScoreDocumentPins(input.result);
+    const metadata = {
+      opportunityId: input.opportunity.id,
+      method: input.result.method,
+      promptVersion: input.result.promptVersion,
+      overall: input.result.overall,
+      founderFit: input.result.founderFit,
+      marketSignal: input.result.marketSignal,
+      feasibility: input.result.feasibility,
+      timing: input.result.timing,
+      policyDecisionId: input.result.governance?.decisionId ?? null,
+      policyVersion: input.result.governance?.policyVersion ?? null,
+      helmDocumentVersionPins,
+      modelUsage: input.result.usage ?? null,
+      credentialBoundary: 'no_raw_credentials_or_session_payloads_in_evidence',
+    };
+
+    await deps.db.insert(auditLog).values({
+      workspaceId,
+      action: 'OPPORTUNITY_SCORE_RECORDED',
+      actor: 'job:opportunity.score',
+      target: input.opportunity.id,
+      verdict: 'allow',
+      metadata,
+    });
+
+    await appendEvidenceItem(deps.db, {
+      workspaceId,
+      evidenceType: 'opportunity_score',
+      sourceType: 'opportunity_score_worker',
+      title: `Opportunity scored: ${input.opportunity.title}`,
+      summary: input.result.rationale,
+      redactionState: 'redacted',
+      sensitivity: 'internal',
+      contentHash: `sha256:${hashJson(metadata)}`,
+      replayRef: input.result.governance?.decisionId
+        ? `helm:${input.result.governance.decisionId}`
+        : `opportunity-score:${input.opportunity.id}:${hashJson(metadata).slice(0, 16)}`,
+      metadata,
+    });
+  }
 
   // ─── Knowledge Recompilation ───
   boss.work('knowledge.recompile', async (jobs: PgBoss.Job<{ pageId: string }>[]) => {
@@ -611,6 +675,26 @@ function sanitizePipelineArgs(args: string[]): string[] {
     }
     return arg;
   });
+}
+
+function assertProductionScoreGovernance(result: ScoringResult): void {
+  if (!requiresProductionGovernedScoring()) return;
+  if (result.method === 'llm' && !result.governance) {
+    throw new Error('Production opportunity scoring requires HELM-governed model metadata');
+  }
+}
+
+function requiresProductionGovernedScoring(): boolean {
+  return process.env['NODE_ENV'] === 'production' && process.env['HELM_FAIL_CLOSED'] !== '0';
+}
+
+function opportunityScoreDocumentPins(result: ScoringResult): Record<string, string> {
+  return {
+    opportunityScorePrompt: result.promptVersion,
+    ...(result.governance?.policyVersion
+      ? { opportunityScorePolicy: result.governance.policyVersion }
+      : {}),
+  };
 }
 
 function sanitizeError(error: unknown): {

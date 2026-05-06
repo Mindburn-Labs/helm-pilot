@@ -22,6 +22,7 @@ import {
   missionNodes,
   missions,
   missionTasks,
+  opportunityScores,
   taskRuns,
   ventures,
 } from '../schema/index.js';
@@ -89,6 +90,15 @@ describe('Managed Telegram governance schema', () => {
   it('exports governance metadata on bot and message rows', () => {
     expect(managedTelegramBots.governanceMetadata.name).toBe('governance_metadata');
     expect(managedTelegramBotMessages.governanceMetadata.name).toBe('governance_metadata');
+  });
+});
+
+describe('Opportunity score governance schema', () => {
+  it('exports HELM policy pins and model usage on score rows', () => {
+    expect(opportunityScores.policyDecisionId.name).toBe('policy_decision_id');
+    expect(opportunityScores.policyVersion.name).toBe('policy_version');
+    expect(opportunityScores.helmDocumentVersionPins.name).toBe('helm_document_version_pins');
+    expect(opportunityScores.modelUsage.name).toBe('model_usage');
   });
 });
 

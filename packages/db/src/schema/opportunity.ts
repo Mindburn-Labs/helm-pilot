@@ -28,6 +28,13 @@ export const opportunityScores = pgTable('opportunity_scores', {
   feasibility: real('feasibility'),
   timing: real('timing'),
   scoringMethod: text('scoring_method').notNull(), // 'heuristic', 'llm', 'hybrid'
+  policyDecisionId: text('policy_decision_id'),
+  policyVersion: text('policy_version'),
+  helmDocumentVersionPins: jsonb('helm_document_version_pins')
+    .$type<Record<string, string>>()
+    .notNull()
+    .default({}),
+  modelUsage: jsonb('model_usage').$type<Record<string, unknown>>().notNull().default({}),
   scoredAt: timestamp('scored_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

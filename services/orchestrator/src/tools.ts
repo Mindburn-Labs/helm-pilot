@@ -765,11 +765,22 @@ export class ToolRegistry {
       },
       execute: async (input) => {
         const capability = getCapabilityRecord('opportunity_scoring');
-        const { opportunityId, workspaceId, founderSignals, citations } = input as {
+        const {
+          opportunityId,
+          workspaceId,
+          founderSignals,
+          citations,
+          policyDecisionId,
+          policyVersion,
+          helmDocumentVersionPins,
+        } = input as {
           opportunityId: string;
           workspaceId?: string;
           founderSignals?: string[];
           citations?: Array<{ url?: string; title?: string; note?: string }>;
+          policyDecisionId?: string;
+          policyVersion?: string;
+          helmDocumentVersionPins?: Record<string, string>;
         };
         // Verify opportunity exists
         const { opportunities, opportunityScores } = await import('@pilot/db/schema');
@@ -802,6 +813,9 @@ export class ToolRegistry {
           feasibility: score.dimensions.technicalFeasibility,
           timing: score.dimensions.urgency,
           scoringMethod: 'evidence_v1',
+          policyDecisionId: policyDecisionId ?? null,
+          policyVersion: policyVersion ?? null,
+          helmDocumentVersionPins: helmDocumentVersionPins ?? {},
         });
         await this.db
           .update(opportunities)

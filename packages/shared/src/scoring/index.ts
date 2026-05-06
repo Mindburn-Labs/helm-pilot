@@ -1,4 +1,4 @@
-import type { LlmProvider } from '../llm/index.js';
+import type { LlmGovernance, LlmProvider, LlmUsage } from '../llm/index.js';
 import {
   buildOpportunityScorePrompt,
   OPPORTUNITY_SCORE_PROMPT_VERSION,
@@ -26,6 +26,12 @@ export interface ScoringResult extends OpportunityScoreOutput {
   method: 'llm' | 'heuristic';
   /** Raw model response — kept for debugging. Not persisted by default. */
   rawResponse?: string;
+  /** Token/model usage when a model produced the score. */
+  usage?: LlmUsage;
+  /** HELM governance receipt metadata when the score used a governed model. */
+  governance?: LlmGovernance;
+  /** Present only when a caller explicitly allowed heuristic fallback after LLM failure. */
+  fallbackReason?: string;
 }
 
 /**
@@ -66,8 +72,8 @@ function sourceQualityWeight(source: string | null | undefined): number {
 
 /**
  * Call the LLM to produce a real score. Throws when the LLM returns an
- * unparseable response — callers should catch and fall through to
- * `heuristicScore` rather than poison the pipeline.
+ * unparseable response so production callers cannot silently downgrade a
+ * governed scoring path into a heuristic score.
  */
 export async function scoreWithLlm(
   llm: LlmProvider,
@@ -81,25 +87,41 @@ export async function scoreWithLlm(
     promptVersion: OPPORTUNITY_SCORE_PROMPT_VERSION,
     method: 'llm',
     rawResponse: result.content,
+    usage: result.usage,
+    governance: result.governance,
   };
 }
 
+export interface ScoreOpportunityOptions {
+  /**
+   * Explicit demo/dev escape hatch. Production job paths must leave this false
+   * so HELM/model failures block instead of being disguised as heuristics.
+   */
+  allowHeuristicFallbackOnLlmFailure?: boolean;
+}
+
 /**
- * Combined API — tries LLM, falls back to heuristic on any failure.
- * Log on failure but never throw back to the caller; scoring must not be
- * a "bubble up to the user" layer.
+ * Combined API. Heuristic scoring is allowed when no LLM is configured.
+ * Once a caller supplies an LLM, failures propagate unless the caller opts
+ * into a clearly marked fallback. That prevents production HELM failures from
+ * being persisted as if autonomous scoring succeeded.
  */
 export async function scoreOpportunity(
   input: OpportunityScoreInput,
   llm?: LlmProvider,
+  options: ScoreOpportunityOptions = {},
 ): Promise<ScoringResult> {
   if (!llm) return heuristicScore(input);
   try {
     return await scoreWithLlm(llm, input);
-  } catch {
-    // Intentionally silent — heuristic still returns useful numbers, and
-    // LLM failures are common in dev (rate limits, malformed responses).
-    return heuristicScore(input);
+  } catch (err) {
+    if (options.allowHeuristicFallbackOnLlmFailure) {
+      return {
+        ...heuristicScore(input),
+        fallbackReason: err instanceof Error ? err.message : String(err),
+      };
+    }
+    throw err;
   }
 }
 

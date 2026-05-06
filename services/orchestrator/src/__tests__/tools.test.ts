@@ -1234,6 +1234,9 @@ describe('ToolRegistry', () => {
         opportunityId: 'opp-1',
         founderSignals: ['finance automation', 'compliance'],
         citations: [{ url: 'https://example.com/source', title: 'Source' }],
+        policyDecisionId: 'dec-score-tool',
+        policyVersion: 'local:tool-broker:evidence_v1:E1',
+        helmDocumentVersionPins: { toolAccessPolicy: 'local:tool-broker:evidence_v1:E1' },
       });
 
       expect(result).toMatchObject({
@@ -1260,6 +1263,9 @@ describe('ToolRegistry', () => {
         expect.objectContaining({
           opportunityId: 'opp-1',
           scoringMethod: 'evidence_v1',
+          policyDecisionId: 'dec-score-tool',
+          policyVersion: 'local:tool-broker:evidence_v1:E1',
+          helmDocumentVersionPins: { toolAccessPolicy: 'local:tool-broker:evidence_v1:E1' },
         }),
       );
       expect(updateSet).toHaveBeenCalledWith({ status: 'scored' });
