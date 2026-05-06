@@ -165,6 +165,33 @@ export class ToolBroker {
     try {
       finalEvidenceItemId = await this.db.transaction(async (tx) => {
         const db = tx as unknown as BrokerTx;
+        const auditMetadata = {
+          broker: 'tool_broker_v1',
+          actionId: action.id,
+          toolExecutionId: execution.id,
+          toolKey: toolName,
+          idempotencyKey,
+          inputHash,
+          outputHash,
+          riskClass: manifest.riskClass,
+          evidenceIds,
+          policyDecisionId: policyPin.policyDecisionId,
+          policyVersion: policyPin.policyVersion,
+          helmDocumentVersionPins: policyPin.documentVersionPins,
+          policyPin,
+        };
+
+        await db.insert(auditLog).values({
+          id: auditEventId,
+          workspaceId: context.workspaceId,
+          action: 'TOOL_EXECUTION',
+          actor: actorType === 'operator' ? `operator:${context.operatorId}` : 'agent',
+          target: toolName,
+          verdict: status === 'completed' ? 'allow' : 'error',
+          reason: error,
+          metadata: auditMetadata,
+        });
+
         const evidenceItemId = await appendEvidenceItem(db, evidenceInput);
         const persistedEvidenceIds = uniqueStrings([...evidenceIds, evidenceItemId]);
 
@@ -189,31 +216,16 @@ export class ToolBroker {
           })
           .where(eq(actions.id, action.id));
 
-        await db.insert(auditLog).values({
-          id: auditEventId,
-          workspaceId: context.workspaceId,
-          action: 'TOOL_EXECUTION',
-          actor: actorType === 'operator' ? `operator:${context.operatorId}` : 'agent',
-          target: toolName,
-          verdict: status === 'completed' ? 'allow' : 'error',
-          reason: error,
-          metadata: {
-            broker: 'tool_broker_v1',
-            actionId: action.id,
-            toolExecutionId: execution.id,
-            toolKey: toolName,
-            idempotencyKey,
-            inputHash,
-            outputHash,
-            riskClass: manifest.riskClass,
-            evidenceItemId,
-            evidenceIds: persistedEvidenceIds,
-            policyDecisionId: policyPin.policyDecisionId,
-            policyVersion: policyPin.policyVersion,
-            helmDocumentVersionPins: policyPin.documentVersionPins,
-            policyPin,
-          },
-        });
+        await db
+          .update(auditLog)
+          .set({
+            metadata: {
+              ...auditMetadata,
+              evidenceItemId,
+              evidenceIds: persistedEvidenceIds,
+            },
+          })
+          .where(eq(auditLog.id, auditEventId));
 
         return evidenceItemId;
       });

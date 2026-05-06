@@ -405,6 +405,28 @@ export function browserSessionRoutes(deps: GatewayDeps) {
             evidencePackId: browserObservations.evidencePackId,
           });
 
+        const auditMetadata = {
+          grantId: parsed.data.grantId,
+          browserActionId: createdAction?.id ?? null,
+          url: parsed.data.url,
+          origin: url.origin,
+          helmDecisionId: evaluation.receipt.decisionId,
+          helmPolicyVersion: evaluation.receipt.policyVersion,
+          helmDocumentVersionPins,
+          evidencePackId: evaluation.evidencePackId ?? null,
+          redactions,
+        };
+
+        await db.insert(auditLog).values({
+          id: auditEventId,
+          workspaceId: parsed.data.workspaceId,
+          action: 'BROWSER_OBSERVATION_CAPTURED',
+          actor: `browser:${parsed.data.sessionId}`,
+          target: createdObservation?.id ?? parsed.data.url,
+          verdict: 'allow',
+          metadata: auditMetadata,
+        });
+
         const createdEvidenceItemId = await appendEvidenceItem(db, {
           workspaceId: parsed.data.workspaceId,
           taskId: parsed.data.taskId ?? null,
@@ -435,26 +457,20 @@ export function browserSessionRoutes(deps: GatewayDeps) {
           },
         });
 
-        await db.insert(auditLog).values({
-          id: auditEventId,
-          workspaceId: parsed.data.workspaceId,
-          action: 'BROWSER_OBSERVATION_CAPTURED',
-          actor: `browser:${parsed.data.sessionId}`,
-          target: createdObservation?.id ?? parsed.data.url,
-          verdict: 'allow',
-          metadata: {
-            grantId: parsed.data.grantId,
-            browserActionId: createdAction?.id ?? null,
-            url: parsed.data.url,
-            origin: url.origin,
-            helmDecisionId: evaluation.receipt.decisionId,
-            helmPolicyVersion: evaluation.receipt.policyVersion,
-            helmDocumentVersionPins,
-            evidencePackId: evaluation.evidencePackId ?? null,
-            evidenceItemId: createdEvidenceItemId,
-            redactions,
-          },
-        });
+        await db
+          .update(auditLog)
+          .set({
+            metadata: {
+              ...auditMetadata,
+              evidenceItemId: createdEvidenceItemId,
+            },
+          })
+          .where(
+            and(
+              eq(auditLog.workspaceId, parsed.data.workspaceId),
+              eq(auditLog.id, auditEventId),
+            ),
+          );
 
         return {
           browserAction: createdAction,
