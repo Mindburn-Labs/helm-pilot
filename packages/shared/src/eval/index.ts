@@ -1,6 +1,9 @@
 export { logEvalEntry, flushBraintrust, gradeOutput } from './braintrust.js';
 export {
   type CapabilityPromotionCheck,
+  type CapabilityEvalReadinessInventory,
+  type CapabilityEvalReadinessItem,
+  type PilotEvalExecutionMode,
   type PilotEvalId,
   type PilotEvalRunRecord,
   type PilotEvalScenario,
@@ -8,7 +11,10 @@ export {
   type RecordPilotEvalRunInput,
   type ExecutePilotEvalInput,
   CapabilityPromotionCheckSchema,
+  CapabilityEvalReadinessInventorySchema,
+  CapabilityEvalReadinessItemSchema,
   ExecutePilotEvalInputSchema,
+  PilotEvalExecutionModeSchema,
   PilotEvalIdSchema,
   PilotEvalRunRecordSchema,
   PilotEvalScenarioSchema,
@@ -16,6 +22,7 @@ export {
   PilotEvalStepRecordSchema,
   RecordPilotEvalRunInputSchema,
   RecordablePilotEvalStatusSchema,
+  buildCapabilityEvalReadinessInventory,
   checkCapabilityPromotionReadiness,
   executePilotProductionEval,
   getPilotProductionEvalSuite,

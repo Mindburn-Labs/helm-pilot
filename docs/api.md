@@ -538,6 +538,10 @@ Execute a bounded batch of currently `ready` lifecycle nodes through the existin
 
 Return the Gate 10 production autonomy eval suite. Requires at least the workspace `partner` role. The response lists the required eval scenarios, mapped capability keys, required tools/integrations/HELM policies, success and failure criteria, evidence requirements, and audit requirements.
 
+### GET /api/evals/readiness
+
+Return the workspace-scoped eval readiness inventory for every capability. Requires at least the workspace `partner` role. The response joins the shared capability registry, required eval scenarios, recent durable eval runs, required tools/integrations/HELM policies, evidence/audit requirements, and missing real external eval blockers. Control-plane proof checks are explicitly reported as `control_plane_proof_check` and do not satisfy the `real_external_eval` requirement or mutate the capability registry.
+
 ### GET /api/evals/runs
 
 List durable eval run records for the authenticated workspace. Requires at least the workspace `partner` role. Returned rows are workspace-scoped and normalized for promotion checks. Filtering by `capabilityKey` includes explicit runs for that capability plus scenario-wide runs whose eval scenario maps to the requested capability.
