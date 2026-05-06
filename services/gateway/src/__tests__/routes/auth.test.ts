@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import { createHmac } from 'node:crypto';
+import { apiKeys, auditLog, evidenceItems } from '@pilot/db/schema';
 import { authenticatedAuthRoutes, authRoutes } from '../../routes/auth.js';
 import { createGateway } from '../../index.js';
 import { requireAuth } from '../../middleware/auth.js';
@@ -13,6 +14,77 @@ import {
   mockMembership,
   mockWorkspace,
 } from '../helpers.js';
+
+const workspaceId = '00000000-0000-4000-8000-000000000001';
+
+function createApiKeyDb(options: { failEvidence?: boolean; selectResults?: unknown[][] } = {}) {
+  const inserts: Array<{ table: unknown; value: unknown }> = [];
+  const updates: Array<{ table: unknown; value: unknown }> = [];
+  let selectCall = 0;
+
+  const createDbFacade = (
+    insertSink: Array<{ table: unknown; value: unknown }>,
+    updateSink: Array<{ table: unknown; value: unknown }>,
+  ) => ({
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn(() => {
+            const result = options.selectResults?.[selectCall] ?? [];
+            selectCall += 1;
+            return { then: (resolve: (value: unknown[]) => void) => resolve(result) };
+          }),
+        })),
+      })),
+    })),
+    insert: vi.fn((table: unknown) => ({
+      values: vi.fn((value: unknown) => {
+        insertSink.push({ table, value });
+        return {
+          returning: vi.fn(async () => {
+            if (table === evidenceItems) {
+              if (options.failEvidence) throw new Error('evidence unavailable');
+              return [{ id: 'evidence-api-key-1' }];
+            }
+            return [];
+          }),
+          then: (resolve: (value: unknown[]) => void, reject?: (reason: unknown) => void) =>
+            Promise.resolve([]).then(resolve, reject),
+          catch: (reject: (reason: unknown) => void) => Promise.resolve([]).catch(reject),
+        };
+      }),
+    })),
+    update: vi.fn((table: unknown) => ({
+      set: vi.fn((value: unknown) => {
+        updateSink.push({ table, value });
+        return {
+          where: vi.fn(async () => []),
+        };
+      }),
+    })),
+    delete: vi.fn(() => ({
+      where: vi.fn(async () => []),
+    })),
+    execute: vi.fn(async () => [{ '?column?': 1 }]),
+  });
+
+  const db = {
+    ...createDbFacade(inserts, updates),
+    transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
+      const stagedInserts: Array<{ table: unknown; value: unknown }> = [];
+      const stagedUpdates: Array<{ table: unknown; value: unknown }> = [];
+      const tx = createDbFacade(stagedInserts, stagedUpdates);
+      const result = await callback(tx);
+      inserts.push(...stagedInserts);
+      updates.push(...stagedUpdates);
+      return result;
+    }),
+    _setResult: vi.fn(),
+    _reset: vi.fn(),
+  };
+
+  return { db, inserts, updates };
+}
 
 describe('authRoutes', () => {
   let savedBotToken: string | undefined;
@@ -87,10 +159,10 @@ describe('authRoutes', () => {
       expect(res.status).toBe(404);
     });
 
-    it('returns 201 with api key when userId is set', async () => {
-      const deps = createMockDeps();
+    it('requires a workspace context', async () => {
+      const { db } = createApiKeyDb();
+      const deps = createMockDeps({ db: db as never });
       const app = new Hono();
-      // Inject userId via middleware since there is no auth middleware in test
       app.use('*', async (c, next) => {
         c.set('userId', 'user-1');
         await next();
@@ -104,18 +176,142 @@ describe('authRoutes', () => {
           body: JSON.stringify({ name: 'ci-key' }),
         }),
       );
-      const json = await expectJson<{ key: string; name: string; expiresAt: string }>(res, 201);
+      const json = await expectJson<{ error: string }>(res, 400);
+      expect(json.error).toBe('workspaceId required');
+    });
+
+    it('requires owner role to create api keys', async () => {
+      const { db } = createApiKeyDb();
+      const deps = createMockDeps({ db: db as never });
+      const app = new Hono();
+      app.use('*', async (c, next) => {
+        c.set('userId', 'user-1');
+        c.set('workspaceId', workspaceId);
+        c.set('workspaceRole', 'partner');
+        await next();
+      });
+      app.route('/', authenticatedAuthRoutes(deps));
+
+      const res = await app.fetch(
+        new Request('http://localhost/apikey', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'ci-key' }),
+        }),
+      );
+      const json = await expectJson<{ error: string; requiredRole: string }>(res, 403);
+      expect(json.error).toBe('insufficient workspace role');
+      expect(json.requiredRole).toBe('owner');
+    });
+
+    it('writes redacted audit-linked evidence when creating an api key', async () => {
+      const { db, inserts, updates } = createApiKeyDb();
+      const deps = createMockDeps({ db: db as never });
+      const app = new Hono();
+      app.use('*', async (c, next) => {
+        c.set('userId', 'user-1');
+        c.set('workspaceId', workspaceId);
+        c.set('workspaceRole', 'owner');
+        await next();
+      });
+      app.route('/', authenticatedAuthRoutes(deps));
+
+      const res = await app.fetch(
+        new Request('http://localhost/apikey', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'ci-key' }),
+        }),
+      );
+      const json = await expectJson<{
+        key: string;
+        name: string;
+        expiresAt: string;
+        evidenceItemId: string;
+      }>(res, 201);
       expect(json.key).toMatch(/^hp_/);
       expect(json.name).toBe('ci-key');
       expect(json.expiresAt).toBeDefined();
+      expect(json.evidenceItemId).toBe('evidence-api-key-1');
+
+      expect(inserts.map((insert) => insert.table)).toEqual([apiKeys, auditLog, evidenceItems]);
+      expect(inserts.find((insert) => insert.table === apiKeys)?.value).toMatchObject({
+        userId: 'user-1',
+        name: 'ci-key',
+      });
+      const auditInsert = inserts.find((insert) => insert.table === auditLog)?.value as {
+        id: string;
+      };
+      expect(auditInsert).toMatchObject({
+        workspaceId,
+        action: 'API_KEY_CREATED',
+        actor: 'user:user-1',
+        target: 'ci-key',
+        verdict: 'allow',
+        metadata: {
+          evidenceType: 'api_key_created',
+          apiKeyName: 'ci-key',
+          keyMaterialStoredInEvidence: false,
+          keyHashStoredInEvidence: false,
+        },
+      });
+      const evidenceInsert = inserts.find((insert) => insert.table === evidenceItems)?.value;
+      expect(evidenceInsert).toMatchObject({
+        workspaceId,
+        auditEventId: auditInsert.id,
+        evidenceType: 'api_key_created',
+        sourceType: 'gateway_auth',
+        redactionState: 'redacted',
+        sensitivity: 'restricted',
+        metadata: {
+          apiKeyName: 'ci-key',
+          keyMaterialStoredInEvidence: false,
+          keyHashStoredInEvidence: false,
+        },
+      });
+      expect(JSON.stringify(evidenceInsert)).not.toContain(json.key);
+      expect(JSON.stringify(evidenceInsert)).not.toContain(
+        (inserts.find((insert) => insert.table === apiKeys)?.value as { keyHash: string }).keyHash,
+      );
+      expect(updates.find((update) => update.table === auditLog)?.value).toMatchObject({
+        metadata: {
+          evidenceItemId: 'evidence-api-key-1',
+        },
+      });
+    });
+
+    it('fails closed without committing api key rows when evidence persistence fails', async () => {
+      const { db, inserts } = createApiKeyDb({ failEvidence: true });
+      const deps = createMockDeps({ db: db as never });
+      const app = new Hono();
+      app.use('*', async (c, next) => {
+        c.set('userId', 'user-1');
+        c.set('workspaceId', workspaceId);
+        c.set('workspaceRole', 'owner');
+        await next();
+      });
+      app.route('/', authenticatedAuthRoutes(deps));
+
+      const res = await app.fetch(
+        new Request('http://localhost/apikey', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'ci-key' }),
+        }),
+      );
+      const json = await expectJson<{ error: string }>(res, 500);
+      expect(json.error).toContain('failed to persist api key evidence');
+      expect(inserts).toEqual([]);
     });
 
     it('is reachable through the full gateway only after auth middleware succeeds', async () => {
-      const deps = createMockDeps();
-      deps.db._setResult([mockSession({ token: 'session-token', createdAt: new Date() })]);
-      deps.db.insert = vi.fn(() => ({
-        values: vi.fn(() => Promise.resolve([])),
-      })) as any;
+      const { db } = createApiKeyDb({
+        selectResults: [
+          [mockSession({ token: 'session-token', createdAt: new Date() })],
+          [mockMembership({ workspaceId, role: 'owner' })],
+        ],
+      });
+      const deps = createMockDeps({ db: db as never });
       const app = createGateway(deps);
 
       const res = await app.fetch(
@@ -124,6 +320,7 @@ describe('authRoutes', () => {
           headers: {
             'Content-Type': 'application/json',
             Authorization: 'Bearer session-token',
+            'X-Workspace-Id': workspaceId,
           },
           body: JSON.stringify({ name: 'full-gateway-key' }),
         }),
