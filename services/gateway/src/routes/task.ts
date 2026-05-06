@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { and, desc, eq } from 'drizzle-orm';
-import { tasks, taskRuns } from '@pilot/db/schema';
+import { appendEvidenceItem } from '@pilot/db';
+import { auditLog, tasks, taskRuns } from '@pilot/db/schema';
 import { CreateTaskInput, TaskStatusSchema } from '@pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
 import {
@@ -50,17 +52,63 @@ export function taskRoutes(deps: GatewayDeps) {
     const operatorDenied = await requireWorkspaceOperator(deps.db, c, workspaceId, body.operatorId);
     if (operatorDenied) return operatorDenied;
 
-    const [task] = await deps.db
-      .insert(tasks)
-      .values({
-        workspaceId: body.workspaceId,
-        operatorId: body.operatorId,
-        title: body.title,
-        description: body.description,
-        mode: body.mode,
-        priority: 0,
+    const task = await deps.db
+      .transaction(async (tx) => {
+        const [created] = await tx
+          .insert(tasks)
+          .values({
+            workspaceId: body.workspaceId,
+            operatorId: body.operatorId,
+            title: body.title,
+            description: body.description,
+            mode: body.mode,
+            priority: 0,
+          })
+          .returning();
+
+        if (!created) return null;
+
+        const auditEventId = randomUUID();
+        const auditMetadata = {
+          taskId: created.id,
+          workspaceId,
+          operatorId: created.operatorId ?? null,
+          mode: created.mode,
+          autoRun: Boolean(body.autoRun),
+          evidenceContract: 'task_create_evidence_required',
+        };
+        await tx.insert(auditLog).values({
+          id: auditEventId,
+          workspaceId,
+          action: 'TASK_CREATED',
+          actor: `user:${c.get('userId') ?? 'unknown'}`,
+          target: created.id,
+          verdict: 'allow',
+          metadata: auditMetadata,
+        });
+
+        const evidenceItemId = await appendEvidenceItem(tx, {
+          workspaceId,
+          taskId: created.id,
+          auditEventId,
+          evidenceType: 'task_created',
+          sourceType: 'gateway_task_route',
+          title: `Task created: ${created.title}`,
+          summary: 'Workspace task created through the gateway task API.',
+          redactionState: 'redacted',
+          sensitivity: 'internal',
+          replayRef: `task:${created.id}:created`,
+          metadata: auditMetadata,
+        });
+
+        await tx
+          .update(auditLog)
+          .set({ metadata: { ...auditMetadata, evidenceItemId } })
+          .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.id, auditEventId)));
+
+        return created;
       })
-      .returning();
+      .catch(() => null);
 
     if (!task) return c.json({ error: 'Failed to create task' }, 500);
 

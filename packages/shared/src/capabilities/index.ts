@@ -387,6 +387,7 @@ const capabilityRecords = validateCapabilityRecords([
       'Tool Broker completion evidence_items now link to their audit_log rows through audit_event_id for completed and failed broker executions',
       'Decision Court run evidence_items now link to DECISION_COURT_RUN audit_log rows through audit_event_id with audit metadata backfilled to the evidence item id',
       'Tool Broker, Decision Court, and gateway browser observation writers persist audit_log rows before evidence_items rows that reference audit_event_id, then backfill audit metadata with the evidence item id',
+      'Gateway manual task creation persists TASK_CREATED audit_log rows and task_created evidence_items in the same transaction, then backfills audit metadata with the evidence item id',
       'Tool Broker refuses medium, high, and restricted tool manifests before action persistence or execution unless HELM policy decision metadata is present, and marks elevated tool executions failed if evidence_items persistence fails before completion',
       'Gateway browser observation evidence_items now link to their BROWSER_OBSERVATION_CAPTURED audit_log rows through audit_event_id',
       'Safe computer action evidence_items now link to OPERATOR_COMPUTER_USE audit_log rows through audit_event_id',

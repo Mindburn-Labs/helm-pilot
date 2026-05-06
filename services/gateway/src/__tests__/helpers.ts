@@ -39,6 +39,7 @@ export function createMockDb() {
     insert: vi.fn(() => ({ values: vi.fn(() => chainable()) })),
     update: vi.fn(() => ({ set: vi.fn(() => chainable()) })),
     delete: vi.fn(() => chainable()),
+    transaction: vi.fn(async (callback: (tx: any) => Promise<unknown>) => callback(db)),
     execute: vi.fn(async () => [{ '?column?': 1 }]),
     _setResult(result: MockResult) {
       nextResult = result;
