@@ -173,6 +173,7 @@ describe('CommandCenterPage', () => {
             browserObservations: [
               {
                 id: 'obs-1',
+                sessionId: 'browser-session-1',
                 url: 'https://www.ycombinator.com/account',
                 origin: 'https://www.ycombinator.com',
                 title: 'YC Account',
@@ -180,6 +181,7 @@ describe('CommandCenterPage', () => {
                 redactions: ['token'],
                 evidencePackId: 'ep-1',
                 replayIndex: 0,
+                replayRef: 'browser:browser-session-1:0',
               },
             ],
             computerActions: [
@@ -191,6 +193,7 @@ describe('CommandCenterPage', () => {
                 status: 'completed',
                 evidencePackId: 'ep-1',
                 replayIndex: 0,
+                replayRef: 'computer:computer-1:0',
               },
             ],
             agentHandoffs: [
@@ -498,6 +501,8 @@ describe('CommandCenterPage', () => {
     expect(screen.getByText('TOOL_USE ALLOW')).toBeTruthy();
     expect(screen.getByText('YC Account')).toBeTruthy();
     expect(screen.getByText('dev_server_status')).toBeTruthy();
+    expect(screen.getAllByText(/browser:browser-session-1:0/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/computer:computer-1:0/).length).toBeGreaterThan(0);
     expect(screen.getByText('Opportunity Score')).toBeTruthy();
     await waitFor(() => expect(screen.getByText('PMF Discovery')).toBeTruthy());
     expect(screen.getByText('Research market')).toBeTruthy();

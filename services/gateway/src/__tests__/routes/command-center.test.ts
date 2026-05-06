@@ -473,10 +473,16 @@ describe('commandCenterRoutes', () => {
       capability: { key: string; state: string };
       replay: {
         evidenceItems: Array<{ id: string; replayRef: string }>;
-        browserObservations: Array<{ id: string; domHash: string; redactedDomSnapshot: string }>;
+        browserObservations: Array<{
+          id: string;
+          domHash: string;
+          redactedDomSnapshot: string;
+          replayRef: string;
+        }>;
         computerActions: Array<{
           id: string;
           actionType: string;
+          replayRef: string;
           stdout: string;
           metadata: Record<string, unknown>;
         }>;
@@ -491,7 +497,9 @@ describe('commandCenterRoutes', () => {
     expect(body.capability.state).toBe('prototype');
     expect(body.replay.evidenceItems[0]?.id).toBe('ev-browser-1');
     expect(body.replay.browserObservations[0]?.domHash).toBe('sha256:dom');
+    expect(body.replay.browserObservations[0]?.replayRef).toBe('browser:session-1:0');
     expect(body.replay.browserObservations[0]?.redactedDomSnapshot).toContain('[redacted]');
+    expect(body.replay.computerActions[0]?.replayRef).toBe('computer:computer-1:0');
     expect(body.replay.computerActions[0]?.stdout).toContain('200 OK');
     expect(body.replay.computerActions[0]?.stdout).toContain('token=[REDACTED]');
     expect(body.replay.computerActions[0]?.metadata).toMatchObject({ token: '[REDACTED]' });
@@ -608,10 +616,12 @@ describe('commandCenterRoutes', () => {
         {
           id: 'obs-1',
           workspaceId,
+          sessionId: 'browser-session-1',
           url: 'https://www.ycombinator.com/account',
           title: 'YC Account',
           domHash: 'sha256:dom',
           redactions: ['token'],
+          replayIndex: 0,
           observedAt: new Date('2026-05-05T09:05:00Z'),
         },
       ],
@@ -623,6 +633,7 @@ describe('commandCenterRoutes', () => {
           command: 'git',
           status: 'completed',
           evidencePackId: 'ep-1',
+          replayIndex: 0,
           createdAt: new Date('2026-05-05T09:06:00Z'),
         },
       ],
@@ -673,8 +684,8 @@ describe('commandCenterRoutes', () => {
         actions: Array<{ id: string; policyDecisionId: string }>;
         evidencePacks: Array<{ id: string; decisionId: string }>;
         evidenceItems: Array<{ id: string; evidenceType: string; replayRef: string }>;
-        browserObservations: Array<{ id: string; domHash: string }>;
-        computerActions: Array<{ id: string; actionType: string }>;
+        browserObservations: Array<{ id: string; domHash: string; replayRef: string }>;
+        computerActions: Array<{ id: string; actionType: string; replayRef: string }>;
       };
     }>(res, 200);
 
@@ -700,7 +711,9 @@ describe('commandCenterRoutes', () => {
     expect(body.recent.evidencePacks[0]?.decisionId).toBe('dec-1');
     expect(body.recent.evidenceItems[0]?.replayRef).toBe('helm:dec-1');
     expect(body.recent.browserObservations[0]?.domHash).toBe('sha256:dom');
+    expect(body.recent.browserObservations[0]?.replayRef).toBe('browser:browser-session-1:0');
     expect(body.recent.computerActions[0]?.actionType).toBe('terminal_command');
+    expect(body.recent.computerActions[0]?.replayRef).toBe('computer:computer-1:0');
   });
 
   it('returns bounded computer action replay without secret metadata or production promotion', async () => {
@@ -752,6 +765,7 @@ describe('commandCenterRoutes', () => {
         redactionContract: string;
         actions: Array<{
           id: string;
+          replayRef: string;
           replayIndex: number;
           stdoutPreview: string;
           metadata: Record<string, unknown>;
@@ -770,6 +784,7 @@ describe('commandCenterRoutes', () => {
     expect(body.replay.redactionContract).toContain('bounded_stdout_stderr');
     expect(body.replay.actions[0]).toMatchObject({
       id: 'computer-1',
+      replayRef: 'computer:computer-1:2',
       replayIndex: 2,
       metadata: {
         token: '[REDACTED]',

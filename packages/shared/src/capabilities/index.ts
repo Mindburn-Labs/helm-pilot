@@ -246,7 +246,7 @@ const capabilityRecords = validateCapabilityRecords([
     owner: 'Browser Agent',
     blockers: [
       'Browser extension/bridge handoff is not yet productized',
-      'Observation replay is stored as ordered records but not yet exposed in the command-center UI',
+      'Observation replay refs are visible in the command-center UI, but a dedicated browser session viewer has not passed eval-backed promotion',
       'YC Logged-In Browser Extraction Eval has not promoted the capability to production_ready',
     ],
     evidence: [

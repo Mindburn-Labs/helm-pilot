@@ -214,8 +214,8 @@ export function commandCenterRoutes(deps: GatewayDeps) {
         evidenceItems: evidenceItemRows,
         approvals: approvalRows,
         auditEvents: auditRows,
-        browserObservations: browserObservationRows,
-        computerActions: computerActionRows,
+        browserObservations: browserObservationRows.map(withBrowserReplayRef),
+        computerActions: computerActionRows.map(withComputerReplayRef),
         agentHandoffs: handoffRows,
         artifacts: artifactRows,
       },
@@ -639,6 +639,7 @@ export function commandCenterRoutes(deps: GatewayDeps) {
         redactionContract: 'bounded_stdout_stderr_and_file_diff_previews_no_secret_metadata',
         actions: rows.map((action) => ({
           id: action.id,
+          replayRef: `computer:${action.id}:${action.replayIndex}`,
           taskId: action.taskId,
           toolActionId: action.toolActionId,
           operatorId: action.operatorId,
@@ -865,8 +866,8 @@ export function commandCenterRoutes(deps: GatewayDeps) {
       capability,
       replay: {
         evidenceItems: evidenceItemRows.map(sanitizeGenericReplayRow),
-        browserObservations: browserObservationRows.map(sanitizeGenericReplayRow),
-        computerActions: computerActionRows.map(sanitizeComputerReplayRow),
+        browserObservations: browserObservationRows.map(withBrowserReplayRef),
+        computerActions: computerActionRows.map(withComputerReplayRef),
       },
       blockers: [
         'Replay contract is implemented for workspace-scoped inspection but has not passed Browser/Computer Replay Eval',
@@ -906,12 +907,27 @@ function stringField(row: unknown, field: string): string | undefined {
   return typeof value === 'string' && value ? value : undefined;
 }
 
+function numberField(row: unknown, field: string): number | undefined {
+  if (!row || typeof row !== 'object') return undefined;
+  const value = (row as Record<string, unknown>)[field];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
 function sanitizeGenericReplayRow(row: unknown): Record<string, unknown> {
   const record = row && typeof row === 'object' ? { ...(row as Record<string, unknown>) } : {};
   if ('metadata' in record) record['metadata'] = redactReplayMetadata(record['metadata']);
   if ('extractedData' in record)
     record['extractedData'] = redactReplayMetadata(record['extractedData']);
   return record;
+}
+
+function withBrowserReplayRef(row: unknown): Record<string, unknown> {
+  const record = sanitizeGenericReplayRow(row);
+  const sessionId = stringField(record, 'sessionId');
+  const replayIndex = numberField(record, 'replayIndex');
+  return sessionId && replayIndex !== undefined
+    ? { ...record, replayRef: `browser:${sessionId}:${replayIndex}` }
+    : record;
 }
 
 function sanitizeComputerReplayRow(row: unknown): Record<string, unknown> {
@@ -922,6 +938,15 @@ function sanitizeComputerReplayRow(row: unknown): Record<string, unknown> {
     typeof record['fileDiff'] === 'string' ? record['fileDiff'] : null,
   );
   return record;
+}
+
+function withComputerReplayRef(row: unknown): Record<string, unknown> {
+  const record = sanitizeComputerReplayRow(row);
+  const actionId = stringField(record, 'id');
+  const replayIndex = numberField(record, 'replayIndex');
+  return actionId && replayIndex !== undefined
+    ? { ...record, replayRef: `computer:${actionId}:${replayIndex}` }
+    : record;
 }
 
 function sanitizeEvalRow(row: unknown): Record<string, unknown> {
