@@ -10,6 +10,10 @@ import {
   computerActions,
   evidenceItems,
   evidencePacks,
+  missionEdges,
+  missionNodes,
+  missions,
+  missionTasks,
   operators,
   taskRuns,
   tasks,
@@ -25,6 +29,7 @@ import {
   type CapabilityRecord,
 } from '@pilot/shared/capabilities';
 import {
+  CommandCenterMissionGraphResponseSchema,
   CommandCenterProofDagResponseSchema,
   CommandCenterPermissionGraphResponseSchema,
   CommandCenterReplayResponseSchema,
@@ -402,6 +407,93 @@ export function commandCenterRoutes(deps: GatewayDeps) {
       graph: { nodes, edges },
       blockers: [
         'Permission graph is read-only command-center introspection, not a production-ready delegation control plane.',
+        ...capability.blockers,
+      ],
+    });
+
+    return c.json(response, 200);
+  });
+
+  app.get('/mission-graph', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view mission graph');
+    if (roleDenied) return roleDenied;
+
+    const capability = getCapabilityRecord('startup_lifecycle');
+    if (!capability) return c.json({ error: 'capability registry incomplete' }, 500);
+
+    const missionId = c.req.query('missionId') || undefined;
+    const missionRows = await deps.db
+      .select()
+      .from(missions)
+      .where(
+        missionId
+          ? and(eq(missions.workspaceId, workspaceId), eq(missions.id, missionId))
+          : eq(missions.workspaceId, workspaceId),
+      )
+      .orderBy(desc(missions.updatedAt), desc(missions.createdAt), desc(missions.id))
+      .limit(missionId ? 1 : 10);
+
+    const missionIds = missionRows.map((mission) => mission.id);
+    const nodeRows =
+      missionIds.length === 0
+        ? []
+        : await deps.db
+            .select()
+            .from(missionNodes)
+            .where(
+              and(
+                eq(missionNodes.workspaceId, workspaceId),
+                inArray(missionNodes.missionId, missionIds),
+              ),
+            )
+            .orderBy(asc(missionNodes.missionId), asc(missionNodes.sortOrder), asc(missionNodes.id))
+            .limit(500);
+    const edgeRows =
+      missionIds.length === 0
+        ? []
+        : await deps.db
+            .select()
+            .from(missionEdges)
+            .where(
+              and(
+                eq(missionEdges.workspaceId, workspaceId),
+                inArray(missionEdges.missionId, missionIds),
+              ),
+            )
+            .orderBy(asc(missionEdges.missionId), asc(missionEdges.edgeKey), asc(missionEdges.id))
+            .limit(500);
+    const taskLinkRows =
+      missionIds.length === 0
+        ? []
+        : await deps.db
+            .select()
+            .from(missionTasks)
+            .where(
+              and(
+                eq(missionTasks.workspaceId, workspaceId),
+                inArray(missionTasks.missionId, missionIds),
+              ),
+            )
+            .orderBy(asc(missionTasks.missionId), asc(missionTasks.createdAt), asc(missionTasks.id))
+            .limit(500);
+
+    const response = CommandCenterMissionGraphResponseSchema.parse({
+      workspaceId,
+      generatedAt: new Date().toISOString(),
+      productionReady: false,
+      capability,
+      missionId: missionId ?? null,
+      graph: {
+        missions: missionRows,
+        nodes: nodeRows,
+        edges: edgeRows,
+        taskLinks: taskLinkRows,
+        orderedBy: ['mission.updatedAt', 'node.sortOrder', 'edge.edgeKey', 'taskLink.createdAt'],
+      },
+      blockers: [
+        'Mission graph is read-only command-center introspection; it does not dispatch or resume mission DAGs.',
         ...capability.blockers,
       ],
     });
