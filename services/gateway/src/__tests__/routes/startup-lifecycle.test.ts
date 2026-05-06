@@ -689,6 +689,308 @@ describe('startupLifecycleRoutes', () => {
     expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
   });
 
+  it('applies a recovery plan by resetting failed mission nodes without executing tasks', async () => {
+    const deps = createMockDeps();
+    const insertedEvidenceItems = captureEvidenceItemInserts(deps);
+    const missionId = '00000000-0000-4000-8000-000000000140';
+    const ventureId = '00000000-0000-4000-8000-000000000141';
+    const failedNodeId = '00000000-0000-4000-8000-000000000142';
+    const blockedNodeId = '00000000-0000-4000-8000-000000000143';
+    const taskId = '00000000-0000-4000-8000-000000000144';
+    const recoveryPlanReplayRef = `mission:${missionId}:recovery-plan:abc123`;
+    const selectResults = [
+      [
+        {
+          id: missionId,
+          workspaceId,
+          ventureId,
+          title: 'Launch EvidenceOS',
+          status: 'blocked',
+          productionReady: false,
+          metadata: {
+            lastRecoveryPlan: {
+              recoveryPlanId: 'mission-recovery-plan:abc123',
+              evidenceItemId: '00000000-0000-4000-8000-000000000145',
+              replayRef: recoveryPlanReplayRef,
+            },
+          },
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000145',
+          workspaceId,
+          missionId,
+          replayRef: recoveryPlanReplayRef,
+          evidenceType: 'startup_lifecycle_recovery_plan',
+          metadata: {
+            plan: {
+              failedNodeKeys: ['ideation'],
+              blockedNodeKeys: ['launch_engine'],
+            },
+          },
+        },
+      ],
+      [
+        {
+          id: failedNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'ideation',
+          stage: 'ideation',
+          title: 'Venture hypothesis generation',
+          status: 'failed',
+          sortOrder: 1,
+        },
+        {
+          id: blockedNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'launch_engine',
+          stage: 'infrastructure_deployment',
+          title: 'Launch readiness',
+          status: 'blocked',
+          sortOrder: 2,
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000146',
+          workspaceId,
+          missionId,
+          nodeId: failedNodeId,
+          taskId,
+          role: 'startup_lifecycle_node',
+        },
+      ],
+    ];
+    let selectCall = 0;
+    const originalSelect = deps.db.select;
+    deps.db.select = vi.fn(() => {
+      deps.db._setResult(selectResults[selectCall] ?? []);
+      selectCall += 1;
+      return originalSelect();
+    }) as typeof deps.db.select;
+    const updates: Array<Record<string, unknown>> = [];
+    deps.db.update = vi.fn(() => ({
+      set: vi.fn((payload: Record<string, unknown>) => {
+        updates.push(payload);
+        return { where: vi.fn(async () => []) };
+      }),
+    })) as unknown as typeof deps.db.update;
+
+    const { fetch } = testApp(startupLifecycleRoutes, deps);
+    const res = await fetch(
+      'POST',
+      `/missions/${missionId}/recover`,
+      { reason: 'retry failed ideation node' },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      missionId: string;
+      recoveryApplyId: string;
+      recoveryApplyVersion: string;
+      productionReady: boolean;
+      status: string;
+      missionStatus: string;
+      recoveryPlanReplayRef: string;
+      executionStarted: boolean;
+      recoveredNodes: Array<{
+        nodeId: string;
+        nodeKey: string;
+        previousStatus: string;
+        nextStatus: string;
+        taskId?: string;
+      }>;
+      skippedNodes: unknown[];
+      evidenceItemIds: string[];
+      blockers: string[];
+    }>(res, 200);
+
+    expect(body.missionId).toBe(missionId);
+    expect(body.recoveryApplyId).toMatch(/^mission-recovery-apply:[a-f0-9]+$/);
+    expect(body.recoveryApplyVersion).toBe('mission-recovery-apply.v1');
+    expect(body.productionReady).toBe(false);
+    expect(body.status).toBe('recovery_applied_not_executed');
+    expect(body.missionStatus).toBe('scheduled_not_executing');
+    expect(body.recoveryPlanReplayRef).toBe(recoveryPlanReplayRef);
+    expect(body.executionStarted).toBe(false);
+    expect(body.recoveredNodes).toEqual([
+      {
+        nodeId: failedNodeId,
+        nodeKey: 'ideation',
+        previousStatus: 'failed',
+        nextStatus: 'ready',
+        taskId,
+      },
+    ]);
+    expect(body.skippedNodes).toEqual([]);
+    expect(body.evidenceItemIds).toEqual(['00000000-0000-4000-8000-000000000091']);
+    expect(body.blockers.join(' ')).toContain('does not execute tasks');
+    expect(insertedEvidenceItems[0]).toMatchObject({
+      workspaceId,
+      ventureId,
+      missionId,
+      evidenceType: 'startup_lifecycle_recovery_applied',
+      sourceType: 'gateway_startup_lifecycle',
+      summary: '1 failed node(s) reset to ready',
+      metadata: expect.objectContaining({
+        recoveryApplyVersion: 'mission-recovery-apply.v1',
+        recoveryApplyId: body.recoveryApplyId,
+        recoveryPlanReplayRef,
+        recoveryPlanEvidenceItemId: '00000000-0000-4000-8000-000000000145',
+        recoveredNodeKeys: ['ideation'],
+        executionStarted: false,
+        productionReady: false,
+      }),
+    });
+    expect(updates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: 'ready', startedAt: null, completedAt: null }),
+        expect.objectContaining({ status: 'pending', completedAt: null }),
+        expect.objectContaining({
+          status: 'scheduled_not_executing',
+          metadata: expect.objectContaining({
+            lastRecoveryApply: expect.objectContaining({
+              recoveryApplyId: body.recoveryApplyId,
+              recoveredNodeKeys: ['ideation'],
+            }),
+          }),
+        }),
+      ]),
+    );
+    expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
+  });
+
+  it('refuses safe recovery apply for blocked nodes and records a no-op evidence item', async () => {
+    const deps = createMockDeps();
+    const insertedEvidenceItems = captureEvidenceItemInserts(deps);
+    const missionId = '00000000-0000-4000-8000-000000000150';
+    const ventureId = '00000000-0000-4000-8000-000000000151';
+    const blockedNodeId = '00000000-0000-4000-8000-000000000152';
+    const recoveryPlanReplayRef = `mission:${missionId}:recovery-plan:def456`;
+    const selectResults = [
+      [
+        {
+          id: missionId,
+          workspaceId,
+          ventureId,
+          title: 'Launch EvidenceOS',
+          status: 'blocked',
+          productionReady: false,
+          metadata: {
+            lastRecoveryPlan: {
+              recoveryPlanId: 'mission-recovery-plan:def456',
+              replayRef: recoveryPlanReplayRef,
+            },
+          },
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000153',
+          workspaceId,
+          missionId,
+          replayRef: recoveryPlanReplayRef,
+          evidenceType: 'startup_lifecycle_recovery_plan',
+          metadata: {
+            plan: {
+              failedNodeKeys: ['ideation'],
+              blockedNodeKeys: ['launch_engine'],
+            },
+          },
+        },
+      ],
+      [
+        {
+          id: blockedNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'launch_engine',
+          stage: 'infrastructure_deployment',
+          title: 'Launch readiness',
+          status: 'blocked',
+          sortOrder: 2,
+        },
+      ],
+      [],
+    ];
+    let selectCall = 0;
+    const originalSelect = deps.db.select;
+    deps.db.select = vi.fn(() => {
+      deps.db._setResult(selectResults[selectCall] ?? []);
+      selectCall += 1;
+      return originalSelect();
+    }) as typeof deps.db.select;
+    const updates: Array<Record<string, unknown>> = [];
+    deps.db.update = vi.fn(() => ({
+      set: vi.fn((payload: Record<string, unknown>) => {
+        updates.push(payload);
+        return { where: vi.fn(async () => []) };
+      }),
+    })) as unknown as typeof deps.db.update;
+
+    const { fetch } = testApp(startupLifecycleRoutes, deps);
+    const res = await fetch(
+      'POST',
+      `/missions/${missionId}/recover`,
+      { retryNodeKeys: ['launch_engine'], reason: 'explicitly test blocked refusal' },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      productionReady: boolean;
+      status: string;
+      missionStatus: string;
+      executionStarted: boolean;
+      recoveredNodes: unknown[];
+      skippedNodes: Array<{ nodeId: string; nodeKey: string; status: string; reason: string }>;
+      evidenceItemIds: string[];
+    }>(res, 200);
+
+    expect(body.productionReady).toBe(false);
+    expect(body.status).toBe('recovery_noop_not_executed');
+    expect(body.missionStatus).toBe('blocked');
+    expect(body.executionStarted).toBe(false);
+    expect(body.recoveredNodes).toEqual([]);
+    expect(body.skippedNodes).toEqual([
+      {
+        nodeId: blockedNodeId,
+        nodeKey: 'launch_engine',
+        status: 'blocked',
+        reason: 'Only failed mission nodes can be reset to ready by safe recovery apply',
+      },
+    ]);
+    expect(body.evidenceItemIds).toEqual(['00000000-0000-4000-8000-000000000091']);
+    expect(insertedEvidenceItems[0]).toMatchObject({
+      workspaceId,
+      ventureId,
+      missionId,
+      evidenceType: 'startup_lifecycle_recovery_applied',
+      summary: 'No mission nodes were eligible for recovery apply',
+      metadata: expect.objectContaining({
+        recoveredNodeKeys: [],
+        skippedNodes: [
+          expect.objectContaining({
+            nodeKey: 'launch_engine',
+            status: 'blocked',
+          }),
+        ],
+        executionStarted: false,
+        productionReady: false,
+      }),
+    });
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({
+      status: 'blocked',
+      metadata: expect.objectContaining({
+        lastRecoveryApply: expect.objectContaining({
+          recoveredNodeKeys: [],
+        }),
+      }),
+    });
+    expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
+  });
+
   it('executes a ready mission node through the governed task runtime without production promotion', async () => {
     const deps = createMockDeps();
     const insertedEvidenceItems = captureEvidenceItemInserts(deps);
