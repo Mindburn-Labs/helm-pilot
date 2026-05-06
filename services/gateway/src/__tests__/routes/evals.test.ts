@@ -629,6 +629,72 @@ describe('evalRoutes', () => {
     ]);
   });
 
+  it('executes scenario-wide eval proof checks without pinning them to the first capability', async () => {
+    const { db, inserts } = createEvalDb();
+    const { fetch } = testApp(evalRoutes, createMockDeps({ db: db as never }));
+
+    const res = await fetch(
+      'POST',
+      '/execute',
+      {
+        evalId: 'full_startup_launch',
+        evidenceRefs: ['evidence:startup-launch'],
+        auditReceiptRefs: ['audit:startup-launch'],
+        evidenceCoverage: [
+          'mission run record',
+          'source citations',
+          'artifact provenance',
+          'deployment verification',
+        ],
+        auditCoverage: ['policy decisions', 'tool receipts', 'escalation records'],
+        completedAt: '2026-05-05T00:00:00.000Z',
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      capabilityKey?: string;
+      executionBlockers: string[];
+      promotionChecks: Array<{
+        canPromote: boolean;
+        capability: { key: string };
+        blockers: string[];
+      }>;
+      promotions: Array<{ capabilityKey: string; promotedState: string; status: string }>;
+      productionReadyRegistryMutation: boolean;
+    }>(res, 201);
+
+    expect(body.capabilityKey).toBeUndefined();
+    expect(body.executionBlockers).toEqual([]);
+    expect(body.productionReadyRegistryMutation).toBe(false);
+    expect(body.promotionChecks).toEqual([
+      expect.objectContaining({
+        canPromote: false,
+        capability: expect.objectContaining({ key: 'mission_runtime' }),
+      }),
+      expect.objectContaining({
+        canPromote: true,
+        capability: expect.objectContaining({ key: 'startup_lifecycle' }),
+      }),
+    ]);
+    expect(body.promotions).toEqual([
+      expect.objectContaining({
+        capabilityKey: 'startup_lifecycle',
+        promotedState: 'production_ready',
+        status: 'eligible',
+      }),
+    ]);
+    expect(inserts.find((insert) => insert.table === evalRuns)?.value).toMatchObject({
+      evalId: 'full_startup_launch',
+      status: 'passed',
+      capabilityKey: null,
+    });
+    expect(inserts.find((insert) => insert.table === evalResults)?.value).toMatchObject({
+      evalId: 'full_startup_launch',
+      capabilityKey: null,
+      passed: true,
+    });
+  });
+
   it('executes a production eval proof check as failed when any proof step fails', async () => {
     const scenario = getRequiredEvalForCapability('helm_receipts');
     if (!scenario) throw new Error('helm_receipts eval missing');
