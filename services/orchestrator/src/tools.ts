@@ -8,6 +8,7 @@ import {
   ScraplingFetchInput,
 } from '@pilot/shared/schemas';
 import { getCapabilityRecord, type CapabilityKey } from '@pilot/shared/capabilities';
+import { SkillInvocationInputSchema, type SkillRegistry } from '@pilot/shared/skills';
 import { SubagentSpawnRequestSchema, SubagentParallelRequestSchema } from '@pilot/shared/subagents';
 import type { HelmClient } from '@pilot/helm-client';
 import { withToolSpan } from '@pilot/shared/otel';
@@ -36,8 +37,13 @@ export class ToolRegistry {
   constructor(
     private readonly db: Db,
     private readonly memory?: MemoryService,
-    private readonly options?: { skipBuiltins?: boolean; helmClient?: HelmClient },
+    private readonly options?: {
+      skipBuiltins?: boolean;
+      helmClient?: HelmClient;
+      skillRegistry?: SkillRegistry;
+    },
   ) {
+    this.skillRegistry = options?.skillRegistry;
     if (!options?.skipBuiltins) {
       this.registerBuiltins();
     }
@@ -61,6 +67,7 @@ export class ToolRegistry {
     const scoped = new ToolRegistry(this.db, this.memory, {
       skipBuiltins: true,
       helmClient: this.options?.helmClient,
+      skillRegistry: this.skillRegistry,
     });
     for (const [name, tool] of this.tools) {
       if (allowed.has(name)) {
@@ -87,6 +94,10 @@ export class ToolRegistry {
    */
   setParentContext(ctx: ParentContext | null): void {
     this.parentContext = ctx;
+  }
+
+  setSkillRegistry(skillRegistry: SkillRegistry | undefined): void {
+    this.skillRegistry = skillRegistry;
   }
 
   /**
@@ -129,6 +140,7 @@ export class ToolRegistry {
 
   private conductor: Conductor | null = null;
   private parentContext: ParentContext | null = null;
+  private skillRegistry: SkillRegistry | undefined;
 
   private registerSubagentTools(): void {
     // subagent.spawn — single delegation
@@ -144,7 +156,10 @@ export class ToolRegistry {
         if (!parsed.success) {
           return { error: `invalid subagent.spawn input: ${parsed.error.message}` };
         }
-        return this.conductor.spawn(this.parentContext, parsed.data);
+        return this.conductor.spawn(
+          parentContextFromBrokerInput(this.parentContext, input),
+          parsed.data,
+        );
       },
     });
 
@@ -161,7 +176,10 @@ export class ToolRegistry {
         if (!parsed.success) {
           return { error: `invalid subagent.parallel input: ${parsed.error.message}` };
         }
-        return this.conductor.parallel(this.parentContext, parsed.data.spawns);
+        return this.conductor.parallel(
+          parentContextFromBrokerInput(this.parentContext, input),
+          parsed.data.spawns,
+        );
       },
     });
   }
@@ -247,6 +265,70 @@ export class ToolRegistry {
     // ═══════════════════════════════════════════
     // Universal tools (available in all modes)
     // ═══════════════════════════════════════════
+
+    // ─── Runtime Skill Invocation ───
+    this.register({
+      name: 'skill.invoke',
+      description:
+        'Activate a loaded, versioned skill through Tool Broker before using its instruction body. Input: {"skillName":"yc-application-writing","expectedVersion":"1.0.0","activationReason":"explicit","task":"...","subagentName":"application_writer","allowedTools":["search_knowledge"]}.',
+      capabilityKey: 'skill_registry_runtime',
+      manifest: {
+        key: 'skill.invoke',
+        version: 'runtime_skill_adapter_v1',
+        riskClass: 'medium',
+        effectLevel: 'E2',
+        requiredEvidence: ['skill_manifest', 'skill_run_record'],
+        permissionRequirements: ['skill:invoke'],
+        outputSensitivity: 'internal',
+      },
+      execute: async (input) => {
+        const capability = getCapabilityRecord('skill_registry_runtime');
+        if (!this.skillRegistry) {
+          return { error: 'skill.invoke requires a loaded SkillRegistry', capability };
+        }
+        const parsed = SkillInvocationInputSchema.safeParse(input);
+        if (!parsed.success) {
+          return { error: `invalid skill.invoke input: ${parsed.error.message}`, capability };
+        }
+        const skill = this.skillRegistry.findByName(parsed.data.skillName);
+        if (!skill) return { error: `Skill ${parsed.data.skillName} is not loaded`, capability };
+        if (parsed.data.expectedVersion && parsed.data.expectedVersion !== skill.version) {
+          return {
+            error: `Skill ${skill.name} version mismatch: expected ${parsed.data.expectedVersion}, loaded ${skill.version}`,
+            capability,
+          };
+        }
+        const allowedTools = new Set(parsed.data.allowedTools);
+        const deniedTools = skill.tools.filter((tool) => !allowedTools.has(tool));
+        if (deniedTools.length > 0) {
+          return {
+            error: `Skill ${skill.name} requires tool(s) outside allowed scope: ${deniedTools.join(', ')}`,
+            capability,
+          };
+        }
+
+        return {
+          skill: {
+            name: skill.name,
+            version: skill.version,
+            riskProfile: skill.riskProfile,
+            permissionRequirements: skill.permissionRequirements,
+            evalStatus: skill.evalStatus,
+            declaredTools: skill.tools,
+            sourcePath: skill.sourcePath,
+          },
+          activation: {
+            reason: parsed.data.activationReason,
+            score: parsed.data.score,
+            subagentName: parsed.data.subagentName ?? null,
+          },
+          taskHash: hashText(parsed.data.task),
+          instructionHash: hashText(skill.body),
+          instructionBlock: skill.body,
+          capability,
+        };
+      },
+    });
 
     // ─── Knowledge Search ───
     this.register({
@@ -2087,6 +2169,39 @@ function bindToolContext(input: unknown, context: ToolExecutionContext): unknown
     ...(context.missionId ? { missionId: context.missionId } : {}),
     ...(context.actionId ? { actionId: context.actionId } : {}),
   };
+}
+
+function parentContextFromBrokerInput(parentCtx: ParentContext, input: unknown): ParentContext {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) return parentCtx;
+  const record = input as Record<string, unknown>;
+  const policyDecisionId = optionalString(record['policyDecisionId']);
+  const policyVersion = optionalString(record['policyVersion']);
+  const actionId = optionalString(record['actionId']);
+  const ventureId = optionalString(record['ventureId']);
+  const missionId = optionalString(record['missionId']);
+  const helmDocumentVersionPins = stringRecord(record['helmDocumentVersionPins']);
+  return {
+    ...parentCtx,
+    ...(policyDecisionId ? { policyDecisionId } : {}),
+    ...(policyVersion ? { policyVersion } : {}),
+    ...(actionId ? { brokeredActionId: actionId } : {}),
+    ...(ventureId ? { ventureId } : {}),
+    ...(missionId ? { missionId } : {}),
+    ...(helmDocumentVersionPins ? { helmDocumentVersionPins } : {}),
+  };
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function stringRecord(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const entries = Object.entries(value as Record<string, unknown>).filter(
+    (entry): entry is [string, string] =>
+      typeof entry[0] === 'string' && typeof entry[1] === 'string',
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function normalizeOrigins(origins: string[]) {

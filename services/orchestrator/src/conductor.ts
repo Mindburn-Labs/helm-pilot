@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { appendEvidenceItem } from '@pilot/db';
 import { type Db } from '@pilot/db/client';
 import { type LlmProvider } from '@pilot/shared/llm';
@@ -15,6 +15,7 @@ import { validateL1 } from '@pilot/shared/conformance';
 import { createLogger } from '@pilot/shared/logger';
 import { type SubagentFrame } from './agent-loop.js';
 import { type ToolRegistry } from './tools.js';
+import { ToolBroker } from './tool-broker.js';
 import { SubagentLoop } from './subagent-loop.js';
 import { emitConductEvent } from './conduct-stream.js';
 
@@ -32,6 +33,17 @@ interface SkillInvocationAudit {
   evalStatus: string;
   declaredTools: string[];
   sourcePath: string;
+  instructionHash?: string;
+  brokeredInvocation?: {
+    actionId: string;
+    toolExecutionId: string;
+    evidenceItemId: string;
+    status: 'completed' | 'failed';
+    inputHash: string;
+    outputHash: string;
+    policyDecisionId?: string;
+    policyVersion?: string;
+  };
 }
 
 /**
@@ -74,7 +86,9 @@ export class Conductor {
      * into the child's scoped tool registry.
      */
     private readonly mcpRegistry?: McpServerRegistry,
-  ) {}
+  ) {
+    this.parentTools.setSkillRegistry(this.skillRegistry);
+  }
 
   /**
    * Spawn a single subagent.
@@ -399,6 +413,7 @@ export class Conductor {
     }
 
     // 3. Write the subagent's parent task_runs row.
+    const initialSkillInvocations = skillAuditPayload(skills);
     const subagentTaskRunId = await this.writeSubagentTaskRun({
       taskId: parentCtx.taskId,
       parentTaskRunId: parentCtx.parentTaskRunId,
@@ -407,7 +422,7 @@ export class Conductor {
       def,
       task,
       allocatedUsd,
-      skills,
+      skillInvocations: initialSkillInvocations,
     });
     if (!subagentTaskRunId) {
       throw new Error(`Failed to persist subagent task run for "${def.name}".`);
@@ -419,6 +434,16 @@ export class Conductor {
     if (!evidenceAttached) {
       throw new Error(`Failed to anchor SUBAGENT_SPAWN evidence to task run for "${def.name}".`);
     }
+    const skillInvocations = await this.invokeSkillsThroughBroker({
+      parentCtx,
+      def,
+      task,
+      matches: skills,
+      subagentTaskRunId,
+      spawnPackId,
+      initialSkillInvocations,
+    });
+    await this.updateSubagentTaskRunSkills(subagentTaskRunId, skillInvocations);
     let handoffId: string | null;
     try {
       handoffId = await this.writeAgentHandoff({
@@ -426,7 +451,7 @@ export class Conductor {
         def,
         task,
         childTaskRunId: subagentTaskRunId,
-        skills,
+        skillInvocations,
       });
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
@@ -575,7 +600,7 @@ export class Conductor {
     def: SubagentDefinition;
     task: string;
     childTaskRunId: string;
-    skills: SkillMatch[];
+    skillInvocations: SkillInvocationAudit[];
   }): Promise<string | null> {
     const { agentHandoffs } = await import('@pilot/db/schema');
     const [row] = await this.db
@@ -589,7 +614,7 @@ export class Conductor {
         toAgent: params.def.name,
         handoffKind: 'subagent_spawn',
         status: 'running',
-        skillInvocations: skillAuditPayload(params.skills),
+        skillInvocations: params.skillInvocations,
         input: {
           task: params.task,
           operatorRole: params.def.operatorRole,
@@ -639,7 +664,7 @@ export class Conductor {
     def: SubagentDefinition;
     task: string;
     allocatedUsd: number;
-    skills: SkillMatch[];
+    skillInvocations: SkillInvocationAudit[];
   }): Promise<string> {
     try {
       const { taskRuns } = await import('@pilot/db/schema');
@@ -663,13 +688,93 @@ export class Conductor {
           operatorRole: params.def.operatorRole,
           budgetSliceAllocated: params.allocatedUsd.toFixed(4),
           budgetSliceUsed: '0.0000',
-          skillInvocations: skillAuditPayload(params.skills),
+          skillInvocations: params.skillInvocations,
         })
         .returning({ id: taskRuns.id });
       return row?.id ?? '';
     } catch {
       return '';
     }
+  }
+
+  private async invokeSkillsThroughBroker(params: {
+    parentCtx: ParentContext;
+    def: SubagentDefinition;
+    task: string;
+    matches: SkillMatch[];
+    subagentTaskRunId: string;
+    spawnPackId: string;
+    initialSkillInvocations: SkillInvocationAudit[];
+  }): Promise<SkillInvocationAudit[]> {
+    if (params.matches.length === 0) return params.initialSkillInvocations;
+
+    const broker = new ToolBroker(this.db);
+    const initialByName = new Map(params.initialSkillInvocations.map((item) => [item.name, item]));
+    const enriched: SkillInvocationAudit[] = [];
+    for (const match of params.matches) {
+      const brokered = await broker.execute(
+        this.parentTools,
+        'skill.invoke',
+        {
+          skillName: match.skill.name,
+          expectedVersion: match.skill.version,
+          activationReason: match.reason,
+          score: match.score,
+          task: params.task,
+          subagentName: params.def.name,
+          allowedTools: params.def.toolScope.allowedTools,
+        },
+        {
+          workspaceId: params.parentCtx.workspaceId,
+          taskId: params.parentCtx.taskId,
+          parentTaskRunId: params.subagentTaskRunId,
+          rootTaskRunId:
+            params.parentCtx.rootTaskRunId ??
+            params.parentCtx.parentTaskRunId ??
+            params.subagentTaskRunId,
+          ventureId: params.parentCtx.ventureId,
+          missionId: params.parentCtx.missionId,
+          policyDecisionId: params.parentCtx.policyDecisionId,
+          policyVersion: params.parentCtx.policyVersion,
+          helmDocumentVersionPins: params.parentCtx.helmDocumentVersionPins,
+          actionHash: skillInvocationActionHash(params.def.name, params.task, match),
+          evidenceIds: [params.spawnPackId],
+        },
+      );
+      const output = isRecord(brokered.output) ? brokered.output : {};
+      const base = initialByName.get(match.skill.name) ?? skillAuditPayload([match])[0]!;
+      enriched.push({
+        ...base,
+        ...(typeof output['instructionHash'] === 'string'
+          ? { instructionHash: output['instructionHash'] }
+          : {}),
+        brokeredInvocation: {
+          actionId: brokered.actionId,
+          toolExecutionId: brokered.toolExecutionId,
+          evidenceItemId: brokered.evidenceItemId,
+          status: brokered.status,
+          inputHash: brokered.inputHash,
+          outputHash: brokered.outputHash,
+          ...(params.parentCtx.policyDecisionId
+            ? { policyDecisionId: params.parentCtx.policyDecisionId }
+            : {}),
+          ...(params.parentCtx.policyVersion
+            ? { policyVersion: params.parentCtx.policyVersion }
+            : {}),
+        },
+      });
+    }
+    return enriched;
+  }
+
+  private async updateSubagentTaskRunSkills(
+    taskRunId: string,
+    skillInvocations: SkillInvocationAudit[],
+  ): Promise<void> {
+    if (skillInvocations.length === 0) return;
+    const { taskRuns } = await import('@pilot/db/schema');
+    const { eq } = await import('drizzle-orm');
+    await this.db.update(taskRuns).set({ skillInvocations }).where(eq(taskRuns.id, taskRunId));
   }
 
   private failNotFound(name: string, parentCtx: ParentContext): SubagentRunResult {
@@ -700,6 +805,11 @@ export interface ParentContext {
   rootTaskRunId?: string | null;
   operatorRole: string;
   policyVersion: string;
+  policyDecisionId?: string;
+  helmDocumentVersionPins?: Record<string, string>;
+  brokeredActionId?: string;
+  ventureId?: string;
+  missionId?: string;
   /** USD available to the conductor for delegations this iteration. */
   remainingBudgetUsd: number;
   /** Workspace execution mode inherited by child runs for tool filtering. */
@@ -724,4 +834,35 @@ function skillAuditPayload(matches: SkillMatch[]): SkillInvocationAudit[] {
     declaredTools: match.skill.tools,
     sourcePath: match.skill.sourcePath,
   }));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function skillInvocationActionHash(subagentName: string, task: string, match: SkillMatch): string {
+  const payload = [
+    'skill.invoke',
+    subagentName,
+    match.skill.name,
+    match.skill.version,
+    match.reason,
+    String(match.score),
+    stableJson({ task }),
+  ].join(':');
+  return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(sortJson(value));
+}
+
+function sortJson(value: unknown): unknown {
+  if (value == null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(sortJson);
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, child]) => [key, sortJson(child)]),
+  );
 }

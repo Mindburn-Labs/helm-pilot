@@ -195,16 +195,17 @@ const capabilityRecords = validateCapabilityRecords([
     name: 'Runtime skill registry',
     state: 'implemented',
     summary:
-      'Skill registry loading is wired into gateway, orchestrator, conductor, and subagent prompts with versioned metadata recorded on spawned runs and handoffs.',
+      'Skill registry loading is wired into gateway, orchestrator, conductor, Tool Broker skill invocation, and subagent prompts with versioned metadata recorded on spawned runs and handoffs.',
     owner: 'Runtime Agent',
     blockers: [
       'Skill Invocation Governance Eval has not promoted the capability to production_ready',
-      'Skills are still prompt packages rather than fully Tool Broker callable capabilities',
+      'Skills now activate through Tool Broker before prompt use, but full deterministic skill runtimes and eval-backed production promotion are still incomplete',
       'Broader agent registry cost limits, memory scopes, and policy constraints are not complete',
     ],
     evidence: [
       'Gate 3 loads SkillRegistry in gateway startup and passes it through Orchestrator and Conductor',
       'Conductor validates explicit skills are loaded and blocks declared skills whose tools exceed the subagent scope',
+      'Conductor activates matched skills through the Tool Broker via skill.invoke before subagent execution; action, tool_execution, evidence, audit, and brokered invocation metadata are attached to the subagent run and handoff',
       'task_runs.skill_invocations and agent_handoffs.skill_invocations record skill version, risk, permissions, eval status, declared tools, and source path',
     ],
     evalRequirement: 'Skill Invocation Governance Eval',

@@ -100,7 +100,10 @@ export class Orchestrator {
     this.fallbackLlm = config.llm;
     this.basePolicy = config.policy;
     this.trust = new TrustBoundary(config.policy);
-    this.tools = new ToolRegistry(config.db, config.memory, { helmClient: config.helmClient });
+    this.tools = new ToolRegistry(config.db, config.memory, {
+      helmClient: config.helmClient,
+      skillRegistry: config.skillRegistry,
+    });
     this.agentLoop = new AgentLoop(config.db, this.trust, config.helmClient);
 
     // Wire LLM + tools into agent loop if available. This is the baseline
@@ -215,6 +218,8 @@ export class Orchestrator {
       policyVersion: 'founder-ops-v1',
       remainingBudgetUsd: runtime.policy.budget.perTaskMax,
       mode: runtime.mode,
+      ...(params.ventureId ? { ventureId: params.ventureId } : {}),
+      ...(params.missionId ? { missionId: params.missionId } : {}),
     };
     this.tools.setParentContext(parentCtx);
     try {

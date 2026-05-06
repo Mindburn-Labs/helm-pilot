@@ -19,6 +19,7 @@ vi.mock('@pilot/db/schema', () => ({
   operatorMemory: 'operatorMemory',
   actions: 'actions',
   toolExecutions: 'toolExecutions',
+  evidenceItems: 'evidenceItems',
   auditLog: 'auditLog',
 }));
 
@@ -137,6 +138,8 @@ const baseCtx: ParentContext = {
   parentTaskRunId: 'tr-parent',
   operatorRole: 'conductor',
   policyVersion: 'founder-ops-v1',
+  policyDecisionId: 'dec-subagent-spawn',
+  helmDocumentVersionPins: { toolAccessPolicy: 'founder-ops-v1' },
   remainingBudgetUsd: 5,
 };
 
@@ -295,8 +298,96 @@ describe('Conductor.spawn', () => {
       }),
     ]);
 
+    const skillAction = valuesPayloads.find((p) => p['actionKey'] === 'skill.invoke');
+    expect(skillAction).toEqual(
+      expect.objectContaining({
+        actionType: 'tool',
+        riskClass: 'medium',
+        policyDecisionId: 'dec-subagent-spawn',
+        policyVersion: 'founder-ops-v1',
+      }),
+    );
+    const skillExecution = valuesPayloads.find((p) => p['toolKey'] === 'skill.invoke');
+    expect(skillExecution).toEqual(
+      expect.objectContaining({
+        status: 'running',
+        policyDecisionId: 'dec-subagent-spawn',
+        policyVersion: 'founder-ops-v1',
+        helmDocumentVersionPins: { toolAccessPolicy: 'founder-ops-v1' },
+      }),
+    );
+
+    const updatePayloads: Record<string, unknown>[] = [];
+    for (const result of db.update.mock.results) {
+      const chain = result.value as { set: ReturnType<typeof vi.fn> };
+      for (const setCall of chain.set.mock.calls) {
+        updatePayloads.push(setCall[0] as Record<string, unknown>);
+      }
+    }
+    const skillUpdate = updatePayloads.find((p) => Array.isArray(p['skillInvocations']));
+    expect(skillUpdate?.['skillInvocations']).toEqual([
+      expect.objectContaining({
+        name: 'yc-application-writing',
+        instructionHash: expect.stringMatching(/^sha256:/u),
+        brokeredInvocation: expect.objectContaining({
+          actionId: expect.any(String),
+          toolExecutionId: expect.any(String),
+          evidenceItemId: expect.any(String),
+          status: 'completed',
+          inputHash: expect.stringMatching(/^sha256:/u),
+          outputHash: expect.stringMatching(/^sha256:/u),
+          policyDecisionId: 'dec-subagent-spawn',
+          policyVersion: 'founder-ops-v1',
+        }),
+      }),
+    ]);
+
     const handoff = valuesPayloads.find((p) => p['handoffKind'] === 'subagent_spawn');
-    expect(handoff?.['skillInvocations']).toEqual(spawnRun?.['skillInvocations']);
+    expect(handoff?.['skillInvocations']).toEqual(skillUpdate?.['skillInvocations']);
+  });
+
+  it('fails closed when a skill cannot be activated through Tool Broker governance', async () => {
+    const skill = makeSkill({
+      name: 'yc-application-writing',
+      tools: ['search_knowledge'],
+      body: 'Use YC voice and never invent traction.',
+    });
+    const registry = new SubagentRegistry([
+      makeDef({
+        name: 'application_writer',
+        skills: ['yc-application-writing'],
+        toolScope: { allowedTools: ['search_knowledge'] },
+      }),
+    ]);
+    const skillRegistry = new SkillRegistry([skill]);
+    const db = makeMockDb();
+    const llm = makeLlm();
+    const tools = new ToolRegistry(db);
+    const conductor = new Conductor(
+      db,
+      registry,
+      tools,
+      makePolicy(),
+      llm,
+      undefined,
+      skillRegistry,
+    );
+
+    const result = await conductor.spawn(
+      {
+        ...baseCtx,
+        policyDecisionId: undefined,
+      },
+      {
+        name: 'application_writer',
+        task: 'Draft YC application sections',
+      },
+    );
+
+    expect(result.verdict).toBe('failed');
+    expect(result.error).toBe('subagent_persistence_failed');
+    expect(result.summary).toContain('Tool Broker refused elevated tool skill.invoke');
+    expect(llm.complete).not.toHaveBeenCalled();
   });
 
   it('fails closed when an explicit skill is not loaded', async () => {

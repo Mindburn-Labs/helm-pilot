@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { artifactVersions, artifacts, computerActions, evidenceItems } from '@pilot/db/schema';
 import { getCapabilityRecord } from '@pilot/shared/capabilities';
+import { SkillRegistry, type SkillDefinition } from '@pilot/shared/skills';
 import {
   markBrokeredToolContext,
   ToolRegistry,
@@ -13,19 +14,26 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockDb = {} as any;
 
-function createRegistry(opts: { memory?: unknown; helmClient?: unknown } = {}) {
+function createRegistry(
+  opts: { memory?: unknown; helmClient?: unknown; skillRegistry?: SkillRegistry } = {},
+) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return new ToolRegistry(mockDb as any, opts.memory as any, {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     helmClient: opts.helmClient as any,
+    skillRegistry: opts.skillRegistry,
   });
 }
 
-function createRegistryWithDb(db: unknown, opts: { memory?: unknown; helmClient?: unknown } = {}) {
+function createRegistryWithDb(
+  db: unknown,
+  opts: { memory?: unknown; helmClient?: unknown; skillRegistry?: SkillRegistry } = {},
+) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return new ToolRegistry(db as any, opts.memory as any, {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     helmClient: opts.helmClient as any,
+    skillRegistry: opts.skillRegistry,
   });
 }
 
@@ -123,6 +131,22 @@ function createArtifactDb() {
   return { db, insertedArtifacts, insertedArtifactVersions, insertedEvidenceItems };
 }
 
+function makeSkill(overrides: Partial<SkillDefinition> = {}): SkillDefinition {
+  return {
+    name: 'test-skill',
+    description: 'Test skill',
+    version: '1.0.0',
+    tools: ['search_knowledge'],
+    riskProfile: 'R1',
+    permissionRequirements: ['knowledge.read'],
+    evalStatus: 'not_evaluated',
+    activation: 'auto',
+    body: 'Use the test skill.',
+    sourcePath: '/tmp/test-skill/SKILL.md',
+    ...overrides,
+  };
+}
+
 describe('ToolRegistry', () => {
   // ─── Registration ───
 
@@ -215,10 +239,11 @@ describe('ToolRegistry', () => {
       // Apply mode tools
       expect(names).toContain('create_application_draft');
 
+      expect(names).toContain('skill.invoke');
       expect(names).toContain('slack_workspace_agent_reply');
 
-      // Phase 15 Track I + K plus Workspace Agents: 46 connector tools + 2 multimodal + Operator CUA/browser.
-      expect(tools.length).toBe(50);
+      // Phase 15 Track I + K plus Workspace Agents: 46 connector tools + 2 multimodal + Operator CUA/browser + skill runtime adapter.
+      expect(tools.length).toBe(51);
     });
   });
 
@@ -552,6 +577,61 @@ describe('ToolRegistry', () => {
   });
 
   // ─── Built-in tool behaviors ───
+
+  describe('built-in: skill.invoke', () => {
+    it('requires declared skill tools to fit the provided allowed tool scope', async () => {
+      const registry = createRegistry({
+        skillRegistry: new SkillRegistry([
+          makeSkill({ name: 'market-research', tools: ['search_knowledge'] }),
+        ]),
+      });
+
+      const result = await registry.execute(
+        'skill.invoke',
+        {
+          skillName: 'market-research',
+          expectedVersion: '1.0.0',
+          task: 'Research a market',
+          allowedTools: [],
+        },
+        brokeredToolContext(),
+      );
+
+      expect(result).toMatchObject({
+        error: 'Skill market-research requires tool(s) outside allowed scope: search_knowledge',
+      });
+    });
+
+    it('returns versioned skill metadata and instruction hash when scope permits invocation', async () => {
+      const registry = createRegistry({
+        skillRegistry: new SkillRegistry([
+          makeSkill({ name: 'market-research', tools: ['search_knowledge'] }),
+        ]),
+      });
+
+      const result = await registry.execute(
+        'skill.invoke',
+        {
+          skillName: 'market-research',
+          expectedVersion: '1.0.0',
+          task: 'Research a market',
+          allowedTools: ['search_knowledge'],
+        },
+        brokeredToolContext(),
+      );
+
+      expect(result).toMatchObject({
+        skill: {
+          name: 'market-research',
+          version: '1.0.0',
+          declaredTools: ['search_knowledge'],
+        },
+        taskHash: expect.stringMatching(/^sha256:/u),
+        instructionHash: expect.stringMatching(/^sha256:/u),
+        capability: getCapabilityRecord('skill_registry_runtime'),
+      });
+    });
+  });
 
   describe('built-in: draft_text', () => {
     it('returns purpose, draft, and length', async () => {
