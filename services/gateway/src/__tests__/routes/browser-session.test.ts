@@ -521,9 +521,16 @@ describe('browserSessionRoutes', () => {
         credentialBoundary: 'read_only_no_cookie_or_password_export',
       },
     });
+    const auditInsert = inserts.find((insert) => insert.table === auditLog)?.value as {
+      id: string;
+    };
+    expect(auditInsert.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u,
+    );
     expect(inserts.find((insert) => insert.table === evidenceItems)?.value).toMatchObject({
       workspaceId,
       taskId,
+      auditEventId: auditInsert.id,
       evidencePackId,
       browserObservationId: 'obs-1',
       evidenceType: 'browser_observation',
@@ -535,7 +542,7 @@ describe('browserSessionRoutes', () => {
         helmDocumentVersionPins: { browserReadPolicy: 'founder-ops-v1' },
       },
     });
-    expect(inserts.find((insert) => insert.table === auditLog)?.value).toMatchObject({
+    expect(auditInsert).toMatchObject({
       action: 'BROWSER_OBSERVATION_CAPTURED',
       verdict: 'allow',
       metadata: {
