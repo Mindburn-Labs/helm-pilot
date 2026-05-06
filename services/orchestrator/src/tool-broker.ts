@@ -20,7 +20,8 @@ export interface BrokeredToolResult {
   evidenceItemId: string;
 }
 
-type BrokerDb = Pick<Db, 'insert' | 'update'>;
+type BrokerTx = Pick<Db, 'insert' | 'update'>;
+type BrokerDb = BrokerTx & Pick<Db, 'transaction'>;
 
 export class ToolBroker {
   constructor(private readonly db: BrokerDb) {}
@@ -158,11 +159,63 @@ export class ToolBroker {
       },
     } satisfies Parameters<typeof appendEvidenceItem>[1];
 
-    let evidenceItemId: string | null = null;
-    if (isElevatedManifest(manifest)) {
-      try {
-        evidenceItemId = await appendEvidenceItem(this.db, evidenceInput);
-      } catch (evidenceError) {
+    let finalEvidenceItemId: string;
+    try {
+      finalEvidenceItemId = await this.db.transaction(async (tx) => {
+        const db = tx as unknown as BrokerTx;
+        const evidenceItemId = await appendEvidenceItem(db, evidenceInput);
+        const persistedEvidenceIds = uniqueStrings([...evidenceIds, evidenceItemId]);
+
+        await db
+          .update(toolExecutions)
+          .set({
+            status,
+            outputHash,
+            sanitizedOutput,
+            evidenceIds: persistedEvidenceIds,
+            error,
+            completedAt: new Date(),
+          })
+          .where(eq(toolExecutions.id, execution.id));
+
+        await db
+          .update(actions)
+          .set({
+            status,
+            outputHash,
+            completedAt: new Date(),
+          })
+          .where(eq(actions.id, action.id));
+
+        await db.insert(auditLog).values({
+          workspaceId: context.workspaceId,
+          action: 'TOOL_EXECUTION',
+          actor: actorType === 'operator' ? `operator:${context.operatorId}` : 'agent',
+          target: toolName,
+          verdict: status === 'completed' ? 'allow' : 'error',
+          reason: error,
+          metadata: {
+            broker: 'tool_broker_v1',
+            actionId: action.id,
+            toolExecutionId: execution.id,
+            toolKey: toolName,
+            idempotencyKey,
+            inputHash,
+            outputHash,
+            riskClass: manifest.riskClass,
+            evidenceItemId,
+            evidenceIds: persistedEvidenceIds,
+            policyDecisionId: policyPin.policyDecisionId,
+            policyVersion: policyPin.policyVersion,
+            helmDocumentVersionPins: policyPin.documentVersionPins,
+            policyPin,
+          },
+        });
+
+        return evidenceItemId;
+      });
+    } catch (evidenceError) {
+      if (isElevatedManifest(manifest)) {
         await this.markElevatedEvidencePersistenceFailure({
           actionId: action.id,
           toolExecutionId: execution.id,
@@ -173,67 +226,11 @@ export class ToolBroker {
           sanitizedOutput,
           error: evidenceError,
         });
-        throw new Error(
-          `Tool Broker blocked elevated ${toolName} completion: ${stringifyError(evidenceError)}`,
-        );
       }
+      throw new Error(
+        `Tool Broker blocked ${isElevatedManifest(manifest) ? 'elevated ' : ''}${toolName} completion: ${stringifyError(evidenceError)}`,
+      );
     }
-
-    const persistedEvidenceIds = uniqueStrings([
-      ...evidenceIds,
-      ...(evidenceItemId ? [evidenceItemId] : []),
-    ]);
-
-    await this.db
-      .update(toolExecutions)
-      .set({
-        status,
-        outputHash,
-        sanitizedOutput,
-        evidenceIds: persistedEvidenceIds,
-        error,
-        completedAt: new Date(),
-      })
-      .where(eq(toolExecutions.id, execution.id));
-
-    await this.db
-      .update(actions)
-      .set({
-        status,
-        outputHash,
-        completedAt: new Date(),
-      })
-      .where(eq(actions.id, action.id));
-
-    if (!evidenceItemId) {
-      evidenceItemId = await appendEvidenceItem(this.db, evidenceInput);
-    }
-    const finalEvidenceItemId = evidenceItemId;
-
-    await this.db.insert(auditLog).values({
-      workspaceId: context.workspaceId,
-      action: 'TOOL_EXECUTION',
-      actor: actorType === 'operator' ? `operator:${context.operatorId}` : 'agent',
-      target: toolName,
-      verdict: status === 'completed' ? 'allow' : 'error',
-      reason: error,
-      metadata: {
-        broker: 'tool_broker_v1',
-        actionId: action.id,
-        toolExecutionId: execution.id,
-        toolKey: toolName,
-        idempotencyKey,
-        inputHash,
-        outputHash,
-        riskClass: manifest.riskClass,
-        evidenceItemId: finalEvidenceItemId,
-        evidenceIds: persistedEvidenceIds,
-        policyDecisionId: policyPin.policyDecisionId,
-        policyVersion: policyPin.policyVersion,
-        helmDocumentVersionPins: policyPin.documentVersionPins,
-        policyPin,
-      },
-    });
 
     return {
       output,

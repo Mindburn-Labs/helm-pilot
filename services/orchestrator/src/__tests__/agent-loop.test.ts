@@ -38,6 +38,7 @@ const mockDb = {
       where: vi.fn(async () => []),
     })),
   })),
+  transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(mockDb)),
   select: vi.fn(() => ({
     from: vi.fn(() => ({
       where: vi.fn(() => ({
@@ -179,6 +180,7 @@ describe('AgentLoop', () => {
           where: vi.fn(async () => []),
         })),
       })),
+      transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(db)),
       select: vi.fn(() => ({
         from: vi.fn(() => ({
           where: vi.fn(() => ({
