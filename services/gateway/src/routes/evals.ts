@@ -84,6 +84,20 @@ function toEvalRunResponse(row: typeof evalRuns.$inferSelect) {
   };
 }
 
+function evalCapabilityMismatch(evalId: string, capabilityKey?: CapabilityKey) {
+  if (!capabilityKey) return null;
+  const scenario = getPilotProductionEvalSuite().find((item) => item.id === evalId);
+  if (!scenario || scenario.capabilityKeys.includes(capabilityKey)) return null;
+
+  return {
+    error: 'Eval/capability mismatch',
+    message: `${scenario.name} does not evaluate capability ${capabilityKey}`,
+    evalId,
+    capabilityKey,
+    allowedCapabilityKeys: scenario.capabilityKeys,
+  };
+}
+
 async function persistEvalRun(
   deps: GatewayDeps,
   workspaceId: string,
@@ -264,7 +278,8 @@ async function persistEvalRun(
           workspaceId,
           evalRunId: created.id,
           evalId: input.evalId,
-          capabilityKey: created.capabilityKey ?? input.capabilityKey ?? defaultCapabilityKey ?? null,
+          capabilityKey:
+            created.capabilityKey ?? input.capabilityKey ?? defaultCapabilityKey ?? null,
           status: input.status,
           passed,
           summary: input.summary ?? input.failureReason ?? null,
@@ -423,6 +438,8 @@ export function evalRoutes(deps: GatewayDeps) {
     if (!parsed.success) {
       return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
     }
+    const mismatch = evalCapabilityMismatch(parsed.data.evalId, parsed.data.capabilityKey);
+    if (mismatch) return c.json(mismatch, 400);
 
     const persisted = await persistEvalRun(deps, workspaceId, parsed.data);
     return c.json(persisted.body, persisted.status);
@@ -446,6 +463,8 @@ export function evalRoutes(deps: GatewayDeps) {
     if (!parsed.success) {
       return c.json({ error: 'Validation failed', details: parsed.error.flatten() }, 400);
     }
+    const mismatch = evalCapabilityMismatch(parsed.data.evalId, parsed.data.capabilityKey);
+    if (mismatch) return c.json(mismatch, 400);
 
     const executed = executePilotProductionEval(parsed.data);
     const persisted = await persistEvalRun(deps, workspaceId, executed.run, {

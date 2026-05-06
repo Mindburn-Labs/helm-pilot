@@ -299,11 +299,7 @@ describe('evalRoutes', () => {
       }),
     ]);
     expect(body.productionReadyRegistryMutation).toBe(false);
-    expect(body.evidenceItemIds).toEqual([
-      'evidence-item-1',
-      'evidence-item-2',
-      'evidence-item-3',
-    ]);
+    expect(body.evidenceItemIds).toEqual(['evidence-item-1', 'evidence-item-2', 'evidence-item-3']);
     expect(inserts.find((insert) => insert.table === evalSteps)?.value).toEqual([
       expect.objectContaining({ stepKey: 'restricted-action-denial', status: 'passed' }),
     ]);
@@ -675,6 +671,71 @@ describe('evalRoutes', () => {
     const body = await expectJson<{ error: string }>(res, 403);
 
     expect(body.error).toContain('workspaceId does not match');
+  });
+
+  it('rejects recorded eval runs for capabilities outside the eval scenario', async () => {
+    const scenario = getRequiredEvalForCapability('helm_receipts');
+    if (!scenario) throw new Error('helm_receipts eval missing');
+    const { db, inserts } = createEvalDb();
+    const { fetch } = testApp(evalRoutes, createMockDeps({ db: db as never }));
+
+    const res = await fetch(
+      'POST',
+      '/runs',
+      {
+        evalId: scenario.id,
+        status: 'passed',
+        capabilityKey: 'browser_execution',
+        evidenceRefs: ['evidence:helm-governance'],
+        auditReceiptRefs: ['audit:helm-governance'],
+        completedAt: '2026-05-05T00:00:00.000Z',
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      error: string;
+      message: string;
+      allowedCapabilityKeys: string[];
+    }>(res, 400);
+
+    expect(body.error).toBe('Eval/capability mismatch');
+    expect(body.message).toContain('does not evaluate capability browser_execution');
+    expect(body.allowedCapabilityKeys).toContain('helm_receipts');
+    expect(inserts).toEqual([]);
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects executed eval proof checks for capabilities outside the eval scenario', async () => {
+    const scenario = getRequiredEvalForCapability('helm_receipts');
+    if (!scenario) throw new Error('helm_receipts eval missing');
+    const { db, inserts } = createEvalDb();
+    const { fetch } = testApp(evalRoutes, createMockDeps({ db: db as never }));
+
+    const res = await fetch(
+      'POST',
+      '/execute',
+      {
+        evalId: scenario.id,
+        capabilityKey: 'browser_execution',
+        evidenceRefs: ['evidence:helm-governance'],
+        auditReceiptRefs: ['audit:helm-governance'],
+        evidenceCoverage: scenario.evidenceRequirements,
+        auditCoverage: scenario.auditRequirements,
+        completedAt: '2026-05-05T00:00:00.000Z',
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      error: string;
+      message: string;
+      allowedCapabilityKeys: string[];
+    }>(res, 400);
+
+    expect(body.error).toBe('Eval/capability mismatch');
+    expect(body.message).toContain('does not evaluate capability browser_execution');
+    expect(body.allowedCapabilityKeys).toContain('helm_receipts');
+    expect(inserts).toEqual([]);
+    expect(db.transaction).not.toHaveBeenCalled();
   });
 
   it('rejects passed eval runs without evidence and audit receipts', async () => {

@@ -216,6 +216,27 @@ describe('production eval suite', () => {
     expect(executed.blockers.join(' ')).toContain('Missing evidence coverage');
   });
 
+  it('fails closed when an eval is executed for an unrelated capability', () => {
+    const scenario = getRequiredEvalForCapability('helm_receipts');
+    if (!scenario) throw new Error('helm_receipts eval missing');
+
+    const executed = executePilotProductionEval({
+      evalId: scenario.id,
+      capabilityKey: 'browser_execution',
+      evidenceRefs: ['evidence:helm-governance'],
+      auditReceiptRefs: ['audit:helm-governance'],
+      evidenceCoverage: scenario.evidenceRequirements,
+      auditCoverage: scenario.auditRequirements,
+      completedAt: '2026-05-05T00:00:00.000Z',
+    });
+
+    expect(executed.run.status).toBe('failed');
+    expect(executed.run.capabilityKey).toBe('browser_execution');
+    expect(executed.blockers.join(' ')).toContain(
+      'HELM Governance Eval does not evaluate capability browser_execution',
+    );
+  });
+
   it('executes a control-plane production eval and only passes with evidence and audit coverage', () => {
     const scenario = getRequiredEvalForCapability('helm_receipts');
     if (!scenario) throw new Error('helm_receipts eval missing');

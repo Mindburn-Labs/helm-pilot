@@ -654,6 +654,8 @@ export function executePilotProductionEval(input: ExecutePilotEvalInput): {
     blockers.push('No capability key could be selected for this eval');
   } else if (!capability) {
     blockers.push(`Capability ${capabilityKey} is not registered`);
+  } else if (scenario && !scenario.capabilityKeys.includes(capabilityKey)) {
+    blockers.push(`${scenario.name} does not evaluate capability ${capabilityKey}`);
   } else if (capability.state === 'blocked' || capability.state === 'stub') {
     blockers.push(`Capability ${capability.key} is ${capability.state}`);
   }
