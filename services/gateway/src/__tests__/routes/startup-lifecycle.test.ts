@@ -464,10 +464,12 @@ describe('startupLifecycleRoutes', () => {
         nodeStatuses: Record<string, number>;
       };
       blockers: string[];
+      runtimeCheckpointId: string;
     }>(res, 200);
 
     expect(body.missionId).toBe(missionId);
     expect(body.checkpointId).toMatch(/^mission-checkpoint:[a-f0-9]+$/);
+    expect(body.runtimeCheckpointId).toBe('00000000-0000-4000-8000-000000000291');
     expect(body.checkpointVersion).toBe('mission-checkpoint.v1');
     expect(body.productionReady).toBe(false);
     expect(body.status).toBe('checkpointed_not_recovered');
