@@ -498,6 +498,7 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
       workspaceId,
       missionId: mission.id,
       checkpointId,
+      runtimeCheckpointId: runtimeCheckpoint.id,
       checkpointVersion: 'mission-checkpoint.v1',
       productionReady: false,
       status: 'checkpointed_not_recovered',
@@ -1626,6 +1627,7 @@ async function loadMissionRuntimeSnapshot(
           })
           .from(taskRuns)
           .where(inArray(taskRuns.taskId, taskIds))
+          .orderBy(taskRuns.runSequence, taskRuns.startedAt, taskRuns.id)
       : [];
   const taskRunCheckpointRefs = runRows
     .filter((row) => row.checkpointId || row.lastCheckpointAt)

@@ -221,6 +221,7 @@ export const CheckpointedStartupMissionSchema = z.object({
   workspaceId: z.string().uuid(),
   missionId: z.string().uuid(),
   checkpointId: z.string().min(1),
+  runtimeCheckpointId: z.string().uuid(),
   checkpointVersion: z.literal('mission-checkpoint.v1'),
   productionReady: z.literal(false),
   status: z.literal('checkpointed_not_recovered'),
