@@ -108,6 +108,38 @@ export const RecordPilotEvalRunInputSchema = z
         message: 'passed eval runs must include at least one audit receipt reference',
       });
     }
+    if (input.status === 'passed') {
+      input.steps.forEach((step, index) => {
+        if (step.status !== 'passed') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['steps', index, 'status'],
+            message: 'passed eval runs cannot include non-passed steps',
+          });
+        }
+        if (step.evidenceRefs.length === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['steps', index, 'evidenceRefs'],
+            message: 'passed eval run steps must include at least one evidence reference',
+          });
+        }
+        if (step.auditReceiptRefs.length === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['steps', index, 'auditReceiptRefs'],
+            message: 'passed eval run steps must include at least one audit receipt reference',
+          });
+        }
+        if (!step.completedAt) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['steps', index, 'completedAt'],
+            message: 'passed eval run steps must include completedAt',
+          });
+        }
+      });
+    }
   });
 
 export const ExecutePilotEvalInputSchema = z.object({
@@ -681,6 +713,21 @@ export function executePilotProductionEval(input: ExecutePilotEvalInput): {
     ) ?? [];
   if (missingAuditCoverage.length > 0) {
     blockers.push(`Missing audit coverage: ${missingAuditCoverage.join(', ')}`);
+  }
+
+  for (const step of parsed.steps) {
+    if (step.status !== 'passed') {
+      blockers.push(`Eval step ${step.stepKey} status is ${step.status}, not passed`);
+    }
+    if (step.evidenceRefs.length === 0) {
+      blockers.push(`Eval step ${step.stepKey} is missing evidence references`);
+    }
+    if (step.auditReceiptRefs.length === 0) {
+      blockers.push(`Eval step ${step.stepKey} is missing audit receipt references`);
+    }
+    if (!step.completedAt) {
+      blockers.push(`Eval step ${step.stepKey} is missing completedAt`);
+    }
   }
 
   const status = blockers.length === 0 ? 'passed' : 'failed';
