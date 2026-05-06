@@ -148,16 +148,75 @@ export function taskRoutes(deps: GatewayDeps) {
 
     if (!existing) return c.json({ error: 'Task not found' }, 404);
 
-    const [updated] = await deps.db
-      .update(tasks)
-      .set({
-        status: parsed.data,
-        updatedAt: new Date(),
-        completedAt: parsed.data === 'completed' ? new Date() : null,
-      })
-      .where(and(eq(tasks.id, id), eq(tasks.workspaceId, workspaceId)))
-      .returning();
+    const updated = await deps.db
+      .transaction(async (tx) => {
+        const [updatedTask] = await tx
+          .update(tasks)
+          .set({
+            status: parsed.data,
+            updatedAt: new Date(),
+            completedAt: parsed.data === 'completed' ? new Date() : null,
+          })
+          .where(and(eq(tasks.id, id), eq(tasks.workspaceId, workspaceId)))
+          .returning();
 
+        if (!updatedTask) throw new Error('failed to update task status');
+
+        const auditEventId = randomUUID();
+        const replayRef = `task:${id}:status:${existing.status}->${parsed.data}`;
+        const auditMetadata = {
+          taskId: id,
+          previousStatus: existing.status,
+          status: parsed.data,
+          completed: parsed.data === 'completed',
+          evidenceContract: 'task_status_update_evidence_required',
+        };
+
+        await tx.insert(auditLog).values({
+          id: auditEventId,
+          workspaceId,
+          action: 'TASK_STATUS_UPDATED',
+          actor: `user:${c.get('userId') ?? 'unknown'}`,
+          target: id,
+          verdict: 'allow',
+          metadata: {
+            evidenceType: 'task_status_updated',
+            replayRef,
+            ...auditMetadata,
+          },
+        });
+
+        const evidenceItemId = await appendEvidenceItem(tx, {
+          workspaceId,
+          taskId: id,
+          auditEventId,
+          evidenceType: 'task_status_updated',
+          sourceType: 'gateway_task_route',
+          title: `Task status updated: ${updatedTask.title}`,
+          summary: `Task status changed from ${existing.status} to ${parsed.data}.`,
+          redactionState: 'none',
+          sensitivity: 'internal',
+          replayRef,
+          metadata: auditMetadata,
+        });
+
+        await tx
+          .update(auditLog)
+          .set({
+            metadata: {
+              evidenceType: 'task_status_updated',
+              replayRef,
+              evidenceItemId,
+              ...auditMetadata,
+            },
+          })
+          .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.id, auditEventId)));
+
+        return updatedTask;
+      })
+      .catch(() => null);
+
+    if (!updated) return c.json({ error: 'Failed to update task status evidence' }, 500);
     return c.json(updated);
   });
 
