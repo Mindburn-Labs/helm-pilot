@@ -59,6 +59,14 @@ function insertedValue(deps: ReturnType<typeof createMockDeps>, table: unknown) 
   return builder.values.mock.calls[0]?.[0] as Record<string, unknown>;
 }
 
+function updatedValue(deps: ReturnType<typeof createMockDeps>, table: unknown) {
+  const updateMock = deps.db.update as unknown as ReturnType<typeof vi.fn>;
+  const index = updateMock.mock.calls.findIndex((call) => call[0] === table);
+  if (index === -1) throw new Error('Expected update was not recorded');
+  const builder = updateMock.mock.results[index]?.value as { set: ReturnType<typeof vi.fn> };
+  return builder.set.mock.calls[0]?.[0] as Record<string, unknown>;
+}
+
 describe('decideRoutes', () => {
   it('requires partner role to run Decision Court', async () => {
     const deps = createMockDeps();
@@ -207,5 +215,11 @@ describe('decideRoutes', () => {
       }),
     });
     expect(String(evidenceValue['contentHash'])).toMatch(/^sha256:[a-f0-9]{64}$/);
+
+    const auditUpdate = updatedValue(deps, auditLog);
+    expect(auditUpdate['metadata']).toMatchObject({
+      ...auditMetadata,
+      evidenceItemId: expect.any(String),
+    });
   });
 });

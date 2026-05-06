@@ -189,7 +189,7 @@ const capabilityRecords = validateCapabilityRecords([
     evidence: [
       'Gate 4 prevents silent fallback from governed_llm_court to heuristic reasoning',
       'Gateway persists Decision Court run records with mode, status, participants, prompts, model usage, costs, policy decisions, document pins, replay refs, and final recommendation metadata',
-      'Gateway appends redacted decision_court_run evidence linked to the audit event for replayable court provenance',
+      'Gateway appends redacted decision_court_run evidence linked to the audit event for replayable court provenance and backfills audit metadata with the persisted evidence item id',
       'Tests cover unavailable, heuristic preview, governed calls with receipts, missing-governance denial, and referee failure',
     ],
     evalRequirement: 'Decision Court Governed Model Eval',
@@ -385,7 +385,8 @@ const capabilityRecords = validateCapabilityRecords([
       'Gateway HELM receipt persistence, agent-loop governance mirroring, conductor SUBAGENT_SPAWN packs, browser read/extract, and safe computer actions append evidence_items rows',
       'Tool Broker completed and failed executions append tool_broker evidence_items rows linked to action_id and tool_execution_id',
       'Tool Broker completion evidence_items now link to their audit_log rows through audit_event_id for completed and failed broker executions',
-      'Tool Broker and gateway browser observation writers persist audit_log rows before evidence_items rows that reference audit_event_id, then backfill audit metadata with the evidence item id',
+      'Decision Court run evidence_items now link to DECISION_COURT_RUN audit_log rows through audit_event_id with audit metadata backfilled to the evidence item id',
+      'Tool Broker, Decision Court, and gateway browser observation writers persist audit_log rows before evidence_items rows that reference audit_event_id, then backfill audit metadata with the evidence item id',
       'Tool Broker refuses medium, high, and restricted tool manifests before action persistence or execution unless HELM policy decision metadata is present, and marks elevated tool executions failed if evidence_items persistence fails before completion',
       'Gateway browser observation evidence_items now link to their BROWSER_OBSERVATION_CAPTURED audit_log rows through audit_event_id',
       'Safe computer action evidence_items now link to OPERATOR_COMPUTER_USE audit_log rows through audit_event_id',

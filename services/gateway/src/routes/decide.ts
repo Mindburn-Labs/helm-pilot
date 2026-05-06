@@ -157,7 +157,7 @@ async function persistDecisionCourtRun(
     metadata,
   });
 
-  await appendEvidenceItem(deps.db, {
+  const evidenceItemId = await appendEvidenceItem(deps.db, {
     workspaceId,
     auditEventId,
     evidenceType: 'decision_court_run',
@@ -174,6 +174,16 @@ async function persistDecisionCourtRun(
     replayRef,
     metadata,
   });
+
+  await deps.db
+    .update(auditLog)
+    .set({
+      metadata: {
+        ...metadata,
+        evidenceItemId,
+      },
+    })
+    .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.id, auditEventId)));
 }
 
 function decisionCourtHelmDocumentVersionPins(result: CourtResult): Record<string, string> {
