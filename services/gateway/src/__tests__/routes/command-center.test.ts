@@ -364,6 +364,42 @@ describe('commandCenterRoutes', () => {
           createdAt: new Date('2026-05-05T09:00:00Z'),
         },
       ],
+      [
+        {
+          id: 'eval-result-1',
+          workspaceId,
+          evalRunId: 'eval-run-1',
+          evalId: 'helm_governance',
+          capabilityKey: 'helm_receipts',
+          status: 'failed',
+          passed: false,
+          summary: 'token=abc result summary',
+          blockers: ['apiToken missing'],
+          createdAt: new Date('2026-05-05T08:01:00Z'),
+        },
+      ],
+      [
+        {
+          id: 'eval-step-1',
+          evalRunId: 'eval-run-1',
+          stepKey: 'receipt-persistence',
+          status: 'failed',
+          evidenceRefs: ['evidence:token=abc'],
+          auditReceiptRefs: ['audit:helm'],
+          metadata: { apiToken: 'do-not-return' },
+          completedAt: new Date('2026-05-05T08:02:00Z'),
+        },
+      ],
+      [
+        {
+          id: 'eval-evidence-link-1',
+          workspaceId,
+          evalRunId: 'eval-run-1',
+          evidenceRef: 'evidence:token=abc',
+          auditReceiptRef: 'audit:helm',
+          createdAt: new Date('2026-05-05T08:03:00Z'),
+        },
+      ],
     ]);
 
     const res = await fetch('GET', '/eval-status', wsHeader);
@@ -378,6 +414,26 @@ describe('commandCenterRoutes', () => {
           status: string;
           failureReason: string;
           metadata: Record<string, unknown>;
+        }>;
+        results: Array<{
+          id: string;
+          evalRunId: string;
+          status: string;
+          summary: string;
+          blockers: string[];
+        }>;
+        steps: Array<{
+          id: string;
+          evalRunId: string;
+          stepKey: string;
+          status: string;
+          evidenceRefs: string[];
+          metadata: Record<string, unknown>;
+        }>;
+        evidenceLinks: Array<{
+          id: string;
+          evidenceRef: string;
+          auditReceiptRef: string;
         }>;
         promotions: Array<{ capabilityKey: string; promotedState: string; status: string }>;
         orderedBy: string[];
@@ -400,7 +456,30 @@ describe('commandCenterRoutes', () => {
       promotedState: 'production_ready',
       status: 'eligible',
     });
+    expect(body.evals.results[0]).toMatchObject({
+      id: 'eval-result-1',
+      evalRunId: 'eval-run-1',
+      status: 'failed',
+      summary: 'token=[REDACTED] result summary',
+      blockers: ['apiToken missing'],
+    });
+    expect(body.evals.steps[0]).toMatchObject({
+      id: 'eval-step-1',
+      evalRunId: 'eval-run-1',
+      stepKey: 'receipt-persistence',
+      status: 'failed',
+      evidenceRefs: ['evidence:token=[REDACTED]'],
+      metadata: { apiToken: '[REDACTED]' },
+    });
+    expect(body.evals.evidenceLinks[0]).toMatchObject({
+      id: 'eval-evidence-link-1',
+      evidenceRef: 'evidence:token=[REDACTED]',
+      auditReceiptRef: 'audit:helm',
+    });
     expect(body.evals.orderedBy).toContain('evalRun.createdAt');
+    expect(body.evals.orderedBy).toContain('evalResult.createdAt');
+    expect(body.evals.orderedBy).toContain('evalStep.completedAt');
+    expect(body.evals.orderedBy).toContain('evalEvidenceLink.createdAt');
     expect(body.blockers.join(' ')).toContain('does not mark capabilities production_ready');
     expect(JSON.stringify(body)).not.toContain('do-not-return');
     expect(JSON.stringify(body)).not.toContain('token=abc');

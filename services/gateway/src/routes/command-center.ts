@@ -11,7 +11,10 @@ import {
   computerActions,
   evidenceItems,
   evidencePacks,
+  evalEvidenceLinks,
+  evalResults,
   evalRuns,
+  evalSteps,
   missionEdges,
   missionNodes,
   missions,
@@ -568,6 +571,45 @@ export function commandCenterRoutes(deps: GatewayDeps) {
       .orderBy(desc(capabilityPromotions.createdAt), desc(capabilityPromotions.id))
       .limit(20);
 
+    const evalRunIds = runRows.map((row) => row.id);
+    const resultRows =
+      evalRunIds.length === 0
+        ? []
+        : await deps.db
+            .select()
+            .from(evalResults)
+            .where(
+              and(
+                eq(evalResults.workspaceId, workspaceId),
+                inArray(evalResults.evalRunId, evalRunIds),
+              ),
+            )
+            .orderBy(desc(evalResults.createdAt), desc(evalResults.id))
+            .limit(50);
+    const stepRows =
+      evalRunIds.length === 0
+        ? []
+        : await deps.db
+            .select()
+            .from(evalSteps)
+            .where(inArray(evalSteps.evalRunId, evalRunIds))
+            .orderBy(desc(evalSteps.completedAt), desc(evalSteps.startedAt), desc(evalSteps.id))
+            .limit(100);
+    const evidenceLinkRows =
+      evalRunIds.length === 0
+        ? []
+        : await deps.db
+            .select()
+            .from(evalEvidenceLinks)
+            .where(
+              and(
+                eq(evalEvidenceLinks.workspaceId, workspaceId),
+                inArray(evalEvidenceLinks.evalRunId, evalRunIds),
+              ),
+            )
+            .orderBy(desc(evalEvidenceLinks.createdAt), desc(evalEvidenceLinks.id))
+            .limit(100);
+
     const scenarios = getPilotProductionEvalSuite().map((scenario) => ({
       id: scenario.id,
       name: scenario.name,
@@ -589,8 +631,17 @@ export function commandCenterRoutes(deps: GatewayDeps) {
       evals: {
         scenarios,
         recentRuns: runRows.map(sanitizeEvalRow),
+        results: resultRows.map(sanitizeEvalRow),
+        steps: stepRows.map(sanitizeEvalRow),
+        evidenceLinks: evidenceLinkRows.map(sanitizeEvalRow),
         promotions: promotionRows.map(sanitizeEvalRow),
-        orderedBy: ['evalRun.createdAt', 'capabilityPromotion.createdAt'],
+        orderedBy: [
+          'evalRun.createdAt',
+          'evalResult.createdAt',
+          'evalStep.completedAt',
+          'evalEvidenceLink.createdAt',
+          'capabilityPromotion.createdAt',
+        ],
       },
       blockers: [
         'Eval status is read-only command-center introspection; it does not mark capabilities production_ready.',
@@ -954,12 +1005,10 @@ function sanitizeEvalRow(row: unknown): Record<string, unknown> {
   for (const key of ['evidenceRefs', 'auditReceiptRefs']) {
     const value = record[key];
     if (Array.isArray(value)) {
-      record[key] = value.map((item) =>
-        typeof item === 'string' ? redactReplayText(item) : item,
-      );
+      record[key] = value.map((item) => (typeof item === 'string' ? redactReplayText(item) : item));
     }
   }
-  for (const key of ['runRef', 'failureReason', 'summary']) {
+  for (const key of ['runRef', 'failureReason', 'summary', 'evidenceRef', 'auditReceiptRef']) {
     const value = record[key];
     if (typeof value === 'string') record[key] = redactReplayText(value);
   }

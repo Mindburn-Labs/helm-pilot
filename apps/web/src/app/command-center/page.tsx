@@ -141,6 +141,9 @@ interface CommandCenterEvalStatusResponse {
   evals: {
     scenarios: DurableRow[];
     recentRuns: DurableRow[];
+    results: DurableRow[];
+    steps: DurableRow[];
+    evidenceLinks: DurableRow[];
     promotions: DurableRow[];
     orderedBy: string[];
   };
@@ -588,7 +591,10 @@ export default function CommandCenterPage() {
         id: String(row.id ?? row.actionType ?? 'replay-computer'),
         title: display(row.actionType, 'Replay computer action'),
         meta: `${display(row.status, 'status')} / exit ${display(row.exitCode, 'n/a')}`,
-        detail: display(row.command, display(row.filePath, display(row.devServerUrl, 'No command'))),
+        detail: display(
+          row.command,
+          display(row.filePath, display(row.devServerUrl, 'No command')),
+        ),
       })),
       ...replay.blockers.slice(0, 2).map((blocker, index) => ({
         id: `replay-blocker-${index}`,
@@ -613,8 +619,19 @@ export default function CommandCenterPage() {
     const evals =
       evalStatus.evals && typeof evalStatus.evals === 'object'
         ? evalStatus.evals
-        : { scenarios: [], recentRuns: [], promotions: [], orderedBy: [] };
+        : {
+            scenarios: [],
+            recentRuns: [],
+            results: [],
+            steps: [],
+            evidenceLinks: [],
+            promotions: [],
+            orderedBy: [],
+          };
     const recentRuns = Array.isArray(evals.recentRuns) ? evals.recentRuns : [];
+    const results = Array.isArray(evals.results) ? evals.results : [];
+    const steps = Array.isArray(evals.steps) ? evals.steps : [];
+    const evidenceLinks = Array.isArray(evals.evidenceLinks) ? evals.evidenceLinks : [];
     const promotions = Array.isArray(evals.promotions) ? evals.promotions : [];
     const scenarios = Array.isArray(evals.scenarios) ? evals.scenarios : [];
     return [
@@ -629,6 +646,29 @@ export default function CommandCenterPage() {
         title: display(row.evalId, 'Eval run'),
         meta: `${display(row.status, 'status')} / ${display(row.capabilityKey, 'capability')}`,
         detail: display(row.failureReason, display(row.runRef, 'No run reference')),
+      })),
+      ...results.slice(0, 4).map((row) => ({
+        id: String(row.id ?? row.evalRunId ?? 'eval-result'),
+        title: display(row.evalId, 'Eval result'),
+        meta: `${display(row.status, 'status')} / passed ${display(row.passed, 'false')}`,
+        detail: display(row.summary, display(row.blockers, 'No result summary')),
+      })),
+      ...steps.slice(0, 4).map((row) => ({
+        id: String(row.id ?? row.stepKey ?? 'eval-step'),
+        title: display(row.stepKey, 'Eval step'),
+        meta: `${display(row.status, 'status')} / run ${display(row.evalRunId, 'unlinked')}`,
+        detail: `evidence ${arrayCount(row.evidenceRefs)} / audit ${arrayCount(
+          row.auditReceiptRefs,
+        )}`,
+      })),
+      ...evidenceLinks.slice(0, 4).map((row) => ({
+        id: String(row.id ?? row.evidenceRef ?? 'eval-evidence-link'),
+        title: 'Eval evidence link',
+        meta: display(row.evalRunId, 'unlinked run'),
+        detail: `${display(row.evidenceRef, 'evidence')} / ${display(
+          row.auditReceiptRef,
+          'no audit receipt',
+        )}`,
       })),
       ...promotions.slice(0, 4).map((row) => ({
         id: String(row.id ?? row.capabilityKey ?? 'promotion'),

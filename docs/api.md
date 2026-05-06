@@ -480,7 +480,7 @@ Return a read-only durable mission graph for the command center. Optional query:
 
 ### GET /api/command-center/eval-status
 
-Return read-only production eval status for the command center. Requires at least the workspace `partner` role. The response includes registered eval scenarios, recent workspace `eval_runs`, promotion-eligibility rows from `capability_promotions`, and the promotion rule; it never mutates the capability registry or marks a capability `production_ready`.
+Return read-only production eval status for the command center. Requires at least the workspace `partner` role. The response includes registered eval scenarios, recent workspace `eval_runs`, linked `eval_results`, `eval_steps`, `eval_evidence_links`, promotion-eligibility rows from `capability_promotions`, and the promotion rule; it never mutates the capability registry or marks a capability `production_ready`.
 
 ### GET /api/command-center/computer-actions/replay
 
