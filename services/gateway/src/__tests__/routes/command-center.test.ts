@@ -263,6 +263,78 @@ describe('commandCenterRoutes', () => {
     expect(body.blockers.join(' ')).toContain('does not dispatch or resume mission DAGs');
   });
 
+  it('returns read-only eval status and promotion eligibility without registry mutation', async () => {
+    const { fetch } = createApp([
+      [
+        {
+          id: 'eval-run-1',
+          workspaceId,
+          evalId: 'helm_governance',
+          status: 'failed',
+          capabilityKey: 'helm_receipts',
+          runRef: 'eval:helm_governance',
+          failureReason: 'token=abc missing receipt evidence',
+          evidenceRefs: ['evidence:helm'],
+          auditReceiptRefs: ['audit:helm'],
+          metadata: { apiToken: 'do-not-return', note: 'safe' },
+          createdAt: new Date('2026-05-05T08:00:00Z'),
+        },
+      ],
+      [
+        {
+          id: 'promotion-1',
+          workspaceId,
+          capabilityKey: 'workspace_rbac',
+          evalRunId: 'eval-run-2',
+          status: 'eligible',
+          promotedState: 'production_ready',
+          evidenceRefs: ['evidence:rbac'],
+          auditReceiptRefs: ['audit:rbac'],
+          createdAt: new Date('2026-05-05T09:00:00Z'),
+        },
+      ],
+    ]);
+
+    const res = await fetch('GET', '/eval-status', wsHeader);
+    const body = await expectJson<{
+      productionReady: boolean;
+      promotionRule: string;
+      evals: {
+        scenarios: Array<{ id: string; capabilityKeys: string[] }>;
+        recentRuns: Array<{
+          id: string;
+          evalId: string;
+          status: string;
+          failureReason: string;
+          metadata: Record<string, unknown>;
+        }>;
+        promotions: Array<{ capabilityKey: string; promotedState: string; status: string }>;
+        orderedBy: string[];
+      };
+      blockers: string[];
+    }>(res, 200);
+
+    expect(body.productionReady).toBe(false);
+    expect(body.promotionRule).toContain('never mutates the registry');
+    expect(body.evals.scenarios.some((scenario) => scenario.id === 'helm_governance')).toBe(true);
+    expect(body.evals.recentRuns[0]).toMatchObject({
+      id: 'eval-run-1',
+      evalId: 'helm_governance',
+      status: 'failed',
+      failureReason: 'token=[REDACTED] missing receipt evidence',
+      metadata: { apiToken: '[REDACTED]', note: 'safe' },
+    });
+    expect(body.evals.promotions[0]).toMatchObject({
+      capabilityKey: 'workspace_rbac',
+      promotedState: 'production_ready',
+      status: 'eligible',
+    });
+    expect(body.evals.orderedBy).toContain('evalRun.createdAt');
+    expect(body.blockers.join(' ')).toContain('does not mark capabilities production_ready');
+    expect(JSON.stringify(body)).not.toContain('do-not-return');
+    expect(JSON.stringify(body)).not.toContain('token=abc');
+  });
+
   it('requires a replay ref for command-center replay lookup', async () => {
     const { fetch, db } = createApp();
     const res = await fetch('GET', '/replay', wsHeader);

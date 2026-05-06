@@ -127,6 +127,20 @@ interface CommandCenterMissionGraphResponse {
   blockers: string[];
 }
 
+interface CommandCenterEvalStatusResponse {
+  workspaceId: string;
+  generatedAt: string;
+  productionReady: false;
+  promotionRule: string;
+  evals: {
+    scenarios: DurableRow[];
+    recentRuns: DurableRow[];
+    promotions: DurableRow[];
+    orderedBy: string[];
+  };
+  blockers: string[];
+}
+
 const navItems = [
   { label: 'Command', href: '/command-center' },
   { label: 'Ventures', href: '/discover' },
@@ -164,6 +178,8 @@ export default function CommandCenterPage() {
   const [permissionGraphError, setPermissionGraphError] = useState<string | null>(null);
   const [missionGraph, setMissionGraph] = useState<CommandCenterMissionGraphResponse | null>(null);
   const [missionGraphError, setMissionGraphError] = useState<string | null>(null);
+  const [evalStatus, setEvalStatus] = useState<CommandCenterEvalStatusResponse | null>(null);
+  const [evalStatusError, setEvalStatusError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const isNarrow = useNarrowViewport(760);
@@ -226,6 +242,30 @@ export default function CommandCenterPage() {
       .catch((err: unknown) => {
         if (!cancelled) {
           setMissionGraphError(err instanceof Error ? err.message : String(err));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated()) return;
+
+    let cancelled = false;
+    apiFetch<CommandCenterEvalStatusResponse>('/api/command-center/eval-status')
+      .then((response) => {
+        if (cancelled) return;
+        if (!response) {
+          setEvalStatusError('Eval status unavailable.');
+          return;
+        }
+        setEvalStatus(response);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setEvalStatusError(err instanceof Error ? err.message : String(err));
         }
       });
 
@@ -375,6 +415,61 @@ export default function CommandCenterPage() {
       })),
     ];
   }, [missionGraph, missionGraphError]);
+
+  const evalRows = useMemo(() => {
+    if (!evalStatus) {
+      return [
+        {
+          id: 'eval-status-loading',
+          title: 'Eval gates',
+          meta: evalStatusError ?? 'loading',
+          detail:
+            evalStatusError ?? 'Waiting for durable eval status from the command-center API.',
+        },
+      ];
+    }
+    const evals =
+      evalStatus.evals && typeof evalStatus.evals === 'object'
+        ? evalStatus.evals
+        : { scenarios: [], recentRuns: [], promotions: [], orderedBy: [] };
+    const recentRuns = Array.isArray(evals.recentRuns) ? evals.recentRuns : [];
+    const promotions = Array.isArray(evals.promotions) ? evals.promotions : [];
+    const scenarios = Array.isArray(evals.scenarios) ? evals.scenarios : [];
+    return [
+      {
+        id: 'eval-promotion-rule',
+        title: 'Promotion rule',
+        meta: 'read-only',
+        detail: evalStatus.promotionRule,
+      },
+      ...recentRuns.slice(0, 6).map((row) => ({
+        id: String(row.id ?? row.evalId ?? 'eval-run'),
+        title: display(row.evalId, 'Eval run'),
+        meta: `${display(row.status, 'status')} / ${display(row.capabilityKey, 'capability')}`,
+        detail: display(row.failureReason, display(row.runRef, 'No run reference')),
+      })),
+      ...promotions.slice(0, 4).map((row) => ({
+        id: String(row.id ?? row.capabilityKey ?? 'promotion'),
+        title: display(row.capabilityKey, 'Promotion eligibility'),
+        meta: `${display(row.status, 'status')} / ${display(row.promotedState, 'state')}`,
+        detail: `eval ${display(row.evalRunId, 'unlinked')}`,
+      })),
+      ...scenarios.slice(0, 4).map((row) => ({
+        id: String(row.id ?? row.name ?? 'eval-scenario'),
+        title: display(row.name, display(row.id, 'Eval scenario')),
+        meta: `scenario / policies ${arrayCount(row.requiredHelmPolicies)}`,
+        detail: `evidence ${arrayCount(row.evidenceRequirements)} / audit ${arrayCount(
+          row.auditRequirements,
+        )}`,
+      })),
+      ...evalStatus.blockers.slice(0, 2).map((blocker, index) => ({
+        id: `eval-blocker-${index}`,
+        title: 'Eval status blocker',
+        meta: 'read-only',
+        detail: blocker,
+      })),
+    ];
+  }, [evalStatus, evalStatusError]);
 
   if (typeof window !== 'undefined' && !isAuthenticated()) return null;
 
@@ -678,6 +773,12 @@ export default function CommandCenterPage() {
                 title="Permission Graph"
                 empty="No permission graph edges returned."
                 rows={permissionRows}
+              />
+
+              <TimelineSection
+                title="Eval Gates"
+                empty="No eval scenarios, runs, or promotion eligibility rows returned."
+                rows={evalRows}
               />
 
               <TimelineSection

@@ -470,6 +470,18 @@ Return the Gate 8 command-center aggregate for the authenticated workspace. Requ
 
 Resolve a workspace-scoped replay reference to linked `evidence_items`, browser observations, and computer actions. Requires at least the workspace `partner` role and does not promote any replay capability to `production_ready`.
 
+### GET /api/command-center/permission-graph
+
+Return a read-only workspace permission graph for the command center. Requires at least the workspace `partner` role. The graph includes workspace role, member, operator, tool-scope, policy-config-key, and governance capability edges while withholding raw user IDs, raw policy values, and sensitive tool/config strings. This is not a production-ready delegation control plane.
+
+### GET /api/command-center/mission-graph
+
+Return a read-only durable mission graph for the command center. Optional query: `?missionId=...`. Requires at least the workspace `partner` role. The response is backed by `missions`, `mission_nodes`, `mission_edges`, and `mission_tasks` rows, ordered deterministically, and does not dispatch or resume the mission DAG.
+
+### GET /api/command-center/eval-status
+
+Return read-only production eval status for the command center. Requires at least the workspace `partner` role. The response includes registered eval scenarios, recent workspace `eval_runs`, promotion-eligibility rows from `capability_promotions`, and the promotion rule; it never mutates the capability registry or marks a capability `production_ready`.
+
 ### GET /api/command-center/computer-actions/replay
 
 Return an ordered safe-computer action replay sequence for the authenticated workspace. Optional query: `?taskId=...`. Requires at least the workspace `partner` role. Output is bounded to redacted stdout/stderr/file-diff previews and redacted metadata.

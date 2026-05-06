@@ -330,6 +330,58 @@ describe('CommandCenterPage', () => {
       new Response(
         JSON.stringify({
           workspaceId: 'ws-1',
+          generatedAt: '2026-05-05T00:00:00.000Z',
+          productionReady: false,
+          capability: {
+            key: 'command_center',
+            name: 'Command center UI',
+            state: 'prototype',
+            summary: 'Backed by real durable rows.',
+            blockers: ['Eval status is read-only'],
+            evalRequirement: 'Command Center Real-State UX Eval',
+          },
+          promotionRule:
+            'A capability cannot be promoted to production_ready unless its mapped eval run passed with evidenceRefs, auditReceiptRefs, and completedAt; command-center eval status never mutates the registry.',
+          evals: {
+            scenarios: [
+              {
+                id: 'helm_governance',
+                name: 'HELM Governance Eval',
+                capabilityKeys: ['helm_receipts', 'workspace_rbac', 'evidence_ledger'],
+                requiredHelmPolicies: ['audit'],
+                evidenceRequirements: ['receipt sink records'],
+                auditRequirements: ['audit ledger entries'],
+              },
+            ],
+            recentRuns: [
+              {
+                id: 'eval-run-1',
+                evalId: 'helm_governance',
+                status: 'failed',
+                capabilityKey: 'helm_receipts',
+                failureReason: 'missing receipt evidence',
+                runRef: 'eval:helm-governance',
+              },
+            ],
+            promotions: [
+              {
+                id: 'promotion-1',
+                capabilityKey: 'workspace_rbac',
+                status: 'eligible',
+                promotedState: 'production_ready',
+                evalRunId: 'eval-run-2',
+              },
+            ],
+            orderedBy: ['evalRun.createdAt', 'capabilityPromotion.createdAt'],
+          },
+          blockers: ['Eval status is read-only command-center introspection'],
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+    ).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          workspaceId: 'ws-1',
           rootTaskRunId,
           generatedAt: '2026-05-05T00:00:00.000Z',
           productionReady: false,
@@ -413,6 +465,12 @@ describe('CommandCenterPage', () => {
     expect(screen.getByText('Research market')).toBeTruthy();
     expect(screen.getByText('research -> score')).toBeTruthy();
     await waitFor(() =>
+      expect(screen.getAllByText('HELM Governance Eval').length).toBeGreaterThan(0),
+    );
+    expect(screen.getByText('Promotion rule')).toBeTruthy();
+    expect(screen.getByText('helm_governance')).toBeTruthy();
+    expect(screen.getAllByText('workspace_rbac').length).toBeGreaterThan(0);
+    await waitFor(() =>
       expect(screen.getByText('Current role owner -> Command center requires partner')).toBeTruthy(),
     );
     expect(screen.getByText('Opportunity Scout -> score_opportunity')).toBeTruthy();
@@ -431,6 +489,10 @@ describe('CommandCenterPage', () => {
     );
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/command-center/mission-graph',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/command-center/eval-status',
       expect.objectContaining({ credentials: 'include' }),
     );
     expect(screen.queryByText('18/18')).toBeNull();
