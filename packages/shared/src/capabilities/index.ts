@@ -370,7 +370,7 @@ const capabilityRecords = validateCapabilityRecords([
     name: 'Evidence ledger',
     state: 'prototype',
     summary:
-      'A canonical evidence_items schema exists and core HELM receipt, agent-loop receipt, subagent spawn, Tool Broker, browser session control, browser observation, computer action, connector lifecycle, workspace secret mutation, operator mutation, workspace control-plane mutation, workspace-scoped pipeline/ingestion jobs, artifact creation, startup lifecycle, and eval writers append to it. Tool Broker now fails closed before elevated tool execution without HELM policy metadata and fails elevated completions closed if evidence persistence fails, but evidence coverage is still not complete for every meaningful action.',
+      'A canonical evidence_items schema exists and core HELM receipt, agent-loop receipt, subagent spawn, Tool Broker, browser session control, browser observation, computer action, connector lifecycle, workspace secret mutation, operator mutation, workspace control-plane mutation, approval resolution, workspace-scoped pipeline/ingestion jobs, artifact creation, startup lifecycle, and eval writers append to it. Tool Broker now fails closed before elevated tool execution without HELM policy metadata and fails elevated completions closed if evidence persistence fails, but evidence coverage is still not complete for every meaningful action.',
     owner: 'Foundation Agent',
     blockers: [
       'Ad-hoc non-workspace ingestion jobs and non-broker legacy writers do not yet append evidence_items for every meaningful action',
@@ -392,6 +392,7 @@ const capabilityRecords = validateCapabilityRecords([
       'Gateway workspace secret set and delete routes persist redacted workspace_secret_* evidence_items linked to their WORKSPACE_SECRET_* audit_log rows without storing plaintext in evidence metadata',
       'Gateway operator create and update routes persist workspace_operator_* evidence_items linked to their WORKSPACE_OPERATOR_* audit_log rows with redacted delegated-access metadata',
       'Gateway workspace settings, mode, and invite routes persist redacted workspace_control evidence_items linked to their WORKSPACE_SETTINGS_*, WORKSPACE_MODE_CHANGED, and WORKSPACE_INVITE_CREATED audit_log rows without storing invite tokens in evidence metadata',
+      'Gateway approval resolution persists workspace_approval_resolved evidence_items linked to WORKSPACE_APPROVAL_RESOLVED audit_log rows before any approved task resume side effect',
       'Tool Broker refuses medium, high, and restricted tool manifests before action persistence or execution unless HELM policy decision metadata is present, and marks elevated tool executions failed if evidence_items persistence fails before completion',
       'Gateway browser observation evidence_items now link to their BROWSER_OBSERVATION_CAPTURED audit_log rows through audit_event_id',
       'Safe computer action evidence_items now link to OPERATOR_COMPUTER_USE audit_log rows through audit_event_id',

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { approvals, auditLog, evidenceItems } from '@pilot/db/schema';
 import { auditRoutes } from '../../routes/audit.js';
 import { testApp, expectJson, createMockDeps } from '../helpers.js';
 
@@ -102,25 +103,112 @@ describe('auditRoutes', () => {
         resolvedBy: 'unknown',
         resolvedAt: new Date().toISOString(),
       };
+      const inserts: Array<{ table: unknown; value: unknown }> = [];
+      const updates: Array<{ table: unknown; value: unknown }> = [];
 
-      deps.db.update = vi.fn(() => ({
-        set: vi.fn(() => ({
-          where: vi.fn(() => ({
-            returning: vi.fn(async () => [approval]),
-            then: (r: any) => r([approval]),
-          })),
-        })),
+      deps.db.insert = vi.fn((table: unknown) => ({
+        values: vi.fn((value: unknown) => {
+          inserts.push({ table, value });
+          return {
+            returning: vi.fn(async () =>
+              table === evidenceItems ? [{ id: 'evidence-approval-1' }] : [],
+            ),
+            then: (r: any) => r([]),
+          };
+        }),
+      })) as any;
+      deps.db.update = vi.fn((table: unknown) => ({
+        set: vi.fn((value: unknown) => {
+          updates.push({ table, value });
+          return {
+            where: vi.fn(() => ({
+              returning: vi.fn(async () => (table === approvals ? [approval] : [])),
+              then: (r: any) => r([]),
+            })),
+          };
+        }),
       })) as any;
 
       const { fetch } = testApp(auditRoutes, deps);
       const res = await fetch('PUT', '/approvals/appr-1', { status: 'approved' }, wsHeader);
       await expectJson(res, 200);
 
+      const auditInsert = inserts.find((insert) => insert.table === auditLog)?.value as {
+        id: string;
+      };
+      expect(auditInsert).toMatchObject({
+        workspaceId: 'ws-1',
+        action: 'WORKSPACE_APPROVAL_RESOLVED',
+        target: 'appr-1',
+        verdict: 'allow',
+        metadata: {
+          evidenceType: 'workspace_approval_resolved',
+          approvalId: 'appr-1',
+          approvalStatus: 'approved',
+          requestedAction: 'deploy.production',
+          taskId: 'task-1',
+        },
+      });
+      expect(inserts.find((insert) => insert.table === evidenceItems)?.value).toMatchObject({
+        workspaceId: 'ws-1',
+        auditEventId: auditInsert.id,
+        evidenceType: 'workspace_approval_resolved',
+        sourceType: 'gateway_approval',
+        metadata: {
+          approvalId: 'appr-1',
+          approvalStatus: 'approved',
+          requestedAction: 'deploy.production',
+          taskId: 'task-1',
+        },
+      });
+      expect(updates.find((update) => update.table === auditLog)?.value).toMatchObject({
+        metadata: {
+          evidenceItemId: 'evidence-approval-1',
+        },
+      });
       expect(deps.orchestrator.boss.send).toHaveBeenCalledWith('task.resume', {
         taskId: 'task-1',
         workspaceId: 'ws-1',
         context: expect.stringContaining('deploy.production'),
       });
+    });
+
+    it('fails closed before resume when approval evidence cannot be persisted', async () => {
+      const deps = createMockDeps();
+      const approval = {
+        id: 'appr-1',
+        taskId: 'task-1',
+        workspaceId: 'ws-1',
+        action: 'deploy.production',
+        status: 'approved',
+        resolvedBy: 'unknown',
+        resolvedAt: new Date().toISOString(),
+      };
+
+      deps.db.insert = vi.fn((table: unknown) => ({
+        values: vi.fn(() => ({
+          returning: vi.fn(async () => {
+            if (table === evidenceItems) throw new Error('evidence unavailable');
+            return [];
+          }),
+          then: (r: any) => r([]),
+        })),
+      })) as any;
+      deps.db.update = vi.fn((table: unknown) => ({
+        set: vi.fn(() => ({
+          where: vi.fn(() => ({
+            returning: vi.fn(async () => (table === approvals ? [approval] : [])),
+            then: (r: any) => r([]),
+          })),
+        })),
+      })) as any;
+
+      const { fetch } = testApp(auditRoutes, deps);
+      const res = await fetch('PUT', '/approvals/appr-1', { status: 'approved' }, wsHeader);
+      const body = await expectJson<{ error: string }>(res, 500);
+
+      expect(body.error).toBe('Failed to resolve approval');
+      expect(deps.orchestrator.boss.send).not.toHaveBeenCalled();
     });
 
     it('does not trigger boss.send when approval is rejected', async () => {
@@ -135,11 +223,19 @@ describe('auditRoutes', () => {
         resolvedAt: new Date().toISOString(),
       };
 
-      deps.db.update = vi.fn(() => ({
+      deps.db.insert = vi.fn((table: unknown) => ({
+        values: vi.fn(() => ({
+          returning: vi.fn(async () =>
+            table === evidenceItems ? [{ id: 'evidence-approval-2' }] : [],
+          ),
+          then: (r: any) => r([]),
+        })),
+      })) as any;
+      deps.db.update = vi.fn((table: unknown) => ({
         set: vi.fn(() => ({
           where: vi.fn(() => ({
-            returning: vi.fn(async () => [approval]),
-            then: (r: any) => r([approval]),
+            returning: vi.fn(async () => (table === approvals ? [approval] : [])),
+            then: (r: any) => r([]),
           })),
         })),
       })) as any;

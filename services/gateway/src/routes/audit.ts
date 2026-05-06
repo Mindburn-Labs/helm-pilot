@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { and, eq, desc } from 'drizzle-orm';
+import { appendEvidenceItem } from '@pilot/db';
 import { auditLog, approvals, policyViolations, tasks } from '@pilot/db/schema';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId, requireWorkspaceRole } from '../lib/workspace.js';
@@ -63,17 +65,75 @@ export function auditRoutes(deps: GatewayDeps) {
       return c.json({ error: 'status must be approved or rejected' }, 400);
     }
 
-    const [updated] = await deps.db
-      .update(approvals)
-      .set({
-        status,
-        resolvedBy: userId ?? 'unknown',
-        resolvedAt: new Date(),
-      })
-      .where(and(eq(approvals.id, id), eq(approvals.workspaceId, workspaceId)))
-      .returning();
+    const updated = await deps.db
+      .transaction(async (tx) => {
+        const [row] = await tx
+          .update(approvals)
+          .set({
+            status,
+            resolvedBy: userId ?? 'unknown',
+            resolvedAt: new Date(),
+          })
+          .where(and(eq(approvals.id, id), eq(approvals.workspaceId, workspaceId)))
+          .returning();
 
-    if (!updated) return c.json({ error: 'Approval not found' }, 404);
+        if (!row) return null;
+
+        const auditEventId = randomUUID();
+        const replayRef = `approval:${row.id}:resolved:${status}`;
+        const evidenceMetadata = {
+          approvalId: row.id,
+          approvalStatus: status,
+          requestedAction: row.action,
+          taskId: row.taskId ?? null,
+          resolvedBy: userId ?? 'unknown',
+        };
+
+        await tx.insert(auditLog).values({
+          id: auditEventId,
+          workspaceId,
+          action: 'WORKSPACE_APPROVAL_RESOLVED',
+          actor: `user:${userId ?? 'unknown'}`,
+          target: row.id,
+          verdict: 'allow',
+          metadata: {
+            evidenceType: 'workspace_approval_resolved',
+            replayRef,
+            ...evidenceMetadata,
+          },
+        });
+
+        const evidenceItemId = await appendEvidenceItem(tx, {
+          workspaceId,
+          auditEventId,
+          evidenceType: 'workspace_approval_resolved',
+          sourceType: 'gateway_approval',
+          title: `Approval ${status}: ${row.action}`,
+          summary: 'Workspace approval was resolved by an owner.',
+          redactionState: 'redacted',
+          sensitivity: 'internal',
+          replayRef,
+          metadata: evidenceMetadata,
+        });
+
+        await tx
+          .update(auditLog)
+          .set({
+            metadata: {
+              evidenceType: 'workspace_approval_resolved',
+              replayRef,
+              evidenceItemId,
+              ...evidenceMetadata,
+            },
+          })
+          .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.id, auditEventId)));
+
+        return row;
+      })
+      .catch(() => undefined);
+
+    if (updated === null) return c.json({ error: 'Approval not found' }, 404);
+    if (updated === undefined) return c.json({ error: 'Failed to resolve approval' }, 500);
 
     // If approved, trigger task resume via pg-boss
     if (status === 'approved' && updated.taskId && deps.orchestrator.boss) {
