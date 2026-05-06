@@ -403,7 +403,7 @@ const capabilityRecords = validateCapabilityRecords([
     name: 'Command center UI',
     state: 'prototype',
     summary:
-      'The web app has a command center backed by real task, action, tool execution, receipt, browser, computer, artifact, audit, handoff, approval, capability-state, mission checkpoint, recovery, and rollback rows, while mission DAG autonomy remains prototype-only.',
+      'The web app has a command center and dedicated browser/computer viewer backed by real task, action, tool execution, receipt, browser, computer, artifact, audit, handoff, approval, capability-state, mission checkpoint, recovery, and rollback rows, while mission DAG autonomy remains prototype-only.',
     owner: 'UI Agent',
     blockers: [
       'Mission runtime is prototype-only, so the command center cannot claim production venture/mission DAG autonomy',
@@ -417,6 +417,7 @@ const capabilityRecords = validateCapabilityRecords([
       'Gate 8 adds /api/command-center/mission-graph backed by durable missions, mission_nodes, mission_edges, mission_tasks, checkpoint evidence, recovery-plan evidence, recovery-apply evidence, and rollback evidence rows without autonomous DAG promotion',
       'Gate 10 adds /api/command-center/eval-status backed by durable eval_runs and capability_promotions rows without mutating the capability registry',
       'apps/web /command-center renders capability truth, blocked mission runtime, receipt chips, evidence drawers, browser/computer replay rows, subagent proof-DAG rows, and escalation state from the API',
+      'apps/web /browser-computer renders browser sessions plus recent browser observation and safe computer action replay refs from real API state without production promotion',
     ],
     evalRequirement: 'Command Center Real-State UX Eval',
     updatedAt: CAPABILITY_REGISTRY_UPDATED_AT,

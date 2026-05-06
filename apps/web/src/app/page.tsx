@@ -60,6 +60,11 @@ export default function Home() {
           description="Inspect real task, action, evidence, receipt, and capability state"
         />
         <NavCard
+          href="/browser-computer"
+          title="Browser/Computer"
+          description="Review governed browser sessions, observations, and safe computer action replay"
+        />
+        <NavCard
           href="/discover"
           title="Discover"
           description="Find startup opportunities matched to your strengths"
