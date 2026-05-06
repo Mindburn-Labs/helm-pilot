@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
+import { createHash, randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
+import { appendEvidenceItem } from '@pilot/db';
 import { auditLog, opportunities } from '@pilot/db/schema';
 import { HelmLlmProvider } from '@pilot/helm-client';
 import { getCapabilityRecord } from '@pilot/shared/capabilities';
@@ -7,6 +9,8 @@ import { DecisionCourtRequestInput } from '@pilot/shared/schemas';
 import type { CourtResult, DecisionCourtRequestedMode } from '@pilot/decision-court';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId, requireWorkspaceRole } from '../lib/workspace.js';
+
+const DECISION_COURT_PROMPT_VERSION = 'decision-court-v1';
 
 /**
  * Decision Court routes (Phase 4).
@@ -107,7 +111,39 @@ async function persistDecisionCourtRun(
     founderContextProvided: boolean;
   },
 ): Promise<void> {
+  const auditEventId = randomUUID();
+  const replayRef = `decision-court:${auditEventId}`;
+  const helmDocumentVersionPins = decisionCourtHelmDocumentVersionPins(params.result);
+  const policyDecisionIds = params.result.modelCalls
+    .map((call) => call.policyDecisionId)
+    .filter((value): value is string => Boolean(value));
+  const policyVersions = [
+    ...new Set(
+      params.result.modelCalls
+        .map((call) => call.policyVersion)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+  const metadata = {
+    requestedOpportunityIds: params.opportunityIds,
+    founderContextProvided: params.founderContextProvided,
+    mode: params.result.mode,
+    status: params.result.status,
+    productionReady: params.result.productionReady,
+    finalRecommendation: params.result.finalRecommendation ?? null,
+    ranking: params.result.ranking,
+    stages: params.result.stages,
+    modelCalls: params.result.modelCalls,
+    policyDecisionIds,
+    policyVersions,
+    helmDocumentVersionPins,
+    promptVersion: DECISION_COURT_PROMPT_VERSION,
+    replayRef,
+    credentialBoundary: 'no_raw_credentials_or_session_payloads_in_prompt',
+  };
+
   await deps.db.insert(auditLog).values({
+    id: auditEventId,
     workspaceId,
     action: 'DECISION_COURT_RUN',
     actor: `workspace:${workspaceId}`,
@@ -118,16 +154,55 @@ async function persistDecisionCourtRun(
       params.result.unavailableReason ??
       params.result.finalRecommendation?.reasoning ??
       null,
-    metadata: {
-      requestedOpportunityIds: params.opportunityIds,
-      founderContextProvided: params.founderContextProvided,
-      mode: params.result.mode,
-      status: params.result.status,
-      productionReady: params.result.productionReady,
-      finalRecommendation: params.result.finalRecommendation ?? null,
-      ranking: params.result.ranking,
-      stages: params.result.stages,
-      modelCalls: params.result.modelCalls,
-    },
+    metadata,
   });
+
+  await appendEvidenceItem(deps.db, {
+    workspaceId,
+    auditEventId,
+    evidenceType: 'decision_court_run',
+    sourceType: 'decision_court',
+    title: `Decision Court ${params.result.status}`,
+    summary:
+      params.result.finalRecommendation?.reasoning ??
+      params.result.governanceDenialReason ??
+      params.result.unavailableReason ??
+      `Decision Court completed with status ${params.result.status}.`,
+    redactionState: 'redacted',
+    sensitivity: 'internal',
+    contentHash: `sha256:${hashJson(metadata)}`,
+    replayRef,
+    metadata,
+  });
+}
+
+function decisionCourtHelmDocumentVersionPins(result: CourtResult): Record<string, string> {
+  const pins: Record<string, string> = {
+    decisionCourtPrompt: DECISION_COURT_PROMPT_VERSION,
+  };
+  result.modelCalls.forEach((call, index) => {
+    if (call.policyVersion) {
+      pins[`modelCall:${index + 1}:${call.participant}:${call.opportunityId}`] =
+        call.policyVersion;
+    }
+  });
+  return pins;
+}
+
+function hashJson(value: unknown): string {
+  return createHash('sha256').update(stableJson(value)).digest('hex');
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(sortJson(value));
+}
+
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJson);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => [key, sortJson(nested)]),
+  );
 }
