@@ -293,6 +293,24 @@ describe('production eval suite', () => {
     );
   });
 
+  it('keeps executed scenario-wide evals capability-less instead of pinning the first capability', () => {
+    const scenario = getRequiredEvalForCapability('startup_lifecycle');
+    if (!scenario) throw new Error('startup_lifecycle eval missing');
+
+    const executed = executePilotProductionEval({
+      evalId: scenario.id,
+      evidenceRefs: ['evidence:startup-launch'],
+      auditReceiptRefs: ['audit:startup-launch'],
+      evidenceCoverage: scenario.evidenceRequirements,
+      auditCoverage: scenario.auditRequirements,
+      completedAt: '2026-05-05T00:00:00.000Z',
+    });
+
+    expect(executed.run.status).toBe('passed');
+    expect(executed.run.capabilityKey).toBeUndefined();
+    expect(executed.blockers).toEqual([]);
+  });
+
   it('executes a control-plane production eval and only passes with evidence and audit coverage', () => {
     const scenario = getRequiredEvalForCapability('helm_receipts');
     if (!scenario) throw new Error('helm_receipts eval missing');

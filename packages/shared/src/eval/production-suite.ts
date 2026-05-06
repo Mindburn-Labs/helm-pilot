@@ -680,16 +680,23 @@ export function executePilotProductionEval(input: ExecutePilotEvalInput): {
     blockers.push(`No production eval scenario is registered for ${parsed.evalId}`);
   }
 
-  const capabilityKey = parsed.capabilityKey ?? scenario?.capabilityKeys[0];
-  const capability = capabilityKey ? getCapabilityRecord(capabilityKey) : undefined;
-  if (!capabilityKey) {
-    blockers.push('No capability key could be selected for this eval');
-  } else if (!capability) {
-    blockers.push(`Capability ${capabilityKey} is not registered`);
-  } else if (scenario && !scenario.capabilityKeys.includes(capabilityKey)) {
-    blockers.push(`${scenario.name} does not evaluate capability ${capabilityKey}`);
-  } else if (capability.state === 'blocked' || capability.state === 'stub') {
-    blockers.push(`Capability ${capability.key} is ${capability.state}`);
+  const capabilityKeys =
+    parsed.capabilityKey !== undefined
+      ? [parsed.capabilityKey]
+      : (scenario?.capabilityKeys ?? []);
+  if (capabilityKeys.length === 0) {
+    blockers.push('No capability keys could be selected for this eval');
+  }
+
+  for (const capabilityKey of capabilityKeys) {
+    const capability = getCapabilityRecord(capabilityKey);
+    if (!capability) {
+      blockers.push(`Capability ${capabilityKey} is not registered`);
+    } else if (scenario && !scenario.capabilityKeys.includes(capabilityKey)) {
+      blockers.push(`${scenario.name} does not evaluate capability ${capabilityKey}`);
+    } else if (capability.state === 'blocked' || capability.state === 'stub') {
+      blockers.push(`Capability ${capability.key} is ${capability.state}`);
+    }
   }
 
   if (parsed.evidenceRefs.length === 0) {
@@ -749,7 +756,7 @@ export function executePilotProductionEval(input: ExecutePilotEvalInput): {
       workspaceId: parsed.workspaceId,
       evalId: parsed.evalId,
       status,
-      capabilityKey,
+      capabilityKey: parsed.capabilityKey,
       evidenceRefs: parsed.evidenceRefs,
       auditReceiptRefs: parsed.auditReceiptRefs,
       runRef: parsed.runRef,
