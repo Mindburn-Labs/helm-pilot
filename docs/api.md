@@ -548,7 +548,7 @@ Run a narrow control-plane production eval proof check for one registered eval s
 
 ### POST /api/evals/promotion-check
 
-Check whether a capability may be promoted to `production_ready` using submitted eval run records or durable workspace eval runs when no run list is supplied. Requires at least the workspace `partner` role. The response blocks promotion unless the mapped eval has `passed` status, at least one evidence reference, at least one audit receipt reference, and `completedAt`.
+Check whether a capability may be promoted to `production_ready` using submitted eval run records plus durable workspace eval runs. Requires at least the workspace `partner` role. The response blocks promotion unless every required eval has `passed` status, at least one evidence reference, at least one audit receipt reference, and `completedAt`.
 
 ### GET /health
 

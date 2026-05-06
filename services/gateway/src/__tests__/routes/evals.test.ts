@@ -9,7 +9,7 @@ import {
   evaluations,
   tasks,
 } from '@pilot/db/schema';
-import { getRequiredEvalForCapability } from '@pilot/shared/eval';
+import { getRequiredEvalForCapability, getRequiredEvalsForCapability } from '@pilot/shared/eval';
 import { evalRoutes } from '../../routes/evals.js';
 import { createMockDeps, expectJson, testApp } from '../helpers.js';
 
@@ -327,6 +327,69 @@ describe('evalRoutes', () => {
     });
   });
 
+  it('records multi-eval promotion eligibility only after all required evals pass', async () => {
+    const { db, inserts } = createEvalDb([
+      [
+        {
+          evalId: 'helm_governance',
+          workspaceId,
+          status: 'passed',
+          capabilityKey: 'evidence_ledger',
+          evidenceRefs: ['evidence:helm'],
+          auditReceiptRefs: ['audit:helm'],
+          metadata: {},
+          completedAt: new Date('2026-05-05T00:00:00.000Z'),
+        },
+      ],
+    ]);
+    const { fetch } = testApp(evalRoutes, createMockDeps({ db: db as never }));
+
+    const res = await fetch(
+      'POST',
+      '/runs',
+      {
+        evalId: 'recovery',
+        status: 'passed',
+        capabilityKey: 'evidence_ledger',
+        evidenceRefs: ['evidence:recovery'],
+        auditReceiptRefs: ['audit:recovery'],
+        completedAt: '2026-05-05T00:00:01.000Z',
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      promotionChecks: Array<{
+        canPromote: boolean;
+        matchedEvalIds: string[];
+        evidenceRefs: string[];
+      }>;
+      promotions: Array<{ capabilityKey: string; promotedState: string; status: string }>;
+      productionReadyRegistryMutation: boolean;
+    }>(res, 201);
+
+    expect(body.promotionChecks).toEqual([
+      expect.objectContaining({
+        canPromote: true,
+        matchedEvalIds: ['helm_governance', 'recovery'],
+        evidenceRefs: ['evidence:helm', 'evidence:recovery'],
+      }),
+    ]);
+    expect(body.promotions).toEqual([
+      expect.objectContaining({
+        capabilityKey: 'evidence_ledger',
+        promotedState: 'production_ready',
+        status: 'eligible',
+      }),
+    ]);
+    expect(body.productionReadyRegistryMutation).toBe(false);
+    expect(inserts.find((insert) => insert.table === capabilityPromotions)?.value).toMatchObject({
+      capabilityKey: 'evidence_ledger',
+      evidenceRefs: ['evidence:helm', 'evidence:recovery'],
+      auditReceiptRefs: ['audit:helm', 'audit:recovery'],
+      status: 'eligible',
+    });
+  });
+
   it('executes a production eval proof check and fails closed when proof is missing', async () => {
     const { db, inserts } = createEvalDb();
     const { fetch } = testApp(evalRoutes, createMockDeps({ db: db as never }));
@@ -465,6 +528,94 @@ describe('evalRoutes', () => {
     expect(body.check.matchedEvalId).toBe('full_startup_launch');
     expect(body.check.evidenceRefs).toEqual(['evidence:startup-launch']);
     expect(body.check.auditReceiptRefs).toEqual(['audit:startup-launch']);
+  });
+
+  it('blocks multi-eval promotion checks until every required eval has passed', async () => {
+    expect(getRequiredEvalsForCapability('evidence_ledger').map((scenario) => scenario.id)).toEqual(
+      ['helm_governance', 'recovery'],
+    );
+
+    const { db } = createEvalDb([
+      [
+        {
+          evalId: 'helm_governance',
+          workspaceId,
+          status: 'passed',
+          capabilityKey: 'evidence_ledger',
+          evidenceRefs: ['evidence:helm'],
+          auditReceiptRefs: ['audit:helm'],
+          metadata: {},
+          completedAt: new Date('2026-05-05T00:00:00.000Z'),
+        },
+      ],
+    ]);
+    const { fetch } = testApp(evalRoutes, createMockDeps({ db: db as never }));
+    const res = await fetch(
+      'POST',
+      '/promotion-check',
+      {
+        capabilityKey: 'evidence_ledger',
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      check: { canPromote: boolean; requiredEvals: string[]; blockers: string[] };
+    }>(res, 200);
+
+    expect(body.check.canPromote).toBe(false);
+    expect(body.check.requiredEvals).toEqual(['HELM Governance Eval', 'Recovery Eval']);
+    expect(body.check.blockers.join(' ')).toContain('Recovery Eval');
+  });
+
+  it('allows multi-eval promotion checks only when all required eval packs are present', async () => {
+    const { db } = createEvalDb([
+      [
+        {
+          evalId: 'helm_governance',
+          workspaceId,
+          status: 'passed',
+          capabilityKey: 'evidence_ledger',
+          evidenceRefs: ['evidence:helm'],
+          auditReceiptRefs: ['audit:helm'],
+          metadata: {},
+          completedAt: new Date('2026-05-05T00:00:00.000Z'),
+        },
+      ],
+    ]);
+    const { fetch } = testApp(evalRoutes, createMockDeps({ db: db as never }));
+    const res = await fetch(
+      'POST',
+      '/promotion-check',
+      {
+        capabilityKey: 'evidence_ledger',
+        runs: [
+          {
+            evalId: 'recovery',
+            workspaceId,
+            status: 'passed',
+            capabilityKey: 'evidence_ledger',
+            evidenceRefs: ['evidence:recovery'],
+            auditReceiptRefs: ['audit:recovery'],
+            metadata: {},
+            completedAt: '2026-05-05T00:00:01.000Z',
+          },
+        ],
+      },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      check: {
+        canPromote: boolean;
+        matchedEvalIds: string[];
+        evidenceRefs: string[];
+        auditReceiptRefs: string[];
+      };
+    }>(res, 200);
+
+    expect(body.check.canPromote).toBe(true);
+    expect(body.check.matchedEvalIds).toEqual(['helm_governance', 'recovery']);
+    expect(body.check.evidenceRefs).toEqual(['evidence:helm', 'evidence:recovery']);
+    expect(body.check.auditReceiptRefs).toEqual(['audit:helm', 'audit:recovery']);
   });
 
   it('rejects foreign workspace ids on eval mutation', async () => {

@@ -129,7 +129,9 @@ export const CapabilityPromotionCheckSchema = z.object({
   capability: CapabilityRecordSchema,
   canPromote: z.boolean(),
   requiredEval: z.string().min(1),
+  requiredEvals: z.array(z.string().min(1)).default([]),
   matchedEvalId: PilotEvalIdSchema.optional(),
+  matchedEvalIds: z.array(PilotEvalIdSchema).default([]),
   evidenceRefs: z.array(z.string()),
   auditReceiptRefs: z.array(z.string()),
   blockers: z.array(z.string()),
@@ -530,62 +532,105 @@ export function getPilotProductionEvalSuite(): readonly PilotEvalScenario[] {
   return pilotProductionEvalSuite;
 }
 
+const capabilityRequiredEvalIds: Partial<Record<CapabilityKey, readonly PilotEvalId[]>> = {
+  mission_runtime: ['full_startup_launch', 'multi_agent_parallel_build'],
+  helm_receipts: ['helm_governance'],
+  workspace_rbac: ['helm_governance'],
+  operator_scoping: ['cross_workspace_operator_rejection'],
+  decision_court: ['decision_court_governed_model'],
+  skill_registry_runtime: ['skill_invocation_governance'],
+  opportunity_scoring: ['pmf_discovery'],
+  browser_metadata_connector: ['yc_logged_in_browser_extraction'],
+  browser_execution: ['yc_logged_in_browser_extraction'],
+  computer_use: ['safe_computer_sandbox_action'],
+  a2a_durable_state: ['multi_agent_parallel_build'],
+  subagent_lineage: ['proof_dag_lineage'],
+  approval_resume: ['approval_resume_isolation'],
+  evidence_ledger: ['helm_governance', 'recovery'],
+  command_center: ['command_center_real_state_ux'],
+  startup_lifecycle: ['full_startup_launch'],
+  founder_off_grid: ['founder_off_grid'],
+  polsia_outperformance: ['polsia_outperformance'],
+};
+
+export function getRequiredEvalsForCapability(
+  capabilityKey: CapabilityKey,
+): readonly PilotEvalScenario[] {
+  const requiredIds = capabilityRequiredEvalIds[capabilityKey];
+  if (requiredIds && requiredIds.length > 0) {
+    return requiredIds
+      .map((evalId) => pilotProductionEvalSuite.find((scenario) => scenario.id === evalId))
+      .filter((scenario): scenario is PilotEvalScenario => Boolean(scenario));
+  }
+
+  const fallback = pilotProductionEvalSuite.find((scenario) =>
+    scenario.capabilityKeys.includes(capabilityKey),
+  );
+  return fallback ? [fallback] : [];
+}
+
 export function getRequiredEvalForCapability(
   capabilityKey: CapabilityKey,
 ): PilotEvalScenario | undefined {
-  return pilotProductionEvalSuite.find((scenario) =>
-    scenario.capabilityKeys.includes(capabilityKey),
-  );
+  return getRequiredEvalsForCapability(capabilityKey)[0];
 }
 
 export function checkCapabilityPromotionReadiness(params: {
   capability: CapabilityRecord;
   runs: readonly PilotEvalRunRecord[];
 }): CapabilityPromotionCheck {
-  const requiredEval = getRequiredEvalForCapability(params.capability.key);
+  const requiredEvals = getRequiredEvalsForCapability(params.capability.key);
   const blockers: string[] = [];
 
-  if (!requiredEval) {
+  if (requiredEvals.length === 0) {
     blockers.push(`No production eval scenario maps to ${params.capability.key}`);
   }
   if (params.capability.state === 'production_ready') {
     blockers.push('Capability is already marked production_ready in the registry');
   }
 
-  const matchingRun = requiredEval
-    ? params.runs.find(
-        (run) =>
-          run.evalId === requiredEval.id &&
-          (!run.capabilityKey || run.capabilityKey === params.capability.key),
-      )
-    : undefined;
-
-  if (!matchingRun) {
-    blockers.push(
-      `No eval run submitted for ${requiredEval?.name ?? params.capability.evalRequirement}`,
+  const matchingRuns: PilotEvalRunRecord[] = [];
+  for (const requiredEval of requiredEvals) {
+    const matchingRun = params.runs.find(
+      (run) =>
+        run.evalId === requiredEval.id &&
+        (!run.capabilityKey || run.capabilityKey === params.capability.key),
     );
-  } else {
+    if (!matchingRun) {
+      blockers.push(`No eval run submitted for ${requiredEval.name}`);
+      continue;
+    }
+    matchingRuns.push(matchingRun);
     if (matchingRun.status !== 'passed') {
-      blockers.push(`Eval run status is ${matchingRun.status}, not passed`);
+      blockers.push(`${requiredEval.name} run status is ${matchingRun.status}, not passed`);
     }
     if (matchingRun.evidenceRefs.length === 0) {
-      blockers.push('Passing eval run must include at least one evidence reference');
+      blockers.push(
+        `${requiredEval.name} passing run must include at least one evidence reference`,
+      );
     }
     if (matchingRun.auditReceiptRefs.length === 0) {
-      blockers.push('Passing eval run must include at least one audit receipt reference');
+      blockers.push(
+        `${requiredEval.name} passing run must include at least one audit receipt reference`,
+      );
     }
     if (!matchingRun.completedAt) {
-      blockers.push('Passing eval run must include completedAt');
+      blockers.push(`${requiredEval.name} passing run must include completedAt`);
     }
   }
 
   return CapabilityPromotionCheckSchema.parse({
     capability: params.capability,
     canPromote: blockers.length === 0,
-    requiredEval: requiredEval?.name ?? params.capability.evalRequirement,
-    matchedEvalId: requiredEval?.id,
-    evidenceRefs: matchingRun?.evidenceRefs ?? [],
-    auditReceiptRefs: matchingRun?.auditReceiptRefs ?? [],
+    requiredEval:
+      requiredEvals.length > 0
+        ? requiredEvals.map((scenario) => scenario.name).join(' and ')
+        : params.capability.evalRequirement,
+    requiredEvals: requiredEvals.map((scenario) => scenario.name),
+    matchedEvalId: matchingRuns[0]?.evalId,
+    matchedEvalIds: matchingRuns.map((run) => run.evalId),
+    evidenceRefs: matchingRuns.flatMap((run) => run.evidenceRefs),
+    auditReceiptRefs: matchingRuns.flatMap((run) => run.auditReceiptRefs),
     blockers,
   });
 }

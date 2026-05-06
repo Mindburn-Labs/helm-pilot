@@ -20,5 +20,6 @@ export {
   executePilotProductionEval,
   getPilotProductionEvalSuite,
   getRequiredEvalForCapability,
+  getRequiredEvalsForCapability,
   pilotProductionEvalSuite,
 } from './production-suite.js';
