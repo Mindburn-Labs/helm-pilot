@@ -496,6 +496,7 @@ export function commandCenterRoutes(deps: GatewayDeps) {
                   eq(evidenceItems.evidenceType, 'startup_lifecycle_mission_checkpoint'),
                   eq(evidenceItems.evidenceType, 'startup_lifecycle_recovery_plan'),
                   eq(evidenceItems.evidenceType, 'startup_lifecycle_recovery_applied'),
+                  eq(evidenceItems.evidenceType, 'startup_lifecycle_mission_rollback_applied'),
                 ),
               ),
             )
@@ -522,6 +523,9 @@ export function commandCenterRoutes(deps: GatewayDeps) {
           ),
           recoveryApplies: recoveryEvidenceRows.filter(
             (row) => row.evidenceType === 'startup_lifecycle_recovery_applied',
+          ),
+          rollbacks: recoveryEvidenceRows.filter(
+            (row) => row.evidenceType === 'startup_lifecycle_mission_rollback_applied',
           ),
         },
         orderedBy: [

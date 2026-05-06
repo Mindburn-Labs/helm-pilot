@@ -123,6 +123,7 @@ export const CommandCenterMissionGraphResponseSchema = z.object({
       checkpoints: z.array(DurableRowSchema),
       recoveryPlans: z.array(DurableRowSchema),
       recoveryApplies: z.array(DurableRowSchema),
+      rollbacks: z.array(DurableRowSchema),
     }),
     orderedBy: z.array(z.string().min(1)),
   }),

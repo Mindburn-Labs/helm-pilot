@@ -348,6 +348,15 @@ describe('CommandCenterPage', () => {
                   redactionState: 'redacted',
                 },
               ],
+              rollbacks: [
+                {
+                  id: 'rollback-1',
+                  evidenceType: 'startup_lifecycle_mission_rollback_applied',
+                  title: 'Startup lifecycle mission rollback: PMF Discovery',
+                  replayRef: 'mission:mission-1:rollback:abc999',
+                  redactionState: 'redacted',
+                },
+              ],
             },
             orderedBy: ['mission.updatedAt', 'node.sortOrder'],
           },
@@ -496,6 +505,7 @@ describe('CommandCenterPage', () => {
     expect(screen.getByText('Startup lifecycle mission checkpoint: PMF Discovery')).toBeTruthy();
     expect(screen.getByText('Startup lifecycle recovery plan: PMF Discovery')).toBeTruthy();
     expect(screen.getByText('Startup lifecycle recovery applied: PMF Discovery')).toBeTruthy();
+    expect(screen.getByText('Startup lifecycle mission rollback: PMF Discovery')).toBeTruthy();
     await waitFor(() =>
       expect(screen.getAllByText('HELM Governance Eval').length).toBeGreaterThan(0),
     );
