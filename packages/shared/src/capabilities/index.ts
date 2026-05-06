@@ -370,7 +370,7 @@ const capabilityRecords = validateCapabilityRecords([
     name: 'Evidence ledger',
     state: 'prototype',
     summary:
-      'A canonical evidence_items schema exists and core HELM receipt, agent-loop receipt, subagent spawn, Tool Broker, browser observation, computer action, connector lifecycle, workspace-scoped pipeline/ingestion jobs, artifact creation, startup lifecycle, and eval writers append to it. Tool Broker now fails closed before elevated tool execution without HELM policy metadata and fails elevated completions closed if evidence persistence fails, but evidence coverage is still not complete for every meaningful action.',
+      'A canonical evidence_items schema exists and core HELM receipt, agent-loop receipt, subagent spawn, Tool Broker, browser session control, browser observation, computer action, connector lifecycle, workspace-scoped pipeline/ingestion jobs, artifact creation, startup lifecycle, and eval writers append to it. Tool Broker now fails closed before elevated tool execution without HELM policy metadata and fails elevated completions closed if evidence persistence fails, but evidence coverage is still not complete for every meaningful action.',
     owner: 'Foundation Agent',
     blockers: [
       'Ad-hoc non-workspace ingestion jobs and non-broker legacy writers do not yet append evidence_items for every meaningful action',
@@ -388,6 +388,7 @@ const capabilityRecords = validateCapabilityRecords([
       'Decision Court run evidence_items now link to DECISION_COURT_RUN audit_log rows through audit_event_id with audit metadata backfilled to the evidence item id',
       'Tool Broker, Decision Court, and gateway browser observation writers persist audit_log rows before evidence_items rows that reference audit_event_id, then backfill audit metadata with the evidence item id',
       'Gateway manual task creation persists TASK_CREATED audit_log rows and task_created evidence_items in the same transaction, then backfills audit metadata with the evidence item id',
+      'Gateway browser session create, grant, and revoke routes persist redacted browser_session_* evidence_items linked to their BROWSER_SESSION_* audit_log rows in the same transaction',
       'Tool Broker refuses medium, high, and restricted tool manifests before action persistence or execution unless HELM policy decision metadata is present, and marks elevated tool executions failed if evidence_items persistence fails before completion',
       'Gateway browser observation evidence_items now link to their BROWSER_OBSERVATION_CAPTURED audit_log rows through audit_event_id',
       'Safe computer action evidence_items now link to OPERATOR_COMPUTER_USE audit_log rows through audit_event_id',

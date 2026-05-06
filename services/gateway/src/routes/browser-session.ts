@@ -105,19 +105,57 @@ export function browserSessionRoutes(deps: GatewayDeps) {
             status: browserSessions.status,
           });
 
+        const auditEventId = randomUUID();
+        const replayRef = `browser-session:${created?.id ?? 'unknown'}:created`;
+        const evidenceMetadata = {
+          browser: parsed.data.browser,
+          allowedOrigins: normalizeOrigins(parsed.data.allowedOrigins),
+          credentialBoundary: 'no_raw_credentials',
+          governance: governanceMetadata,
+        };
         await db.insert(auditLog).values({
+          id: auditEventId,
           workspaceId: parsed.data.workspaceId,
           action: 'BROWSER_SESSION_CREATED',
           actor: `user:${(c.get('userId') as string | undefined) ?? 'unknown'}`,
           target: created?.id ?? null,
           verdict: 'allow',
           metadata: {
-            browser: parsed.data.browser,
-            allowedOrigins: normalizeOrigins(parsed.data.allowedOrigins),
-            credentialBoundary: 'no_raw_credentials',
-            governance: governanceMetadata,
+            evidenceType: 'browser_session_created',
+            replayRef,
+            sessionId: created?.id ?? null,
+            ...evidenceMetadata,
           },
         });
+
+        const evidenceItemId = await appendEvidenceItem(db, {
+          workspaceId: parsed.data.workspaceId,
+          auditEventId,
+          evidencePackId: governed.evidencePackId ?? null,
+          evidenceType: 'browser_session_created',
+          sourceType: 'gateway_browser_session',
+          title: `Browser session created: ${parsed.data.name}`,
+          summary: 'Governed browser session metadata persisted without storing credentials.',
+          redactionState: 'redacted',
+          sensitivity: 'restricted',
+          replayRef,
+          metadata: evidenceMetadata,
+        });
+
+        await db
+          .update(auditLog)
+          .set({
+            metadata: {
+              evidenceType: 'browser_session_created',
+              replayRef,
+              sessionId: created?.id ?? null,
+              evidenceItemId,
+              ...evidenceMetadata,
+            },
+          })
+          .where(
+            and(eq(auditLog.workspaceId, parsed.data.workspaceId), eq(auditLog.id, auditEventId)),
+          );
 
         return created;
       });
@@ -224,19 +262,62 @@ export function browserSessionRoutes(deps: GatewayDeps) {
             status: browserSessionGrants.status,
           });
 
+        const auditEventId = randomUUID();
+        const replayRef = `browser-session:${sessionId}:grant:${created?.id ?? 'unknown'}`;
+        const evidenceMetadata = {
+          sessionId,
+          grantId: created?.id ?? null,
+          taskId: parsed.data.taskId ?? null,
+          ventureId: parsed.data.ventureId ?? null,
+          missionId: parsed.data.missionId ?? null,
+          scope: parsed.data.scope,
+          allowedOrigins: grantOrigins,
+          governance: governanceMetadata,
+        };
         await db.insert(auditLog).values({
+          id: auditEventId,
           workspaceId: parsed.data.workspaceId,
           action: 'BROWSER_SESSION_GRANTED',
           actor: `user:${(c.get('userId') as string | undefined) ?? 'unknown'}`,
           target: created?.id ?? sessionId,
           verdict: 'allow',
           metadata: {
-            sessionId,
-            scope: parsed.data.scope,
-            allowedOrigins: grantOrigins,
-            governance: governanceMetadata,
+            evidenceType: 'browser_session_granted',
+            replayRef,
+            ...evidenceMetadata,
           },
         });
+
+        const evidenceItemId = await appendEvidenceItem(db, {
+          workspaceId: parsed.data.workspaceId,
+          ventureId: parsed.data.ventureId ?? null,
+          missionId: parsed.data.missionId ?? null,
+          taskId: parsed.data.taskId ?? null,
+          auditEventId,
+          evidencePackId: governed.evidencePackId ?? null,
+          evidenceType: 'browser_session_granted',
+          sourceType: 'gateway_browser_session',
+          title: `Browser session grant: ${parsed.data.scope}`,
+          summary: 'Governed read-only browser session grant persisted.',
+          redactionState: 'redacted',
+          sensitivity: 'restricted',
+          replayRef,
+          metadata: evidenceMetadata,
+        });
+
+        await db
+          .update(auditLog)
+          .set({
+            metadata: {
+              evidenceType: 'browser_session_granted',
+              replayRef,
+              evidenceItemId,
+              ...evidenceMetadata,
+            },
+          })
+          .where(
+            and(eq(auditLog.workspaceId, parsed.data.workspaceId), eq(auditLog.id, auditEventId)),
+          );
 
         return created;
       });
@@ -274,13 +355,50 @@ export function browserSessionRoutes(deps: GatewayDeps) {
             ),
           );
 
+        const auditEventId = randomUUID();
+        const replayRef = `browser-session:${sessionId}:revoked`;
+        const evidenceMetadata = {
+          sessionId,
+          credentialBoundary: 'no_raw_credentials',
+        };
         await db.insert(auditLog).values({
+          id: auditEventId,
           workspaceId,
           action: 'BROWSER_SESSION_REVOKED',
           actor: `user:${(c.get('userId') as string | undefined) ?? 'unknown'}`,
           target: sessionId,
           verdict: 'allow',
+          metadata: {
+            evidenceType: 'browser_session_revoked',
+            replayRef,
+            ...evidenceMetadata,
+          },
         });
+
+        const evidenceItemId = await appendEvidenceItem(db, {
+          workspaceId,
+          auditEventId,
+          evidenceType: 'browser_session_revoked',
+          sourceType: 'gateway_browser_session',
+          title: 'Browser session revoked',
+          summary: 'Browser session and active grants were revoked.',
+          redactionState: 'redacted',
+          sensitivity: 'restricted',
+          replayRef,
+          metadata: evidenceMetadata,
+        });
+
+        await db
+          .update(auditLog)
+          .set({
+            metadata: {
+              evidenceType: 'browser_session_revoked',
+              replayRef,
+              evidenceItemId,
+              ...evidenceMetadata,
+            },
+          })
+          .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.id, auditEventId)));
       });
     } catch {
       return c.json({ error: 'failed to persist browser session revocation' }, 500);
@@ -466,10 +584,7 @@ export function browserSessionRoutes(deps: GatewayDeps) {
             },
           })
           .where(
-            and(
-              eq(auditLog.workspaceId, parsed.data.workspaceId),
-              eq(auditLog.id, auditEventId),
-            ),
+            and(eq(auditLog.workspaceId, parsed.data.workspaceId), eq(auditLog.id, auditEventId)),
           );
 
         return {
