@@ -47,6 +47,8 @@ describe('workspaceRoutes', () => {
       expect(json).toHaveProperty('policyConfig');
       expect(json).toHaveProperty('budgetConfig');
       expect(json).toHaveProperty('modelConfig');
+      expect((json as any).policyConfig.killSwitch).toBe(false);
+      expect((json as any).policyConfig.contentBans).toEqual([]);
     });
 
     it('returns stored settings when they exist', async () => {
@@ -56,7 +58,9 @@ describe('workspaceRoutes', () => {
         workspaceId: 'ws-1',
         policyConfig: {
           maxIterationBudget: 25,
+          killSwitch: true,
           blockedTools: ['shell'],
+          contentBans: ['credential prompts'],
           requireApprovalFor: ['send_notification'],
         },
         budgetConfig: { dailyTotalMax: 50, currency: 'EUR' },
@@ -67,7 +71,9 @@ describe('workspaceRoutes', () => {
       const res = await fetch('GET', '/ws-1/settings', undefined, wsHeader);
       const json = await expectJson<typeof settings>(res, 200);
       expect(json.policyConfig.maxIterationBudget).toBe(25);
+      expect((json as any).policyConfig.killSwitch).toBe(true);
       expect((json as any).policyConfig.toolBlocklist).toEqual(['shell']);
+      expect((json as any).policyConfig.contentBans).toEqual(['credential prompts']);
       expect(json.budgetConfig.currency).toBe('EUR');
     });
   });
@@ -103,15 +109,21 @@ describe('workspaceRoutes', () => {
       const created = {
         id: 'set-new',
         workspaceId: 'ws-1',
-        policyConfig: { maxIterationBudget: 50, toolBlocklist: [] },
+        policyConfig: {
+          maxIterationBudget: 50,
+          killSwitch: true,
+          contentBans: ['no external promises'],
+          toolBlocklist: [],
+        },
         budgetConfig: {},
         modelConfig: {},
       };
+      const insertValues = vi.fn(() => ({
+        returning: vi.fn(async () => [created]),
+        then: (r: any) => r([created]),
+      }));
       deps.db.insert = vi.fn(() => ({
-        values: vi.fn(() => ({
-          returning: vi.fn(async () => [created]),
-          then: (r: any) => r([created]),
-        })),
+        values: insertValues,
       })) as any;
 
       const { fetch } = testApp(workspaceRoutes, deps as any);
@@ -119,12 +131,28 @@ describe('workspaceRoutes', () => {
         'PUT',
         '/ws-1/settings',
         {
-          policyConfig: { maxIterationBudget: 50 },
+          policyConfig: {
+            maxIterationBudget: 50,
+            killSwitch: true,
+            contentBans: ['no external promises'],
+          },
         },
         wsHeader,
       );
       const json = await expectJson(res, 201);
       expect(json).toHaveProperty('workspaceId', 'ws-1');
+      expect((json as any).policyConfig.killSwitch).toBe(true);
+      expect((json as any).policyConfig.contentBans).toEqual(['no external promises']);
+      expect(insertValues).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspaceId: 'ws-1',
+          policyConfig: expect.objectContaining({
+            maxIterationBudget: 50,
+            killSwitch: true,
+            contentBans: ['no external promises'],
+          }),
+        }),
+      );
     });
 
     it('updates existing settings (200)', async () => {
