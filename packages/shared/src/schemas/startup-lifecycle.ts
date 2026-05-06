@@ -105,6 +105,15 @@ export const ApplyStartupMissionRecoveryInputSchema = z.object({
   reason: z.string().min(1).max(500).optional(),
 });
 
+export const MissionRuntimeCheckpointKindSchema = z.enum(['pre_recovery', 'pre_rollback']);
+
+export const RollbackStartupMissionInputSchema = z.object({
+  workspaceId: z.string().uuid(),
+  missionId: z.string().uuid(),
+  scope: z.literal('failed_blocked_to_ready').default('failed_blocked_to_ready'),
+  reason: z.string().min(1).max(1000),
+});
+
 export const CompiledStartupLifecycleMissionSchema = z.object({
   workspaceId: z.string().uuid(),
   generatedAt: z.string().datetime(),
@@ -282,6 +291,39 @@ export const AppliedStartupMissionRecoverySchema = z.object({
   blockers: z.array(z.string().min(1)),
 });
 
+export const MissionRuntimeCheckpointSchema = z.object({
+  checkpointId: z.string().uuid(),
+  checkpointKind: MissionRuntimeCheckpointKindSchema,
+  missionId: z.string().uuid(),
+  missionStatus: z.string().min(1),
+  cursorNodeId: z.string().uuid().optional(),
+  cursorNodeKey: z.string().min(1).optional(),
+  nodeStatusCounts: z.record(z.string(), z.number().int().nonnegative()),
+  readyNodeIds: z.array(z.string().uuid()),
+  blockedNodeIds: z.array(z.string().uuid()),
+  failedNodeIds: z.array(z.string().uuid()),
+  awaitingApprovalNodeIds: z.array(z.string().uuid()),
+  taskRunCheckpointRefs: z.array(z.record(z.string(), z.unknown())),
+  recoveryPlan: z.record(z.string(), z.unknown()),
+  rollbackPlan: z.record(z.string(), z.unknown()),
+  evidenceItemIds: z.array(z.string().uuid()).default([]),
+  productionReady: z.literal(false),
+  createdAt: z.string().datetime(),
+});
+
+export const RolledBackStartupMissionSchema = z.object({
+  workspaceId: z.string().uuid(),
+  missionId: z.string().uuid(),
+  rollbackVersion: z.literal('mission-rollback.v1'),
+  productionReady: z.literal(false),
+  rollbackApplied: z.literal(true),
+  checkpoint: MissionRuntimeCheckpointSchema,
+  rolledBackNodes: z.array(ScheduledStartupMissionNodeSchema),
+  missionStatus: z.enum(['scheduled_not_executing', 'blocked']),
+  evidenceItemIds: z.array(z.string().uuid()).default([]),
+  blockers: z.array(z.string().min(1)),
+});
+
 export type StartupLifecycleStage = z.infer<typeof StartupLifecycleStageSchema>;
 export type StartupLifecycleNode = z.infer<typeof StartupLifecycleNodeSchema>;
 export type StartupLifecycleEdge = z.infer<typeof StartupLifecycleEdgeSchema>;
@@ -297,16 +339,21 @@ export type PlanStartupMissionRecoveryInput = z.infer<
 export type ApplyStartupMissionRecoveryInput = z.infer<
   typeof ApplyStartupMissionRecoveryInputSchema
 >;
+export type MissionRuntimeCheckpointKind = z.infer<typeof MissionRuntimeCheckpointKindSchema>;
+export type RollbackStartupMissionInput = z.infer<typeof RollbackStartupMissionInputSchema>;
 export type CompiledStartupLifecycleMission = z.infer<typeof CompiledStartupLifecycleMissionSchema>;
 export type PersistedStartupLifecycleMission = z.infer<
   typeof PersistedStartupLifecycleMissionSchema
 >;
+export type ScheduledStartupMissionNode = z.infer<typeof ScheduledStartupMissionNodeSchema>;
 export type ScheduledStartupMission = z.infer<typeof ScheduledStartupMissionSchema>;
 export type ExecutedStartupMissionNode = z.infer<typeof ExecutedStartupMissionNodeSchema>;
 export type ExecutedStartupMission = z.infer<typeof ExecutedStartupMissionSchema>;
 export type CheckpointedStartupMission = z.infer<typeof CheckpointedStartupMissionSchema>;
 export type PlannedStartupMissionRecovery = z.infer<typeof PlannedStartupMissionRecoverySchema>;
 export type AppliedStartupMissionRecovery = z.infer<typeof AppliedStartupMissionRecoverySchema>;
+export type MissionRuntimeCheckpoint = z.infer<typeof MissionRuntimeCheckpointSchema>;
+export type RolledBackStartupMission = z.infer<typeof RolledBackStartupMissionSchema>;
 
 const startupLifecycleTemplates: readonly StartupLifecycleNode[] = [
   {

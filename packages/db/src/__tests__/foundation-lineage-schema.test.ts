@@ -20,6 +20,7 @@ import {
   managedTelegramBots,
   missionEdges,
   missionNodes,
+  missionRuntimeCheckpoints,
   missions,
   missionTasks,
   opportunityScores,
@@ -155,5 +156,16 @@ describe('Gate 9 durable mission runtime schema', () => {
     expect(missionNodes.requiredAgents.name).toBe('required_agents');
     expect(missionEdges.fromNodeKey.name).toBe('from_node_key');
     expect(missionTasks.taskId.name).toBe('task_id');
+  });
+
+  it('exports mission-level checkpoint, recovery, and rollback fields', () => {
+    expect(missionRuntimeCheckpoints.workspaceId.name).toBe('workspace_id');
+    expect(missionRuntimeCheckpoints.missionId.name).toBe('mission_id');
+    expect(missionRuntimeCheckpoints.checkpointKind.name).toBe('checkpoint_kind');
+    expect(missionRuntimeCheckpoints.nodeStatusCounts.name).toBe('node_status_counts');
+    expect(missionRuntimeCheckpoints.taskRunCheckpointRefs.name).toBe('task_run_checkpoint_refs');
+    expect(missionRuntimeCheckpoints.recoveryPlan.name).toBe('recovery_plan');
+    expect(missionRuntimeCheckpoints.rollbackPlan.name).toBe('rollback_plan');
+    expect(missionRuntimeCheckpoints.contentHash.name).toBe('content_hash');
   });
 });

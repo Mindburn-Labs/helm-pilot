@@ -31,7 +31,7 @@ describe('CommandCenterPage', () => {
             missionRuntimeState: 'blocked',
             statement:
               'Mission runtime is not production_ready; command center exposes durable task, action, receipt, browser, computer, artifact, audit, and approval state without claiming mission autonomy.',
-            blockers: ['Mission runtime is still blocked'],
+            blockers: ['Mission runtime is still prototype-only'],
           },
           authorization: {
             workspaceRole: 'owner',
@@ -58,7 +58,7 @@ describe('CommandCenterPage', () => {
                 name: 'Command center UI',
                 state: 'prototype',
                 summary: 'Backed by real durable rows.',
-                blockers: ['Mission runtime is still blocked'],
+                blockers: ['Mission runtime is still prototype-only'],
                 evalRequirement: 'Command Center Real-State UX Eval',
               },
               {

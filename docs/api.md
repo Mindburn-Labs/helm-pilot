@@ -476,7 +476,7 @@ Return a read-only workspace permission graph for the command center. Requires a
 
 ### GET /api/command-center/mission-graph
 
-Return a read-only durable mission graph for the command center. Optional query: `?missionId=...`. Requires at least the workspace `partner` role. The response is backed by `missions`, `mission_nodes`, `mission_edges`, `mission_tasks`, and mission checkpoint/recovery-plan/recovery-apply `evidence_items` rows, ordered deterministically, and does not dispatch, apply recovery, roll back, or resume the mission DAG.
+Return a read-only durable mission graph for the command center. Optional query: `?missionId=...`. Requires at least the workspace `partner` role. The response is backed by `missions`, `mission_nodes`, `mission_edges`, `mission_tasks`, and mission checkpoint/recovery-plan/recovery-apply/rollback `evidence_items` rows, ordered deterministically, and does not dispatch, apply recovery, roll back, or resume the mission DAG.
 
 ### GET /api/command-center/eval-status
 
@@ -512,15 +512,19 @@ Inspect a persisted lifecycle mission, identify dependency-ready pending nodes, 
 
 ### POST /api/startup-lifecycle/missions/:missionId/checkpoint
 
-Persist a redacted snapshot of the current mission, node, edge, and task-link state as `startup_lifecycle_mission_checkpoint` evidence. Requires at least the workspace `partner` role. The response is `checkpointed_not_recovered`; this route records the replayable checkpoint snapshot and latest checkpoint pointer on the mission, but it does not recover, roll back, continue execution, or promote mission runtime to `production_ready`.
+Persist a redacted snapshot of the current mission, node, edge, and task-link state as `startup_lifecycle_mission_checkpoint` evidence. Requires at least the workspace `partner` role. The response is `checkpointed_not_recovered`; this route records the replayable checkpoint snapshot and latest checkpoint pointer on the mission, but it does not itself recover, roll back, continue execution, or promote mission runtime to `production_ready`.
 
 ### POST /api/startup-lifecycle/missions/:missionId/recovery-plan
 
-Compare the latest mission checkpoint snapshot with current mission, node, edge, and task-link state, then persist a `startup_lifecycle_recovery_plan` evidence item. Requires at least the workspace `partner` role. The response is `planned_not_executed`; this route reports changed, blocked, failed, approval-waiting, and ready nodes plus recommended next actions, but it does not retry, recover, roll back, continue execution, or promote mission runtime to `production_ready`.
+Compare the latest mission checkpoint snapshot with current mission, node, edge, and task-link state, then persist a `startup_lifecycle_recovery_plan` evidence item. Requires at least the workspace `partner` role. The response is `planned_not_executed`; this route reports changed, blocked, failed, approval-waiting, and ready nodes plus recommended next actions, but it does not execute recovery or promote mission runtime to `production_ready`.
 
 ### POST /api/startup-lifecycle/missions/:missionId/recover
 
-Apply a safe internal recovery step from a workspace-scoped recovery plan by resetting explicitly failed mission nodes to `ready` and linked tasks to `pending`, then persist a `startup_lifecycle_recovery_applied` evidence item. Requires at least the workspace `partner` role. The response is `recovery_applied_not_executed` or `recovery_noop_not_executed`; this route never calls the orchestrator, rolls back completed work, resets blocked or approval-waiting nodes, touches external systems, or promotes mission runtime to `production_ready`.
+Apply a safe internal recovery step from a workspace-scoped recovery plan by persisting a `pre_recovery` runtime checkpoint, resetting explicitly failed mission nodes to `ready` and linked tasks to `pending`, then persisting a `startup_lifecycle_recovery_applied` evidence item. Requires at least the workspace `partner` role. The response is `recovery_applied_not_executed` or `recovery_noop_not_executed`; this route never calls the orchestrator, rolls back completed work, resets blocked or approval-waiting nodes, touches external systems, or promotes mission runtime to `production_ready`.
+
+### POST /api/startup-lifecycle/missions/:missionId/rollback
+
+Persist a `pre_rollback` runtime checkpoint, apply a non-destructive rollback to failed, blocked, or approval-waiting lifecycle nodes, reset linked task rows to pending, and write `startup_lifecycle_mission_rollback_applied` evidence. Requires at least the workspace `partner` role. This route does not delete history, undo external-world effects, or promote mission runtime to `production_ready`.
 
 ### POST /api/startup-lifecycle/missions/:missionId/nodes/:nodeId/execute
 
@@ -528,7 +532,7 @@ Execute one scheduled `ready` lifecycle node through the existing governed task 
 
 ### POST /api/startup-lifecycle/missions/:missionId/execute-ready
 
-Execute a bounded batch of currently `ready` lifecycle nodes through the existing governed task runtime. Requires at least the workspace `partner` role. The route reuses the single-node executor, returns executed node results plus remaining ready node IDs, and stays explicit/bounded; it is not founder-off-grid execution, does not provide recovery/rollback, and does not promote mission runtime to `production_ready`.
+Execute a bounded batch of currently `ready` lifecycle nodes through the existing governed task runtime. Requires at least the workspace `partner` role. The route reuses the single-node executor, returns executed node results plus remaining ready node IDs, and stays explicit/bounded; it is not founder-off-grid execution and does not promote mission runtime to `production_ready`.
 
 ### GET /api/evals/production-suite
 

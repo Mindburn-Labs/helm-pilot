@@ -47,6 +47,28 @@ def load_manifest(path: Path) -> dict:
     return json.loads(read_text(path))
 
 
+def expected_repo_name() -> str:
+    """Return the repository identity, not the current worktree directory name."""
+    origin = subprocess.run(
+        ['git', 'config', '--get', 'remote.origin.url'],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if origin.returncode == 0:
+        remote = origin.stdout.strip().rstrip('/')
+        if remote:
+            name = remote.rsplit('/', 1)[-1]
+            if ':' in name and not remote.startswith(('http://', 'https://')):
+                name = name.rsplit(':', 1)[-1]
+            if name.endswith('.git'):
+                name = name[:-4]
+            if name:
+                return name
+    return ROOT.name
+
+
 def main() -> int:
     coverage = subprocess.run([sys.executable, str(ROOT / 'scripts' / 'check_documentation_coverage.py')], cwd=ROOT)
     if coverage.returncode != 0:
@@ -96,8 +118,9 @@ def main() -> int:
             failures.append(f'docs/public-docs.manifest.json is not valid JSON: {exc}')
             manifest = {}
         repo_name = manifest.get('repo')
-        if repo_name and repo_name != ROOT.name:
-            failures.append(f'docs/public-docs.manifest.json repo is {repo_name!r}, expected {ROOT.name!r}')
+        expected_repo = expected_repo_name()
+        if repo_name and repo_name != expected_repo:
+            failures.append(f'docs/public-docs.manifest.json repo is {repo_name!r}, expected {expected_repo!r}')
         documents = manifest.get('documents') or manifest.get('owned_documents') or []
         slugs: set[str] = set()
         for document in documents:
