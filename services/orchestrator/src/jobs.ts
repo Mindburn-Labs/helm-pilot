@@ -394,6 +394,30 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
     }
   }
 
+  async function runPublicPipelineForAllWorkspaces(
+    name: 'pipeline.yc-scrape' | 'pipeline.startup-school',
+    job: PgBoss.Job<{ workspaceId?: string }>,
+    baseArgs: string[] = [],
+  ): Promise<void> {
+    const rows = await deps.db.select({ id: workspaces.id }).from(workspaces);
+    if (rows.length === 0) {
+      log.warn({ pipeline: name, jobId: job.id }, 'Skipping scheduled pipeline; no workspaces');
+      return;
+    }
+
+    for (const row of rows) {
+      try {
+        await runPipelineWithEvidence(
+          name,
+          { ...job, data: { ...(job.data ?? {}), workspaceId: row.id } },
+          [...baseArgs, '--workspace-id', row.id],
+        );
+      } catch (err) {
+        log.error({ err, pipeline: name, workspaceId: row.id }, 'Scheduled pipeline failed');
+      }
+    }
+  }
+
   async function appendPipelineEvidence(input: {
     name: keyof typeof PIPELINE_ALLOWLIST;
     job: PgBoss.Job<{ workspaceId?: string }>;
@@ -461,8 +485,12 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
             ...(job.data?.replayPath ? ['--replay', job.data.replayPath] : []),
             ...(job.data?.batch ? ['--batch', job.data.batch] : []),
             ...(job.data?.limit ? ['--limit', String(job.data.limit)] : []),
-            ...(job.data?.workspaceId ? ['--workspace-id', job.data.workspaceId] : []),
           ];
+          if (!job.data?.workspaceId) {
+            await runPublicPipelineForAllWorkspaces('pipeline.yc-scrape', job, args);
+            continue;
+          }
+          args.push('--workspace-id', job.data.workspaceId);
           await runPipelineWithEvidence('pipeline.yc-scrape', job, args);
         } catch (err) {
           log.error({ err }, 'YC scraper pipeline failed');
@@ -480,8 +508,12 @@ export async function registerJobHandlers(boss: PgBoss, deps: JobDeps): Promise<
           const args = [
             ...(job.data?.replayPath ? ['--replay', job.data.replayPath] : []),
             ...(job.data?.limit ? ['--limit', String(job.data.limit)] : []),
-            ...(job.data?.workspaceId ? ['--workspace-id', job.data.workspaceId] : []),
           ];
+          if (!job.data?.workspaceId) {
+            await runPublicPipelineForAllWorkspaces('pipeline.startup-school', job, args);
+            continue;
+          }
+          args.push('--workspace-id', job.data.workspaceId);
           await runPipelineWithEvidence('pipeline.startup-school', job, args);
         } catch (err) {
           log.error({ err }, 'Startup School pipeline failed');

@@ -373,7 +373,7 @@ const capabilityRecords = validateCapabilityRecords([
       'A canonical evidence_items schema exists and core HELM receipt, agent-loop receipt, subagent spawn, Tool Broker, browser observation, computer action, connector lifecycle, workspace-scoped pipeline/ingestion jobs, artifact creation, startup lifecycle, and eval writers append to it. Tool Broker now fails closed before elevated tool execution without HELM policy metadata and fails elevated completions closed if evidence persistence fails, but evidence coverage is still not complete for every meaningful action.',
     owner: 'Foundation Agent',
     blockers: [
-      'Non-workspace scheduled ingestion jobs and non-broker legacy writers do not yet append evidence_items for every meaningful action',
+      'Ad-hoc non-workspace ingestion jobs and non-broker legacy writers do not yet append evidence_items for every meaningful action',
       'Browser/computer replay contract has not passed Browser/Computer Replay Eval and is not production-ready',
       'Non-broker legacy execution paths still need elevated-action receipt/evidence fail-closed guards',
     ],
@@ -394,6 +394,7 @@ const capabilityRecords = validateCapabilityRecords([
       'Connector lifecycle evidence_items now link to CONNECTOR_* audit_log rows through audit_event_id with audit metadata backfilled to the evidence item id',
       'Connector refresh background worker success and failure paths append sanitized evidence_items rows without token material and link them to CONNECTOR_REFRESH_* audit_log rows',
       'Workspace-scoped YC, Startup School, private YC, knowledge ingestion, and opportunity-cluster pipeline workers append redacted pipeline_worker evidence_items rows for success and failure',
+      'Scheduled public YC and Startup School pipeline jobs enumerate workspaces before execution so cron-triggered ingestion writes workspace-scoped pipeline_worker evidence_items rows',
       'YC scraper ingestion finalizers append redacted yc_scraper_ingestion evidence_items rows for parsed and failed workspace-scoped ingestion records without session, token, or raw error material',
       'Orchestrator and MCP artifact creation append artifact_created evidence_items rows linked to artifact_id, replay refs, and ARTIFACT_CREATED audit_log rows',
       'Connector grant, revoke, token metadata, browser-session metadata, validation queue, OAuth initiation, callback, refresh, and session-delete routes append redacted evidence_items rows without token or session payloads',

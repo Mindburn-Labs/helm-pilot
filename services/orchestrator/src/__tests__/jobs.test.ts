@@ -436,9 +436,7 @@ describe('registerJobHandlers', () => {
     });
 
     it('persists opportunity score state and evidence in a single transaction', async () => {
-      vi.mocked(appendEvidenceItem).mockRejectedValueOnce(
-        new Error('evidence persistence failed'),
-      );
+      vi.mocked(appendEvidenceItem).mockRejectedValueOnce(new Error('evidence persistence failed'));
 
       let selectCount = 0;
       mockDb.select = vi.fn(() => ({
@@ -473,9 +471,7 @@ describe('registerJobHandlers', () => {
         })),
       }));
       const txDb = { insert: txInsert, update: txUpdate };
-      mockDb.transaction = vi.fn(async (callback: (tx: any) => Promise<unknown>) =>
-        callback(txDb),
-      );
+      mockDb.transaction = vi.fn(async (callback: (tx: any) => Promise<unknown>) => callback(txDb));
 
       const mockLlm = {
         complete: vi.fn(),
@@ -677,6 +673,50 @@ describe('registerJobHandlers', () => {
       });
       expect(JSON.stringify(metadata)).not.toContain('grant-secret-id');
       expect(JSON.stringify(metadata)).not.toContain('token=abc');
+    });
+
+    it('runs scheduled public ingestion once per workspace so evidence is never workspace-less', async () => {
+      const pipelineRunner = vi.fn(async (name: string, extraArgs: string[]) => ({
+        scriptPath: `pipelines/${name}.py`,
+        args: [`/repo/pipelines/${name}.py`, ...extraArgs],
+        stdoutPreview: 'completed',
+        stderrPreview: null,
+      }));
+      mockDb.select = vi.fn(() => ({
+        from: vi.fn(async () => [{ id: 'ws-1' }, { id: 'ws-2' }]),
+      }));
+
+      registerJobHandlers(mockBoss, { db: mockDb, pipelineRunner });
+      const handler = handlers.get('pipeline.yc-scrape')!;
+
+      await handler([{ id: 'job-cron', data: { batch: 'W24', limit: 2 } }]);
+
+      expect(pipelineRunner).toHaveBeenCalledTimes(2);
+      expect(pipelineRunner).toHaveBeenNthCalledWith(1, 'pipeline.yc-scrape', [
+        '--batch',
+        'W24',
+        '--limit',
+        '2',
+        '--workspace-id',
+        'ws-1',
+      ]);
+      expect(pipelineRunner).toHaveBeenNthCalledWith(2, 'pipeline.yc-scrape', [
+        '--batch',
+        'W24',
+        '--limit',
+        '2',
+        '--workspace-id',
+        'ws-2',
+      ]);
+      expect(appendEvidenceItem).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(appendEvidenceItem).mock.calls.map((call) => call[1].workspaceId)).toEqual([
+        'ws-1',
+        'ws-2',
+      ]);
+      expect(vi.mocked(appendEvidenceItem).mock.calls.map((call) => call[1].replayRef)).toEqual([
+        'pipeline:pipeline.yc-scrape:job-cron:pipeline_job_succeeded',
+        'pipeline:pipeline.yc-scrape:job-cron:pipeline_job_succeeded',
+      ]);
     });
 
     it('does not create pipeline evidence without a workspace scope', async () => {
