@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { type Context } from 'hono';
+import { randomUUID } from 'node:crypto';
 import { DigitalOceanProvider, LaunchEngine, type DeployProvider } from '@pilot/launch-engine';
 import {
   HelmDeniedError,
@@ -7,8 +8,9 @@ import {
   HelmUnreachableError,
   type EvaluateResult,
 } from '@pilot/helm-client';
-import { eq } from 'drizzle-orm';
-import { users } from '@pilot/db/schema';
+import { and, eq } from 'drizzle-orm';
+import { appendEvidenceItem } from '@pilot/db';
+import { auditLog, deployTargets, users } from '@pilot/db/schema';
 import { ManagedTelegramReplyInput } from '@pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId, requireWorkspaceRole, workspaceIdMismatch } from '../lib/workspace.js';
@@ -187,8 +189,75 @@ export function launchRoutes(deps: GatewayDeps) {
     }
     const roleDenied = requireWorkspaceRole(c, 'owner', 'create deploy targets');
     if (roleDenied) return roleDenied;
-    const target = await engine.createDeployTarget(workspaceId, { name, provider, config });
-    return c.json(target, 201);
+    const created = await deps.db
+      .transaction(async (tx) => {
+        const [target] = await tx
+          .insert(deployTargets)
+          .values({
+            workspaceId,
+            name,
+            provider,
+            config: config ?? {},
+          })
+          .returning();
+        if (!target) throw new Error('failed to create deploy target');
+
+        const auditEventId = randomUUID();
+        const replayRef = `deploy-target:${workspaceId}:${target.id}:created`;
+        const evidenceMetadata = {
+          targetId: target.id,
+          targetName: name,
+          provider,
+          configKeys: Object.keys(config ?? {}).sort(),
+          configValuesStoredInEvidence: false,
+        };
+
+        await tx.insert(auditLog).values({
+          id: auditEventId,
+          workspaceId,
+          action: 'DEPLOY_TARGET_CREATED',
+          actor: `user:${(c.get('userId') as string | undefined) ?? 'unknown'}`,
+          target: target.id,
+          verdict: 'allow',
+          metadata: {
+            evidenceType: 'deploy_target_created',
+            replayRef,
+            ...evidenceMetadata,
+          },
+        });
+
+        const evidenceItemId = await appendEvidenceItem(tx, {
+          workspaceId,
+          auditEventId,
+          evidenceType: 'deploy_target_created',
+          sourceType: 'gateway_launch',
+          title: `Deploy target created: ${name}`,
+          summary:
+            'Workspace deploy target was created; provider config values were not stored in evidence.',
+          redactionState: 'redacted',
+          sensitivity: 'restricted',
+          replayRef,
+          metadata: evidenceMetadata,
+        });
+
+        await tx
+          .update(auditLog)
+          .set({
+            metadata: {
+              evidenceType: 'deploy_target_created',
+              replayRef,
+              evidenceItemId,
+              ...evidenceMetadata,
+            },
+          })
+          .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.id, auditEventId)));
+
+        return { target, evidenceItemId };
+      })
+      .catch(() => null);
+
+    if (!created) return c.json({ error: 'failed to persist deploy target evidence' }, 500);
+    return c.json({ ...created.target, evidenceItemId: created.evidenceItemId }, 201);
   });
 
   // POST /api/launch/deployments — Execute a provider deployment
