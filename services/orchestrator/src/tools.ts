@@ -542,100 +542,116 @@ export class ToolRegistry {
           evaluation.receipt.policyVersion,
         );
         const { browserActions, browserObservations } = await import('@pilot/db/schema');
-        const [browserAction] = await this.db
-          .insert(browserActions)
-          .values({
-            workspaceId: req.workspaceId,
-            sessionId: req.sessionId,
-            grantId: req.grantId,
-            taskId: req.taskId,
-            toolActionId: req.actionId,
-            actionType: 'read_extract',
-            objective: req.objective,
-            url: req.url,
-            origin: url.origin,
-            status: 'completed',
-            policyDecisionId: evaluation.receipt.decisionId,
-            policyVersion: evaluation.receipt.policyVersion,
-            helmDocumentVersionPins,
-            evidencePackId: evaluation.evidencePackId ?? null,
-            completedAt: new Date(),
-            metadata: {
-              helmDecisionId: evaluation.receipt.decisionId,
-              helmPolicyVersion: evaluation.receipt.policyVersion,
-              helmDocumentVersionPins,
-              credentialBoundary: 'read_only_no_cookie_or_password_export',
-            },
-          })
-          .returning({
-            id: browserActions.id,
-            replayIndex: browserActions.replayIndex,
-            evidencePackId: browserActions.evidencePackId,
-          });
+        const { browserAction, observation, evidenceItemId } = await this.db.transaction(
+          async (tx) => {
+            const db = tx as unknown as Pick<Db, 'insert'>;
+            const [persistedBrowserAction] = await db
+              .insert(browserActions)
+              .values({
+                workspaceId: req.workspaceId,
+                sessionId: req.sessionId,
+                grantId: req.grantId,
+                taskId: req.taskId,
+                toolActionId: req.actionId,
+                actionType: 'read_extract',
+                objective: req.objective,
+                url: req.url,
+                origin: url.origin,
+                status: 'completed',
+                policyDecisionId: evaluation.receipt.decisionId,
+                policyVersion: evaluation.receipt.policyVersion,
+                helmDocumentVersionPins,
+                evidencePackId: evaluation.evidencePackId ?? null,
+                completedAt: new Date(),
+                metadata: {
+                  helmDecisionId: evaluation.receipt.decisionId,
+                  helmPolicyVersion: evaluation.receipt.policyVersion,
+                  helmDocumentVersionPins,
+                  credentialBoundary: 'read_only_no_cookie_or_password_export',
+                },
+              })
+              .returning({
+                id: browserActions.id,
+                replayIndex: browserActions.replayIndex,
+                evidencePackId: browserActions.evidencePackId,
+              });
+            if (!persistedBrowserAction?.id) {
+              throw new Error('operator.browser_read could not persist browser action evidence');
+            }
 
-        const [observation] = await this.db
-          .insert(browserObservations)
-          .values({
-            workspaceId: req.workspaceId,
-            sessionId: req.sessionId,
-            grantId: req.grantId,
-            browserActionId: browserAction?.id ?? null,
-            taskId: req.taskId,
-            actionId: req.actionId,
-            evidencePackId: evaluation.evidencePackId ?? null,
-            url: req.url,
-            origin: url.origin,
-            title: req.title,
-            objective: req.objective,
-            domHash: req.domSnapshot ? hashText(redacted.text) : null,
-            screenshotHash: req.screenshotHash ?? null,
-            screenshotRef: req.screenshotRef ?? null,
-            redactedDomSnapshot: redacted.text || null,
-            extractedData: redactJson(req.extractedData),
-            redactions,
-            replayIndex: browserAction?.replayIndex ?? 0,
-            metadata: {
-              ...redactRecord(req.metadata),
-              helmDecisionId: evaluation.receipt.decisionId,
-              helmPolicyVersion: evaluation.receipt.policyVersion,
-              helmDocumentVersionPins,
-              credentialBoundary: 'read_only_no_cookie_or_password_export',
-            },
-          })
-          .returning({
-            id: browserObservations.id,
-            domHash: browserObservations.domHash,
-            evidencePackId: browserObservations.evidencePackId,
-          });
+            const [persistedObservation] = await db
+              .insert(browserObservations)
+              .values({
+                workspaceId: req.workspaceId,
+                sessionId: req.sessionId,
+                grantId: req.grantId,
+                browserActionId: persistedBrowserAction.id,
+                taskId: req.taskId,
+                actionId: req.actionId,
+                evidencePackId: evaluation.evidencePackId ?? null,
+                url: req.url,
+                origin: url.origin,
+                title: req.title,
+                objective: req.objective,
+                domHash: req.domSnapshot ? hashText(redacted.text) : null,
+                screenshotHash: req.screenshotHash ?? null,
+                screenshotRef: req.screenshotRef ?? null,
+                redactedDomSnapshot: redacted.text || null,
+                extractedData: redactJson(req.extractedData),
+                redactions,
+                replayIndex: persistedBrowserAction.replayIndex ?? 0,
+                metadata: {
+                  ...redactRecord(req.metadata),
+                  helmDecisionId: evaluation.receipt.decisionId,
+                  helmPolicyVersion: evaluation.receipt.policyVersion,
+                  helmDocumentVersionPins,
+                  credentialBoundary: 'read_only_no_cookie_or_password_export',
+                },
+              })
+              .returning({
+                id: browserObservations.id,
+                domHash: browserObservations.domHash,
+                evidencePackId: browserObservations.evidencePackId,
+              });
+            if (!persistedObservation?.id) {
+              throw new Error('operator.browser_read could not persist browser observation');
+            }
 
-        const evidenceItemId = await appendEvidenceItem(this.db, {
-          workspaceId: req.workspaceId,
-          taskId: req.taskId ?? null,
-          actionId: req.actionId ?? null,
-          evidencePackId: evaluation.evidencePackId ?? null,
-          browserObservationId: observation?.id ?? null,
-          evidenceType: 'browser_observation',
-          sourceType: 'browser_operator',
-          title: `Browser read: ${req.title ?? url.hostname}`,
-          summary: req.objective ?? `Read-only browser extraction from ${url.origin}`,
-          redactionState: redactions.length > 0 ? 'redacted' : 'clean',
-          sensitivity: 'sensitive',
-          contentHash: observation?.domHash ?? req.screenshotHash ?? null,
-          storageRef: req.screenshotRef ?? null,
-          replayRef: `browser:${req.sessionId}:${browserAction?.replayIndex ?? 0}`,
-          metadata: {
-            sessionId: req.sessionId,
-            grantId: req.grantId,
-            browserActionId: browserAction?.id ?? null,
-            url: req.url,
-            origin: url.origin,
-            helmDecisionId: evaluation.receipt.decisionId,
-            helmPolicyVersion: evaluation.receipt.policyVersion,
-            helmDocumentVersionPins,
-            credentialBoundary: 'read_only_no_cookie_or_password_export',
-            redactions,
+            const persistedEvidenceItemId = await appendEvidenceItem(db, {
+              workspaceId: req.workspaceId,
+              taskId: req.taskId ?? null,
+              actionId: req.actionId ?? null,
+              evidencePackId: evaluation.evidencePackId ?? null,
+              browserObservationId: persistedObservation.id,
+              evidenceType: 'browser_observation',
+              sourceType: 'browser_operator',
+              title: `Browser read: ${req.title ?? url.hostname}`,
+              summary: req.objective ?? `Read-only browser extraction from ${url.origin}`,
+              redactionState: redactions.length > 0 ? 'redacted' : 'clean',
+              sensitivity: 'sensitive',
+              contentHash: persistedObservation.domHash ?? req.screenshotHash ?? null,
+              storageRef: req.screenshotRef ?? null,
+              replayRef: `browser:${req.sessionId}:${persistedBrowserAction.replayIndex ?? 0}`,
+              metadata: {
+                sessionId: req.sessionId,
+                grantId: req.grantId,
+                browserActionId: persistedBrowserAction.id,
+                url: req.url,
+                origin: url.origin,
+                helmDecisionId: evaluation.receipt.decisionId,
+                helmPolicyVersion: evaluation.receipt.policyVersion,
+                helmDocumentVersionPins,
+                credentialBoundary: 'read_only_no_cookie_or_password_export',
+                redactions,
+              },
+            });
+            return {
+              browserAction: persistedBrowserAction,
+              observation: persistedObservation,
+              evidenceItemId: persistedEvidenceItemId,
+            };
           },
-        });
+        );
 
         return {
           browserAction,

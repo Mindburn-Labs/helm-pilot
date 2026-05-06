@@ -1183,6 +1183,77 @@ describe('ToolRegistry', () => {
     const grantId = '00000000-0000-4000-8000-000000000004';
     const actionId = '00000000-0000-4000-8000-000000000006';
 
+    function createBrowserReadDb(options: { failEvidenceInsert?: boolean } = {}) {
+      const selectResults = [
+        [{ id: sessionId, allowedOrigins: ['https://www.ycombinator.com'] }],
+        [
+          {
+            id: grantId,
+            allowedOrigins: ['https://www.ycombinator.com'],
+            grantedToType: 'agent',
+            grantedToId: null,
+          },
+        ],
+      ];
+      const inserted: unknown[] = [];
+      const captureInsert = (sink: unknown[]) =>
+        vi.fn(() => ({
+          values: vi.fn((value: unknown) => {
+            const isBrowserAction =
+              typeof value === 'object' &&
+              value !== null &&
+              'actionType' in (value as Record<string, unknown>);
+            const isEvidenceItem =
+              typeof value === 'object' &&
+              value !== null &&
+              'evidenceType' in (value as Record<string, unknown>);
+            sink.push(value);
+            return {
+              returning: vi.fn(async () => {
+                if (isEvidenceItem && options.failEvidenceInsert) {
+                  throw new Error('browser evidence unavailable');
+                }
+                return [
+                  isBrowserAction
+                    ? {
+                        id: 'browser-action-1',
+                        replayIndex: 0,
+                        evidencePackId: (value as { evidencePackId?: string }).evidencePackId,
+                      }
+                    : isEvidenceItem
+                      ? {
+                          id: 'evidence-item-1',
+                        }
+                      : {
+                          id: 'obs-1',
+                          domHash: (value as { domHash?: string }).domHash,
+                          evidencePackId: (value as { evidencePackId?: string }).evidencePackId,
+                        },
+                ];
+              }),
+            };
+          }),
+        }));
+      const db = {
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(async () => selectResults.shift() ?? []),
+            })),
+          })),
+        })),
+        insert: captureInsert(inserted),
+        transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
+          const staged: unknown[] = [];
+          const tx = { insert: captureInsert(staged) };
+          const result = await callback(tx);
+          inserted.push(...staged);
+          return result;
+        }),
+      };
+      return { db, inserted };
+    }
+
     it('fails closed when helm-client is not wired', async () => {
       const registry = createRegistry();
       const result = await registry.execute(
@@ -1205,59 +1276,7 @@ describe('ToolRegistry', () => {
     });
 
     it('uses HELM, redacts sensitive values, and persists the browser observation', async () => {
-      const selectResults = [
-        [{ id: sessionId, allowedOrigins: ['https://www.ycombinator.com'] }],
-        [
-          {
-            id: grantId,
-            allowedOrigins: ['https://www.ycombinator.com'],
-            grantedToType: 'agent',
-            grantedToId: null,
-          },
-        ],
-      ];
-      const inserted: unknown[] = [];
-      const db = {
-        select: vi.fn(() => ({
-          from: vi.fn(() => ({
-            where: vi.fn(() => ({
-              limit: vi.fn(async () => selectResults.shift() ?? []),
-            })),
-          })),
-        })),
-        insert: vi.fn(() => ({
-          values: vi.fn((value: unknown) => {
-            inserted.push(value);
-            const isBrowserAction =
-              typeof value === 'object' &&
-              value !== null &&
-              'actionType' in (value as Record<string, unknown>);
-            const isEvidenceItem =
-              typeof value === 'object' &&
-              value !== null &&
-              'evidenceType' in (value as Record<string, unknown>);
-            return {
-              returning: vi.fn(async () => [
-                isBrowserAction
-                  ? {
-                      id: 'browser-action-1',
-                      replayIndex: 0,
-                      evidencePackId: (value as { evidencePackId?: string }).evidencePackId,
-                    }
-                  : isEvidenceItem
-                    ? {
-                        id: 'evidence-item-1',
-                      }
-                    : {
-                        id: 'obs-1',
-                        domHash: (value as { domHash?: string }).domHash,
-                        evidencePackId: (value as { evidencePackId?: string }).evidencePackId,
-                      },
-              ]),
-            };
-          }),
-        })),
-      };
+      const { db, inserted } = createBrowserReadDb();
       const helmClient = {
         evaluateOperatorBrowserRead: vi.fn(async () => ({
           status: 'approved_for_read',
@@ -1356,6 +1375,36 @@ describe('ToolRegistry', () => {
           helmDocumentVersionPins: { browserReadPolicy: 'founder-ops-v1' },
         },
       });
+    });
+
+    it('does not commit browser action or observation when final evidence persistence fails', async () => {
+      const { db, inserted } = createBrowserReadDb({ failEvidenceInsert: true });
+      const helmClient = {
+        evaluateOperatorBrowserRead: vi.fn(async () => ({
+          status: 'approved_for_read',
+          receipt: { decisionId: 'dec-browser', policyVersion: 'founder-ops-v1' },
+          evidencePackId: '00000000-0000-4000-8000-000000000005',
+        })),
+      };
+      const registry = createRegistryWithDb(db, { helmClient });
+
+      const result = await registry.execute(
+        'operator.browser_read',
+        {
+          workspaceId,
+          taskId,
+          sessionId,
+          grantId,
+          url: 'https://www.ycombinator.com/account',
+          title: 'YC Account',
+          domSnapshot: '<main>company</main>',
+          extractedData: { company: 'Pilot' },
+        },
+        brokeredToolContext({ workspaceId, taskId, actionId }),
+      );
+
+      expect(inserted).toEqual([]);
+      expect(result).toEqual({ error: 'browser evidence unavailable' });
     });
   });
 
