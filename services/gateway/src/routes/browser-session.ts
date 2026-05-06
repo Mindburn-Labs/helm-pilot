@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { appendEvidenceItem } from '@pilot/db';
@@ -331,6 +331,7 @@ export function browserSessionRoutes(deps: GatewayDeps) {
     const helmDocumentVersionPins = browserHelmDocumentVersionPins(
       evaluation.receipt.policyVersion,
     );
+    const auditEventId = randomUUID();
     let persisted;
     try {
       persisted = await deps.db.transaction(async (tx) => {
@@ -408,6 +409,7 @@ export function browserSessionRoutes(deps: GatewayDeps) {
           workspaceId: parsed.data.workspaceId,
           taskId: parsed.data.taskId ?? null,
           actionId: parsed.data.actionId ?? null,
+          auditEventId,
           evidencePackId: evaluation.evidencePackId ?? null,
           browserObservationId: createdObservation?.id ?? null,
           evidenceType: 'browser_observation',
@@ -434,6 +436,7 @@ export function browserSessionRoutes(deps: GatewayDeps) {
         });
 
         await db.insert(auditLog).values({
+          id: auditEventId,
           workspaceId: parsed.data.workspaceId,
           action: 'BROWSER_OBSERVATION_CAPTURED',
           actor: `browser:${parsed.data.sessionId}`,
