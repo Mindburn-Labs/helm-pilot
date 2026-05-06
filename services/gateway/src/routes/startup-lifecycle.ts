@@ -417,83 +417,120 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
       ...(cursorNode ? { cursorNode } : {}),
     };
 
-    const evidenceItemId = await appendEvidenceItem(_deps.db, {
-      workspaceId,
-      ventureId: mission.ventureId ?? null,
-      missionId: mission.id,
+    const evidenceMetadata = {
+      checkpointVersion: 'mission-checkpoint.v1',
+      checkpointId,
+      missionStatus: mission.status,
+      nodeCount: nodeRows.length,
+      edgeCount: edgeRows.length,
+      taskLinkCount: taskLinks.length,
+      nodeStatuses,
+      snapshot,
+      productionReady: false,
+    };
+    const auditMetadata = {
       evidenceType: 'startup_lifecycle_mission_checkpoint',
-      sourceType: 'gateway_startup_lifecycle',
-      title: `Startup lifecycle mission checkpoint: ${mission.title}`,
-      summary: parsed.data.reason ?? `Checkpoint for mission status ${mission.status}`,
-      redactionState: 'redacted',
-      sensitivity: 'internal',
-      contentHash,
       replayRef,
-      observedAt: checkpointedAt,
-      metadata: {
-        checkpointVersion: 'mission-checkpoint.v1',
-        checkpointId,
-        missionStatus: mission.status,
-        nodeCount: nodeRows.length,
-        edgeCount: edgeRows.length,
-        taskLinkCount: taskLinks.length,
-        nodeStatuses,
-        snapshot,
-        productionReady: false,
-      },
-    });
-    const [runtimeCheckpoint] = await _deps.db
-      .insert(missionRuntimeCheckpoints)
-      .values({
+      contentHash,
+      ...evidenceMetadata,
+    };
+    const { evidenceItemId, runtimeCheckpoint } = await _deps.db.transaction(async (tx) => {
+      const db = tx as unknown as typeof _deps.db;
+      const auditEventId = randomUUID();
+      await db.insert(auditLog).values({
+        id: auditEventId,
         workspaceId,
-        missionId: mission.id,
-        checkpointKind: 'manual_checkpoint',
-        checkpointStatus: 'recorded',
-        missionStatus: mission.status,
-        cursorNodeId: cursorNode?.id ?? null,
-        cursorNodeKey: cursorNode?.nodeKey ?? null,
-        nodeStatusCounts: nodeStatuses,
-        readyNodeIds,
-        blockedNodeIds,
-        failedNodeIds,
-        awaitingApprovalNodeIds,
-        taskRunCheckpointRefs: [],
-        recoveryPlan: buildRuntimeRecoveryPlan(runtimeSnapshot),
-        rollbackPlan: {},
-        evidenceItemId,
-        contentHash,
-        metadata: {
-          checkpointVersion: 'mission-runtime-checkpoint.v1',
-          sourceCheckpointVersion: 'mission-checkpoint.v1',
-          checkpointId,
-          replayRef,
-          reason: parsed.data.reason ?? null,
-          snapshot,
-          productionReady: false,
-        },
+        action: 'STARTUP_LIFECYCLE_MISSION_CHECKPOINT',
+        actor: `workspace:${workspaceId}`,
+        target: mission.id,
+        verdict: 'recorded',
+        reason: parsed.data.reason ?? `Checkpoint for mission status ${mission.status}`,
+        metadata: auditMetadata,
         createdAt: checkpointedAt,
-      })
-      .returning({ id: missionRuntimeCheckpoints.id });
-    if (!runtimeCheckpoint?.id) {
-      throw new Error('Manual mission runtime checkpoint was not persisted');
-    }
-
-    await _deps.db
-      .update(missions)
-      .set({
-        metadata: {
-          ...jsonRecord(mission.metadata),
-          lastCheckpoint: {
-            checkpointId,
-            evidenceItemId,
-            replayRef,
-            contentHash,
-            checkpointedAt: checkpointedAt.toISOString(),
+      });
+      const persistedEvidenceItemId = await appendEvidenceItem(db, {
+        workspaceId,
+        auditEventId,
+        ventureId: mission.ventureId ?? null,
+        missionId: mission.id,
+        evidenceType: 'startup_lifecycle_mission_checkpoint',
+        sourceType: 'gateway_startup_lifecycle',
+        title: `Startup lifecycle mission checkpoint: ${mission.title}`,
+        summary: parsed.data.reason ?? `Checkpoint for mission status ${mission.status}`,
+        redactionState: 'redacted',
+        sensitivity: 'internal',
+        contentHash,
+        replayRef,
+        observedAt: checkpointedAt,
+        metadata: evidenceMetadata,
+      });
+      await db
+        .update(auditLog)
+        .set({
+          metadata: {
+            ...auditMetadata,
+            evidenceItemId: persistedEvidenceItemId,
           },
-        },
-        updatedAt: checkpointedAt,
-      })
-      .where(and(eq(missions.id, mission.id), eq(missions.workspaceId, workspaceId)));
+        })
+        .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.id, auditEventId)));
+      const [persistedRuntimeCheckpoint] = await db
+        .insert(missionRuntimeCheckpoints)
+        .values({
+          workspaceId,
+          missionId: mission.id,
+          checkpointKind: 'manual_checkpoint',
+          checkpointStatus: 'recorded',
+          missionStatus: mission.status,
+          cursorNodeId: cursorNode?.id ?? null,
+          cursorNodeKey: cursorNode?.nodeKey ?? null,
+          nodeStatusCounts: nodeStatuses,
+          readyNodeIds,
+          blockedNodeIds,
+          failedNodeIds,
+          awaitingApprovalNodeIds,
+          taskRunCheckpointRefs: [],
+          recoveryPlan: buildRuntimeRecoveryPlan(runtimeSnapshot),
+          rollbackPlan: {},
+          evidenceItemId: persistedEvidenceItemId,
+          contentHash,
+          metadata: {
+            checkpointVersion: 'mission-runtime-checkpoint.v1',
+            sourceCheckpointVersion: 'mission-checkpoint.v1',
+            checkpointId,
+            replayRef,
+            reason: parsed.data.reason ?? null,
+            snapshot,
+            productionReady: false,
+          },
+          createdAt: checkpointedAt,
+        })
+        .returning({ id: missionRuntimeCheckpoints.id });
+      if (!persistedRuntimeCheckpoint?.id) {
+        throw new Error('Manual mission runtime checkpoint was not persisted');
+      }
+
+      await db
+        .update(missions)
+        .set({
+          metadata: {
+            ...jsonRecord(mission.metadata),
+            lastCheckpoint: {
+              checkpointId,
+              evidenceItemId: persistedEvidenceItemId,
+              replayRef,
+              contentHash,
+              checkpointedAt: checkpointedAt.toISOString(),
+            },
+          },
+          updatedAt: checkpointedAt,
+        })
+        .where(and(eq(missions.id, mission.id), eq(missions.workspaceId, workspaceId)));
+
+      return {
+        evidenceItemId: persistedEvidenceItemId,
+        runtimeCheckpoint: persistedRuntimeCheckpoint,
+      };
+    });
 
     const response = CheckpointedStartupMissionSchema.parse({
       workspaceId,

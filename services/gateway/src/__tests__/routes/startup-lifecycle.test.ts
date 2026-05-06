@@ -525,7 +525,12 @@ describe('startupLifecycleRoutes', () => {
 
   it('checkpoints a mission DAG as durable evidence without recovery promotion', async () => {
     const deps = createMockDeps();
-    const { insertedEvidenceItems, insertedMissionRuntimeCheckpoints } =
+    const {
+      insertedEvidenceItems,
+      insertedAuditEvents,
+      updatedAuditEvents,
+      insertedMissionRuntimeCheckpoints,
+    } =
       captureEvidenceAndMissionCheckpointInserts(deps);
     const missionId = '00000000-0000-4000-8000-000000000070';
     const ventureId = '00000000-0000-4000-8000-000000000071';
@@ -659,7 +664,31 @@ describe('startupLifecycleRoutes', () => {
       },
     });
     expect(body.blockers.join(' ')).toContain('recovery and rollback');
+    const checkpointAudit = insertedAuditEvents[0] as {
+      id: string;
+      workspaceId: string;
+      action: string;
+      actor: string;
+      target: string;
+      verdict: string;
+      metadata: Record<string, unknown>;
+    };
+    expect(checkpointAudit).toMatchObject({
+      workspaceId,
+      action: 'STARTUP_LIFECYCLE_MISSION_CHECKPOINT',
+      actor: `workspace:${workspaceId}`,
+      target: missionId,
+      verdict: 'recorded',
+      metadata: expect.objectContaining({
+        evidenceType: 'startup_lifecycle_mission_checkpoint',
+        replayRef: body.replayRef,
+        checkpointId: body.checkpointId,
+        checkpointVersion: 'mission-checkpoint.v1',
+        productionReady: false,
+      }),
+    });
     expect(insertedEvidenceItems[0]).toMatchObject({
+      auditEventId: checkpointAudit.id,
       workspaceId,
       ventureId,
       missionId,
@@ -695,6 +724,13 @@ describe('startupLifecycleRoutes', () => {
           reason: 'before executing ready nodes',
         }),
         productionReady: false,
+      }),
+    });
+    expect(updatedAuditEvents[0]).toMatchObject({
+      metadata: expect.objectContaining({
+        evidenceItemId: '00000000-0000-4000-8000-000000000191',
+        replayRef: body.replayRef,
+        checkpointId: body.checkpointId,
       }),
     });
     expect(insertedMissionRuntimeCheckpoints[0]).toMatchObject({
@@ -737,8 +773,70 @@ describe('startupLifecycleRoutes', () => {
         productionReady: false,
       }),
     });
-    expect(deps.db.update).toHaveBeenCalled();
     expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
+  });
+
+  it('does not commit manual checkpoint evidence when runtime checkpoint persistence fails', async () => {
+    const deps = createMockDeps();
+    const {
+      insertedEvidenceItems,
+      insertedAuditEvents,
+      updatedAuditEvents,
+      insertedMissionRuntimeCheckpoints,
+    } =
+      captureFailedMissionCheckpointTransaction(deps);
+    const missionId = '00000000-0000-4000-8000-000000000270';
+    const nodeId = '00000000-0000-4000-8000-000000000271';
+    const selectResults = [
+      [
+        {
+          id: missionId,
+          workspaceId,
+          ventureId: null,
+          title: 'Launch EvidenceOS',
+          status: 'scheduled_not_executing',
+          autonomyMode: 'review',
+          capabilityState: 'prototype',
+          productionReady: false,
+          metadata: {},
+        },
+      ],
+      [
+        {
+          id: nodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'ideation',
+          stage: 'ideation',
+          title: 'Venture hypothesis generation',
+          status: 'ready',
+          sortOrder: 0,
+        },
+      ],
+      [],
+      [],
+    ];
+    let selectCall = 0;
+    const originalSelect = deps.db.select;
+    deps.db.select = vi.fn(() => {
+      deps.db._setResult(selectResults[selectCall] ?? []);
+      selectCall += 1;
+      return originalSelect();
+    }) as typeof deps.db.select;
+
+    const { fetch } = testApp(startupLifecycleRoutes, deps);
+    const res = await fetch(
+      'POST',
+      `/missions/${missionId}/checkpoint`,
+      { reason: 'force checkpoint insert failure' },
+      wsHeader,
+    );
+
+    expect(res.status).toBe(500);
+    expect(insertedEvidenceItems).toEqual([]);
+    expect(insertedAuditEvents).toEqual([]);
+    expect(updatedAuditEvents).toEqual([]);
+    expect(insertedMissionRuntimeCheckpoints).toEqual([]);
   });
 
   it('plans mission recovery from the latest checkpoint without executing recovery', async () => {
