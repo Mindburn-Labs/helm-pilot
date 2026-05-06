@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { getCookie } from 'hono/cookie';
-import { eq } from 'drizzle-orm';
-import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { and, eq } from 'drizzle-orm';
+import { createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
+import { appendEvidenceItem } from '@pilot/db';
 import { users, sessions, apiKeys, workspaces, workspaceMembers, auditLog } from '@pilot/db/schema';
 import {
   clearSessionCookies,
@@ -12,6 +13,7 @@ import {
   setSessionCookies,
 } from '../middleware/auth.js';
 import { type GatewayDeps } from '../index.js';
+import { getWorkspaceId, requireWorkspaceRole } from '../lib/workspace.js';
 
 const TELEGRAM_AUTH_MAX_AGE_SECONDS = 24 * 60 * 60;
 const TELEGRAM_AUTH_FUTURE_SKEW_SECONDS = 60;
@@ -367,8 +369,12 @@ export function authenticatedAuthRoutes(deps: GatewayDeps) {
 
   // POST /api/auth/apikey — Create an API key (requires auth)
   app.post('/apikey', async (c) => {
-    const userId = c.get('userId');
+    const userId = c.get('userId') as string | undefined;
     if (!userId) return c.json({ error: 'Unauthorized' }, 401);
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'owner', 'create API keys');
+    if (roleDenied) return roleDenied;
 
     const body = await c.req.json().catch(() => ({}));
     const name = (body as { name?: string }).name ?? 'default';
@@ -377,9 +383,69 @@ export function authenticatedAuthRoutes(deps: GatewayDeps) {
     const keyHash = hashApiKey(rawKey);
     const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
 
-    await deps.db.insert(apiKeys).values({ userId, name, keyHash, expiresAt });
+    const evidenceItemId = await deps.db
+      .transaction(async (tx) => {
+        await tx.insert(apiKeys).values({ userId, name, keyHash, expiresAt });
 
-    return c.json({ key: rawKey, name, expiresAt: expiresAt.toISOString() }, 201);
+        const auditEventId = randomUUID();
+        const replayRef = `api-key:${workspaceId}:${userId}:${name}:created`;
+        const evidenceMetadata = {
+          apiKeyName: name,
+          expiresAt: expiresAt.toISOString(),
+          userId,
+          keyMaterialStoredInEvidence: false,
+          keyHashStoredInEvidence: false,
+        };
+
+        await tx.insert(auditLog).values({
+          id: auditEventId,
+          workspaceId,
+          action: 'API_KEY_CREATED',
+          actor: `user:${userId}`,
+          target: name,
+          verdict: 'allow',
+          metadata: {
+            evidenceType: 'api_key_created',
+            replayRef,
+            ...evidenceMetadata,
+          },
+        });
+
+        const createdEvidenceItemId = await appendEvidenceItem(tx, {
+          workspaceId,
+          auditEventId,
+          evidenceType: 'api_key_created',
+          sourceType: 'gateway_auth',
+          title: `API key created: ${name}`,
+          summary:
+            'A workspace-scoped API key was created; key material was not stored in evidence.',
+          redactionState: 'redacted',
+          sensitivity: 'restricted',
+          replayRef,
+          metadata: evidenceMetadata,
+        });
+
+        await tx
+          .update(auditLog)
+          .set({
+            metadata: {
+              evidenceType: 'api_key_created',
+              replayRef,
+              evidenceItemId: createdEvidenceItemId,
+              ...evidenceMetadata,
+            },
+          })
+          .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.id, auditEventId)));
+
+        return createdEvidenceItemId;
+      })
+      .catch(() => null);
+
+    if (!evidenceItemId) {
+      return c.json({ error: 'failed to persist api key evidence' }, 500);
+    }
+
+    return c.json({ key: rawKey, name, expiresAt: expiresAt.toISOString(), evidenceItemId }, 201);
   });
 
   return app;
