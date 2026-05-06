@@ -1,7 +1,11 @@
 import { Hono } from 'hono';
+import { and, eq } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { appendEvidenceItem } from '@pilot/db';
+import { auditLog, plans } from '@pilot/db/schema';
 import { ProductFactory } from '@pilot/product-factory';
 import { type GatewayDeps } from '../index.js';
-import { getWorkspaceId } from '../lib/workspace.js';
+import { getWorkspaceId, requireWorkspaceRole } from '../lib/workspace.js';
 
 export function productRoutes(deps: GatewayDeps) {
   const factory = new ProductFactory(deps.db);
@@ -28,9 +32,79 @@ export function productRoutes(deps: GatewayDeps) {
   app.post('/plans', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
-    const body = await c.req.json();
-    const plan = await factory.createPlan(workspaceId, body.title, body.description);
-    return c.json(plan, 201);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'create product plans');
+    if (roleDenied) return roleDenied;
+    const body = (await c.req.json().catch(() => null)) as {
+      title?: unknown;
+      description?: unknown;
+    } | null;
+    if (!body || typeof body.title !== 'string' || body.title.trim().length === 0) {
+      return c.json({ error: 'title (string, non-empty) is required' }, 400);
+    }
+    const title = body.title.trim();
+    const description = typeof body.description === 'string' ? body.description : undefined;
+
+    const created = await deps.db
+      .transaction(async (tx) => {
+        const [plan] = await tx
+          .insert(plans)
+          .values({ workspaceId, title, description })
+          .returning();
+        if (!plan) throw new Error('failed to create product plan');
+
+        const auditEventId = randomUUID();
+        const replayRef = `product-plan:${workspaceId}:${plan.id}:created`;
+        const evidenceMetadata = {
+          planId: plan.id,
+          title,
+          descriptionPresent: Boolean(description),
+        };
+
+        await tx.insert(auditLog).values({
+          id: auditEventId,
+          workspaceId,
+          action: 'PRODUCT_PLAN_CREATED',
+          actor: `user:${(c.get('userId') as string | undefined) ?? 'unknown'}`,
+          target: plan.id,
+          verdict: 'allow',
+          metadata: {
+            evidenceType: 'product_plan_created',
+            replayRef,
+            ...evidenceMetadata,
+          },
+        });
+
+        const evidenceItemId = await appendEvidenceItem(tx, {
+          workspaceId,
+          auditEventId,
+          evidenceType: 'product_plan_created',
+          sourceType: 'gateway_product',
+          title: `Product plan created: ${title}`,
+          summary: description ?? 'Workspace product plan was created.',
+          redactionState: 'none',
+          sensitivity: 'internal',
+          replayRef,
+          metadata: evidenceMetadata,
+        });
+
+        await tx
+          .update(auditLog)
+          .set({
+            metadata: {
+              evidenceType: 'product_plan_created',
+              replayRef,
+              evidenceItemId,
+              ...evidenceMetadata,
+            },
+          })
+          .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.id, auditEventId)));
+
+        return { plan, evidenceItemId };
+      })
+      .catch(() => null);
+
+    if (!created) return c.json({ error: 'failed to persist product plan evidence' }, 500);
+    return c.json({ ...created.plan, evidenceItemId: created.evidenceItemId }, 201);
   });
 
   // POST /api/product/plans/:id/milestones
