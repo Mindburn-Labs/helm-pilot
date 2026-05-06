@@ -649,7 +649,7 @@ export default function CommandCenterPage() {
                     id: String(row.id ?? row.url ?? 'browser'),
                     title: display(row.title, display(row.url, 'Browser observation')),
                     meta: `DOM ${display(row.domHash, 'unhashed')}`,
-                    detail: `redactions ${arrayCount(row.redactions)} / screenshot ${display(row.screenshotHash, 'not captured')}`,
+                    detail: `replay ${display(row.replayRef, 'unlinked')} / redactions ${arrayCount(row.redactions)} / screenshot ${display(row.screenshotHash, 'not captured')}`,
                   })),
                   ...data.recent.computerActions.slice(0, 5).map((row) => ({
                     id: String(row.id ?? row.actionType ?? 'computer'),
@@ -692,13 +692,13 @@ export default function CommandCenterPage() {
                     id: String(row.id ?? row.url ?? 'browser-session'),
                     title: display(row.url, 'Browser URL'),
                     meta: display(row.origin, 'origin'),
-                    detail: `replay ${display(row.replayIndex, '0')} / evidence ${display(row.evidencePackId, 'none')}`,
+                    detail: `replay ${display(row.replayRef, display(row.replayIndex, '0'))} / evidence ${display(row.evidencePackId, 'none')}`,
                   })),
                   ...data.recent.computerActions.slice(0, 4).map((row) => ({
                     id: String(row.id ?? row.objective ?? 'computer-session'),
                     title: display(row.objective, 'Computer objective'),
                     meta: display(row.environment, 'local'),
-                    detail: `replay ${display(row.replayIndex, '0')} / evidence ${display(row.evidencePackId, 'none')}`,
+                    detail: `replay ${display(row.replayRef, display(row.replayIndex, '0'))} / evidence ${display(row.evidencePackId, 'none')}`,
                   })),
                 ]}
               />
