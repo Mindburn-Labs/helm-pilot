@@ -28,12 +28,76 @@ function captureEvidenceAndMissionCheckpointInserts(deps: ReturnType<typeof crea
   const insertedEvidenceItems: unknown[] = [];
   const insertedMissionRuntimeCheckpoints: unknown[] = [];
   const originalInsert = deps.db.insert;
-  deps.db.insert = vi.fn((table: unknown) => {
+
+  const captureInsert = (
+    evidenceSink: unknown[],
+    checkpointSink: unknown[],
+    options: { failMissionRuntimeCheckpointInsert?: boolean } = {},
+  ) =>
+    vi.fn((table: unknown) => {
+      if (table === evidenceItems) {
+        return {
+          values: vi.fn((value: unknown) => {
+            evidenceSink.push(value);
+            const id = `00000000-0000-4000-8000-00000000019${evidenceSink.length}`;
+            return { returning: vi.fn(async () => [{ id }]) };
+          }),
+        };
+      }
+      if (table === missionRuntimeCheckpoints) {
+        return {
+          values: vi.fn((value: unknown) => {
+            checkpointSink.push(value);
+            const id =
+              typeof value === 'object' &&
+              value !== null &&
+              'id' in value &&
+              typeof value.id === 'string'
+                ? value.id
+                : '00000000-0000-4000-8000-000000000291';
+            return {
+              returning: vi.fn(async () => {
+                if (options.failMissionRuntimeCheckpointInsert) {
+                  throw new Error('mission checkpoint insert failed');
+                }
+                return [{ id }];
+              }),
+            };
+          }),
+        };
+      }
+      return originalInsert(table);
+    }) as typeof deps.db.insert;
+
+  deps.db.insert = captureInsert(insertedEvidenceItems, insertedMissionRuntimeCheckpoints);
+  deps.db.transaction = vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
+    const stagedEvidenceItems: unknown[] = [];
+    const stagedMissionRuntimeCheckpoints: unknown[] = [];
+    const tx = {
+      ...deps.db,
+      insert: captureInsert(stagedEvidenceItems, stagedMissionRuntimeCheckpoints),
+    };
+    const result = await callback(tx);
+    insertedEvidenceItems.push(...stagedEvidenceItems);
+    insertedMissionRuntimeCheckpoints.push(...stagedMissionRuntimeCheckpoints);
+    return result;
+  }) as typeof deps.db.transaction;
+
+  return { insertedEvidenceItems, insertedMissionRuntimeCheckpoints };
+}
+
+function captureFailedMissionCheckpointTransaction(deps: ReturnType<typeof createMockDeps>) {
+  const insertedEvidenceItems: unknown[] = [];
+  const insertedMissionRuntimeCheckpoints: unknown[] = [];
+  const originalInsert = deps.db.insert;
+
+  const captureInsert = (evidenceSink: unknown[], checkpointSink: unknown[]) =>
+    vi.fn((table: unknown) => {
     if (table === evidenceItems) {
       return {
         values: vi.fn((value: unknown) => {
-          insertedEvidenceItems.push(value);
-          const id = `00000000-0000-4000-8000-00000000019${insertedEvidenceItems.length}`;
+          evidenceSink.push(value);
+          const id = `00000000-0000-4000-8000-00000000019${evidenceSink.length}`;
           return { returning: vi.fn(async () => [{ id }]) };
         }),
       };
@@ -41,16 +105,11 @@ function captureEvidenceAndMissionCheckpointInserts(deps: ReturnType<typeof crea
     if (table === missionRuntimeCheckpoints) {
       return {
         values: vi.fn((value: unknown) => {
-          insertedMissionRuntimeCheckpoints.push(value);
-          const id =
-            typeof value === 'object' &&
-            value !== null &&
-            'id' in value &&
-            typeof value.id === 'string'
-              ? value.id
-              : '00000000-0000-4000-8000-000000000291';
+          checkpointSink.push(value);
           return {
-            returning: vi.fn(async () => [{ id }]),
+            returning: vi.fn(async () => {
+              throw new Error('mission checkpoint insert failed');
+            }),
           };
         }),
       };
@@ -58,6 +117,19 @@ function captureEvidenceAndMissionCheckpointInserts(deps: ReturnType<typeof crea
     return originalInsert(table);
   }) as typeof deps.db.insert;
 
+  deps.db.insert = captureInsert(insertedEvidenceItems, insertedMissionRuntimeCheckpoints);
+  deps.db.transaction = vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
+    const stagedEvidenceItems: unknown[] = [];
+    const stagedMissionRuntimeCheckpoints: unknown[] = [];
+    const tx = {
+      ...deps.db,
+      insert: captureInsert(stagedEvidenceItems, stagedMissionRuntimeCheckpoints),
+    };
+    const result = await callback(tx);
+    insertedEvidenceItems.push(...stagedEvidenceItems);
+    insertedMissionRuntimeCheckpoints.push(...stagedMissionRuntimeCheckpoints);
+    return result;
+  }) as typeof deps.db.transaction;
   return { insertedEvidenceItems, insertedMissionRuntimeCheckpoints };
 }
 
@@ -1503,6 +1575,59 @@ describe('startupLifecycleRoutes', () => {
     );
     expect(first.checkpointEvidence.metadata.checkpointId).toBe(first.checkpoint.id);
     expect(second.checkpointEvidence.metadata.checkpointId).toBe(second.checkpoint.id);
+  });
+
+  it('does not commit checkpoint evidence when runtime checkpoint persistence fails', async () => {
+    const missionId = '00000000-0000-4000-8000-000000000190';
+    const failedNodeId = '00000000-0000-4000-8000-000000000191';
+    const deps = createMockDeps();
+    const { insertedEvidenceItems, insertedMissionRuntimeCheckpoints } =
+      captureFailedMissionCheckpointTransaction(deps);
+    const selectResults = [
+      [
+        {
+          id: missionId,
+          workspaceId,
+          ventureId: null,
+          title: 'Launch EvidenceOS',
+          status: 'blocked',
+        },
+      ],
+      [
+        {
+          id: failedNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'ideation',
+          stage: 'ideation',
+          title: 'Venture hypothesis generation',
+          status: 'failed',
+          sortOrder: 0,
+        },
+      ],
+      [],
+      [],
+      [],
+    ];
+    let selectCall = 0;
+    const originalSelect = deps.db.select;
+    deps.db.select = vi.fn(() => {
+      deps.db._setResult(selectResults[selectCall] ?? []);
+      selectCall += 1;
+      return originalSelect();
+    }) as typeof deps.db.select;
+
+    const { fetch } = testApp(startupLifecycleRoutes, deps);
+    const res = await fetch(
+      'POST',
+      `/missions/${missionId}/rollback`,
+      { reason: 'force checkpoint insert failure' },
+      wsHeader,
+    );
+
+    expect(res.status).toBe(500);
+    expect(insertedEvidenceItems).toEqual([]);
+    expect(insertedMissionRuntimeCheckpoints).toEqual([]);
   });
 
   it('executes a ready mission node through the governed task runtime without production promotion', async () => {
