@@ -177,12 +177,13 @@ const capabilityRecords = validateCapabilityRecords([
     owner: 'Decision Agent',
     blockers: [
       'Decision Court Governed Model Eval has not promoted the capability to production_ready',
-      'Court audit records are persisted to audit_log, but first-class evidence/artifact links still need the Gate 5+ ledger',
+      'Court runs now emit audit-linked evidence items, but artifact promotion still needs the Gate 5+ artifact ledger',
       'Provider availability depends on HELM_GOVERNANCE_URL and a configured upstream model provider',
     ],
     evidence: [
       'Gate 4 prevents silent fallback from governed_llm_court to heuristic reasoning',
-      'Gateway persists Decision Court run records with mode, status, participants, prompts, model usage, costs, policy decisions, and final recommendation metadata',
+      'Gateway persists Decision Court run records with mode, status, participants, prompts, model usage, costs, policy decisions, document pins, replay refs, and final recommendation metadata',
+      'Gateway appends redacted decision_court_run evidence linked to the audit event for replayable court provenance',
       'Tests cover unavailable, heuristic preview, governed calls with receipts, missing-governance denial, and referee failure',
     ],
     evalRequirement: 'Decision Court Governed Model Eval',

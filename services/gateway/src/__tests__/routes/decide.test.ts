@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { auditLog, evidenceItems } from '@pilot/db/schema';
 import { decideRoutes } from '../../routes/decide.js';
 import { createMockDeps, expectJson, mockOpportunity, testApp } from '../helpers.js';
 
@@ -48,6 +49,14 @@ function mockHelmClient() {
   );
 
   return { chatCompletion };
+}
+
+function insertedValue(deps: ReturnType<typeof createMockDeps>, table: unknown) {
+  const insertMock = deps.db.insert as unknown as ReturnType<typeof vi.fn>;
+  const index = insertMock.mock.calls.findIndex((call) => call[0] === table);
+  if (index === -1) throw new Error('Expected insert was not recorded');
+  const builder = insertMock.mock.results[index]?.value as { values: ReturnType<typeof vi.fn> };
+  return builder.values.mock.calls[0]?.[0] as Record<string, unknown>;
 }
 
 describe('decideRoutes', () => {
@@ -156,5 +165,47 @@ describe('decideRoutes', () => {
       `workspace:${workspaceId}/operator:decision_court`,
       `workspace:${workspaceId}/operator:decision_court`,
     ]);
+
+    const auditValue = insertedValue(deps, auditLog);
+    const evidenceValue = insertedValue(deps, evidenceItems);
+    const auditMetadata = auditValue['metadata'] as Record<string, unknown>;
+    const replayRef = auditMetadata['replayRef'];
+    expect(auditValue).toMatchObject({
+      id: expect.any(String),
+      workspaceId,
+      action: 'DECISION_COURT_RUN',
+      verdict: 'completed',
+    });
+    expect(auditMetadata).toMatchObject({
+      mode: 'governed_llm_court',
+      status: 'completed',
+      promptVersion: 'decision-court-v1',
+      policyDecisionIds: ['helm-dec-1', 'helm-dec-2', 'helm-dec-3'],
+      policyVersions: ['founder-ops-v1'],
+      helmDocumentVersionPins: {
+        decisionCourtPrompt: 'decision-court-v1',
+        'modelCall:1:bull:opp-1': 'founder-ops-v1',
+        'modelCall:2:bear:opp-1': 'founder-ops-v1',
+        'modelCall:3:referee:opp-1': 'founder-ops-v1',
+      },
+      credentialBoundary: 'no_raw_credentials_or_session_payloads_in_prompt',
+    });
+    expect(String(replayRef)).toMatch(/^decision-court:/);
+    expect(evidenceValue).toMatchObject({
+      workspaceId,
+      auditEventId: auditValue['id'],
+      evidenceType: 'decision_court_run',
+      sourceType: 'decision_court',
+      redactionState: 'redacted',
+      sensitivity: 'internal',
+      replayRef,
+      metadata: expect.objectContaining({
+        policyDecisionIds: ['helm-dec-1', 'helm-dec-2', 'helm-dec-3'],
+        helmDocumentVersionPins: expect.objectContaining({
+          decisionCourtPrompt: 'decision-court-v1',
+        }),
+      }),
+    });
+    expect(String(evidenceValue['contentHash'])).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
 });
