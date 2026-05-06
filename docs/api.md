@@ -514,6 +514,10 @@ Inspect a persisted lifecycle mission, identify dependency-ready pending nodes, 
 
 Persist a redacted snapshot of the current mission, node, edge, and task-link state as `startup_lifecycle_mission_checkpoint` evidence. Requires at least the workspace `partner` role. The response is `checkpointed_not_recovered`; this route records the replayable checkpoint snapshot and latest checkpoint pointer on the mission, but it does not recover, roll back, continue execution, or promote mission runtime to `production_ready`.
 
+### POST /api/startup-lifecycle/missions/:missionId/recovery-plan
+
+Compare the latest mission checkpoint snapshot with current mission, node, edge, and task-link state, then persist a `startup_lifecycle_recovery_plan` evidence item. Requires at least the workspace `partner` role. The response is `planned_not_executed`; this route reports changed, blocked, failed, approval-waiting, and ready nodes plus recommended next actions, but it does not retry, recover, roll back, continue execution, or promote mission runtime to `production_ready`.
+
 ### POST /api/startup-lifecycle/missions/:missionId/nodes/:nodeId/execute
 
 Execute one scheduled `ready` lifecycle node through the existing governed task runtime with mission context. Requires at least the workspace `partner` role. The route updates the mission node, task, and mission state, calls `orchestrator.runTask` with `missionId`/`ventureId` context, and marks newly unblocked dependency nodes as `ready`. It does not automatically execute the next node, perform mission-level rollback/recovery, or promote mission runtime to `production_ready`.

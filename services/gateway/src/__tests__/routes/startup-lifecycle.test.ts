@@ -498,6 +498,197 @@ describe('startupLifecycleRoutes', () => {
     expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
   });
 
+  it('plans mission recovery from the latest checkpoint without executing recovery', async () => {
+    const deps = createMockDeps();
+    const insertedEvidenceItems = captureEvidenceItemInserts(deps);
+    const missionId = '00000000-0000-4000-8000-000000000080';
+    const ventureId = '00000000-0000-4000-8000-000000000081';
+    const founderNodeId = '00000000-0000-4000-8000-000000000082';
+    const ideationNodeId = '00000000-0000-4000-8000-000000000083';
+    const launchNodeId = '00000000-0000-4000-8000-000000000084';
+    const taskId = '00000000-0000-4000-8000-000000000085';
+    const checkpointReplayRef = `mission:${missionId}:checkpoint:abc123`;
+    const checkpointId = 'mission-checkpoint:abc123';
+    const selectResults = [
+      [
+        {
+          id: missionId,
+          workspaceId,
+          ventureId,
+          title: 'Launch EvidenceOS',
+          status: 'blocked',
+          productionReady: false,
+          metadata: {
+            lastCheckpoint: {
+              checkpointId,
+              evidenceItemId: '00000000-0000-4000-8000-000000000086',
+              replayRef: checkpointReplayRef,
+            },
+          },
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000086',
+          workspaceId,
+          missionId,
+          replayRef: checkpointReplayRef,
+          metadata: {
+            checkpointId,
+            snapshot: {
+              nodes: [
+                { id: founderNodeId, nodeKey: 'founder_onboarding', status: 'completed' },
+                { id: ideationNodeId, nodeKey: 'ideation', status: 'ready' },
+                { id: launchNodeId, nodeKey: 'launch_engine', status: 'pending' },
+              ],
+            },
+          },
+        },
+      ],
+      [
+        {
+          id: founderNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'founder_onboarding',
+          stage: 'founder_onboarding',
+          title: 'Founder DNA and access charter',
+          status: 'completed',
+          sortOrder: 0,
+        },
+        {
+          id: ideationNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'ideation',
+          stage: 'ideation',
+          title: 'Venture hypothesis generation',
+          status: 'blocked',
+          sortOrder: 1,
+        },
+        {
+          id: launchNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'launch_engine',
+          stage: 'infrastructure_deployment',
+          title: 'Launch readiness',
+          status: 'ready',
+          sortOrder: 2,
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000087',
+          workspaceId,
+          missionId,
+          edgeKey: 'ideation->launch_engine',
+          fromNodeKey: 'ideation',
+          toNodeKey: 'launch_engine',
+        },
+      ],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000088',
+          workspaceId,
+          missionId,
+          nodeId: launchNodeId,
+          taskId,
+          role: 'startup_lifecycle_node',
+        },
+      ],
+    ];
+    let selectCall = 0;
+    const originalSelect = deps.db.select;
+    deps.db.select = vi.fn(() => {
+      deps.db._setResult(selectResults[selectCall] ?? []);
+      selectCall += 1;
+      return originalSelect();
+    }) as typeof deps.db.select;
+
+    const { fetch } = testApp(startupLifecycleRoutes, deps);
+    const res = await fetch(
+      'POST',
+      `/missions/${missionId}/recovery-plan`,
+      { reason: 'resume after node failure' },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      missionId: string;
+      recoveryPlanId: string;
+      recoveryPlanVersion: string;
+      productionReady: boolean;
+      status: string;
+      missionStatus: string;
+      recoveryExecuted: boolean;
+      checkpointId: string;
+      checkpointReplayRef: string;
+      replayRef: string;
+      evidenceItemIds: string[];
+      plan: {
+        changedNodeKeys: string[];
+        blockedNodeKeys: string[];
+        failedNodeKeys: string[];
+        readyNodeKeys: string[];
+        currentNodeStatuses: Record<string, string>;
+        checkpointNodeStatuses: Record<string, string>;
+        recommendedNextActions: string[];
+      };
+      blockers: string[];
+    }>(res, 200);
+
+    expect(body.missionId).toBe(missionId);
+    expect(body.recoveryPlanId).toMatch(/^mission-recovery-plan:[a-f0-9]+$/);
+    expect(body.recoveryPlanVersion).toBe('mission-recovery-plan.v1');
+    expect(body.productionReady).toBe(false);
+    expect(body.status).toBe('planned_not_executed');
+    expect(body.missionStatus).toBe('blocked');
+    expect(body.recoveryExecuted).toBe(false);
+    expect(body.checkpointId).toBe(checkpointId);
+    expect(body.checkpointReplayRef).toBe(checkpointReplayRef);
+    expect(body.replayRef).toContain(`mission:${missionId}:recovery-plan:`);
+    expect(body.evidenceItemIds).toEqual(['00000000-0000-4000-8000-000000000091']);
+    expect(body.plan.changedNodeKeys).toEqual(['ideation', 'launch_engine']);
+    expect(body.plan.blockedNodeKeys).toEqual(['ideation']);
+    expect(body.plan.failedNodeKeys).toEqual([]);
+    expect(body.plan.readyNodeKeys).toEqual(['launch_engine']);
+    expect(body.plan.currentNodeStatuses).toMatchObject({
+      founder_onboarding: 'completed',
+      ideation: 'blocked',
+      launch_engine: 'ready',
+    });
+    expect(body.plan.checkpointNodeStatuses).toMatchObject({
+      founder_onboarding: 'completed',
+      ideation: 'ready',
+      launch_engine: 'pending',
+    });
+    expect(body.plan.recommendedNextActions.join(' ')).toContain('Do not roll back');
+    expect(body.blockers.join(' ')).toContain('evidence only');
+    expect(insertedEvidenceItems[0]).toMatchObject({
+      workspaceId,
+      ventureId,
+      missionId,
+      evidenceType: 'startup_lifecycle_recovery_plan',
+      sourceType: 'gateway_startup_lifecycle',
+      replayRef: body.replayRef,
+      metadata: expect.objectContaining({
+        recoveryPlanVersion: 'mission-recovery-plan.v1',
+        recoveryPlanId: body.recoveryPlanId,
+        checkpointId,
+        checkpointReplayRef,
+        recoveryExecuted: false,
+        productionReady: false,
+        plan: expect.objectContaining({
+          changedNodeKeys: ['ideation', 'launch_engine'],
+          blockedNodeKeys: ['ideation'],
+          readyNodeKeys: ['launch_engine'],
+        }),
+      }),
+    });
+    expect(deps.db.update).toHaveBeenCalled();
+    expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
+  });
+
   it('executes a ready mission node through the governed task runtime without production promotion', async () => {
     const deps = createMockDeps();
     const insertedEvidenceItems = captureEvidenceItemInserts(deps);
