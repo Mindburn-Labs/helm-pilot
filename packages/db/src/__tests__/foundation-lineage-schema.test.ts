@@ -20,6 +20,7 @@ import {
   managedTelegramBots,
   missionEdges,
   missionNodes,
+  missionRuntimeCheckpoints,
   missions,
   missionTasks,
   opportunityScores,
@@ -155,5 +156,9 @@ describe('Gate 9 durable mission runtime schema', () => {
     expect(missionNodes.requiredAgents.name).toBe('required_agents');
     expect(missionEdges.fromNodeKey.name).toBe('from_node_key');
     expect(missionTasks.taskId.name).toBe('task_id');
+    expect(missionRuntimeCheckpoints.checkpointId.name).toBe('checkpoint_id');
+    expect(missionRuntimeCheckpoints.checkpointKind.name).toBe('checkpoint_kind');
+    expect(missionRuntimeCheckpoints.evidenceItemId.name).toBe('evidence_item_id');
+    expect(missionRuntimeCheckpoints.nodeStatuses.name).toBe('node_statuses');
   });
 });

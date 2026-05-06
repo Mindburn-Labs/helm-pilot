@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { evidenceItems } from '@pilot/db/schema';
+import { evidenceItems, missionRuntimeCheckpoints } from '@pilot/db/schema';
 import { startupLifecycleRoutes } from '../../routes/startup-lifecycle.js';
 import { createMockDeps, expectJson, testApp } from '../helpers.js';
 
@@ -22,6 +22,23 @@ function captureEvidenceItemInserts(deps: ReturnType<typeof createMockDeps>) {
     return originalInsert(table);
   }) as typeof deps.db.insert;
   return insertedEvidenceItems;
+}
+
+function captureMissionRuntimeCheckpointInserts(deps: ReturnType<typeof createMockDeps>) {
+  const insertedCheckpoints: unknown[] = [];
+  const originalInsert = deps.db.insert;
+  deps.db.insert = vi.fn((table: unknown) => {
+    if (table === missionRuntimeCheckpoints) {
+      return {
+        values: vi.fn((value: unknown) => {
+          insertedCheckpoints.push(value);
+          return [];
+        }),
+      };
+    }
+    return originalInsert(table);
+  }) as typeof deps.db.insert;
+  return insertedCheckpoints;
 }
 
 describe('startupLifecycleRoutes', () => {
@@ -326,6 +343,7 @@ describe('startupLifecycleRoutes', () => {
   it('checkpoints a mission DAG as durable evidence without recovery promotion', async () => {
     const deps = createMockDeps();
     const insertedEvidenceItems = captureEvidenceItemInserts(deps);
+    const insertedRuntimeCheckpoints = captureMissionRuntimeCheckpointInserts(deps);
     const missionId = '00000000-0000-4000-8000-000000000070';
     const ventureId = '00000000-0000-4000-8000-000000000071';
     const founderNodeId = '00000000-0000-4000-8000-000000000072';
@@ -494,6 +512,38 @@ describe('startupLifecycleRoutes', () => {
         productionReady: false,
       }),
     });
+    expect(insertedRuntimeCheckpoints).toEqual([
+      expect.objectContaining({
+        workspaceId,
+        ventureId,
+        missionId,
+        checkpointId: body.checkpointId,
+        checkpointKind: 'manual_checkpoint',
+        reason: 'before executing ready nodes',
+        replayRef: body.replayRef,
+        evidenceItemId: '00000000-0000-4000-8000-000000000091',
+        nodeStatuses: {
+          completed: 1,
+          ready: 1,
+          pending: 1,
+        },
+        snapshot: expect.objectContaining({
+          mission: expect.objectContaining({
+            id: missionId,
+            status: 'scheduled_not_executing',
+          }),
+          nodes: [
+            expect.objectContaining({ id: founderNodeId, nodeKey: 'founder_onboarding' }),
+            expect.objectContaining({ id: ideationNodeId, nodeKey: 'ideation' }),
+            expect.objectContaining({ id: launchNodeId, nodeKey: 'launch_engine' }),
+          ],
+        }),
+        metadata: expect.objectContaining({
+          checkpointVersion: 'mission-checkpoint.v1',
+          productionReady: false,
+        }),
+      }),
+    ]);
     expect(deps.db.update).toHaveBeenCalled();
     expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
   });
@@ -687,6 +737,127 @@ describe('startupLifecycleRoutes', () => {
     });
     expect(deps.db.update).toHaveBeenCalled();
     expect(deps.orchestrator.runTask).not.toHaveBeenCalled();
+  });
+
+  it('plans mission recovery from the durable checkpoint row if evidence lookup is missing', async () => {
+    const deps = createMockDeps();
+    const insertedEvidenceItems = captureEvidenceItemInserts(deps);
+    const missionId = '00000000-0000-4000-8000-000000000090';
+    const ventureId = '00000000-0000-4000-8000-000000000091';
+    const founderNodeId = '00000000-0000-4000-8000-000000000092';
+    const ideationNodeId = '00000000-0000-4000-8000-000000000093';
+    const checkpointReplayRef = `mission:${missionId}:checkpoint:durable123`;
+    const checkpointId = 'mission-checkpoint:durable123';
+    const selectResults = [
+      [
+        {
+          id: missionId,
+          workspaceId,
+          ventureId,
+          title: 'Launch EvidenceOS',
+          status: 'blocked',
+          productionReady: false,
+          metadata: {
+            lastCheckpoint: {
+              checkpointId,
+              replayRef: checkpointReplayRef,
+            },
+          },
+        },
+      ],
+      [],
+      [
+        {
+          id: '00000000-0000-4000-8000-000000000094',
+          workspaceId,
+          ventureId,
+          missionId,
+          checkpointId,
+          replayRef: checkpointReplayRef,
+          snapshot: {
+            nodes: [
+              { id: founderNodeId, nodeKey: 'founder_onboarding', status: 'completed' },
+              { id: ideationNodeId, nodeKey: 'ideation', status: 'ready' },
+            ],
+          },
+          evidenceItemId: '00000000-0000-4000-8000-000000000095',
+          createdAt: new Date('2026-05-05T00:00:00.000Z'),
+        },
+      ],
+      [
+        {
+          id: founderNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'founder_onboarding',
+          stage: 'founder_onboarding',
+          title: 'Founder DNA and access charter',
+          status: 'completed',
+          sortOrder: 0,
+        },
+        {
+          id: ideationNodeId,
+          workspaceId,
+          missionId,
+          nodeKey: 'ideation',
+          stage: 'ideation',
+          title: 'Venture hypothesis generation',
+          status: 'failed',
+          sortOrder: 1,
+        },
+      ],
+      [],
+      [],
+    ];
+    let selectCall = 0;
+    const originalSelect = deps.db.select;
+    deps.db.select = vi.fn(() => {
+      deps.db._setResult(selectResults[selectCall] ?? []);
+      selectCall += 1;
+      return originalSelect();
+    }) as typeof deps.db.select;
+
+    const { fetch } = testApp(startupLifecycleRoutes, deps);
+    const res = await fetch(
+      'POST',
+      `/missions/${missionId}/recovery-plan`,
+      { reason: 'resume from durable checkpoint row' },
+      wsHeader,
+    );
+    const body = await expectJson<{
+      checkpointId: string;
+      checkpointReplayRef: string;
+      plan: {
+        changedNodeKeys: string[];
+        failedNodeKeys: string[];
+        checkpointNodeStatuses: Record<string, string>;
+      };
+      evidenceItemIds: string[];
+    }>(res, 200);
+
+    expect(body.checkpointId).toBe(checkpointId);
+    expect(body.checkpointReplayRef).toBe(checkpointReplayRef);
+    expect(body.plan.changedNodeKeys).toEqual(['ideation']);
+    expect(body.plan.failedNodeKeys).toEqual(['ideation']);
+    expect(body.plan.checkpointNodeStatuses).toMatchObject({
+      founder_onboarding: 'completed',
+      ideation: 'ready',
+    });
+    expect(body.evidenceItemIds).toEqual(['00000000-0000-4000-8000-000000000091']);
+    expect(insertedEvidenceItems[0]).toMatchObject({
+      workspaceId,
+      ventureId,
+      missionId,
+      evidenceType: 'startup_lifecycle_recovery_plan',
+      metadata: expect.objectContaining({
+        checkpointId,
+        checkpointReplayRef,
+        plan: expect.objectContaining({
+          changedNodeKeys: ['ideation'],
+          failedNodeKeys: ['ideation'],
+        }),
+      }),
+    });
   });
 
   it('applies a recovery plan by resetting failed mission nodes without executing tasks', async () => {

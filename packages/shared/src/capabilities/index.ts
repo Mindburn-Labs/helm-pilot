@@ -72,7 +72,7 @@ export type CapabilityEvalMetadata = z.infer<typeof CapabilityEvalMetadataSchema
 export type CapabilityRecord = z.infer<typeof CapabilityRecordSchema>;
 export type CapabilitySummary = z.infer<typeof CapabilitySummarySchema>;
 
-export const CAPABILITY_REGISTRY_UPDATED_AT = '2026-05-05T00:00:00.000Z';
+export const CAPABILITY_REGISTRY_UPDATED_AT = '2026-05-06T00:00:00.000Z';
 
 const capabilityRecords = validateCapabilityRecords([
   {
@@ -80,11 +80,11 @@ const capabilityRecords = validateCapabilityRecords([
     name: 'Mission runtime',
     state: 'blocked',
     summary:
-      'Pilot now has durable venture, goal, mission, DAG, task, action, and tool ledgers plus scheduler, narrow mission-node task dispatch, bounded ready-node execution, post-completion dependency advancement, evidence-backed mission checkpoint snapshots, recovery plan previews, and safe failed-node recovery apply, but execution is not yet fully recovered, rolled back, and evaluated as the runtime backbone.',
+      'Pilot now has durable venture, goal, mission, DAG, task, action, tool, and mission checkpoint ledgers plus scheduler, narrow mission-node task dispatch, bounded ready-node execution, post-completion dependency advancement, evidence-backed recovery plan previews, and safe failed-node recovery apply, but execution is not yet fully recovered, rolled back, and evaluated as the runtime backbone.',
     owner: 'Foundation Agent',
     blockers: [
       'Mission execution is explicit bounded ready-node dispatch, not production-ready founder-off-grid DAG automation',
-      'Mission checkpoint snapshots, recovery plans, and safe failed-node retry resets exist; rollback and full mission recovery executors remain blocked',
+      'Durable mission checkpoint rows, recovery plans, and safe failed-node retry resets exist; rollback and full mission recovery executors remain blocked',
       'No durable long-running mission loop with retry, resume, and replay semantics',
       'Current task APIs must remain compatible until mission-backed equivalents pass regression gates',
     ],
@@ -94,7 +94,7 @@ const capabilityRecords = validateCapabilityRecords([
       'Gateway exposes /api/startup-lifecycle/missions/:missionId/schedule to identify dependency-ready nodes and queued task rows without dispatching execution',
       'Gateway exposes /api/startup-lifecycle/missions/:missionId/nodes/:nodeId/execute for partner-scoped execution of a scheduled ready node through orchestrator.runTask with missionId context and advances newly unblocked pending nodes to ready',
       'Gateway exposes /api/startup-lifecycle/missions/:missionId/execute-ready for explicit bounded execution of currently ready nodes without production promotion',
-      'Gateway exposes /api/startup-lifecycle/missions/:missionId/checkpoint to persist a redacted mission DAG snapshot as evidence without recovery promotion',
+      'Gateway exposes /api/startup-lifecycle/missions/:missionId/checkpoint to persist a redacted mission DAG snapshot as evidence and a durable mission_runtime_checkpoints row without recovery promotion',
       'Gateway exposes /api/startup-lifecycle/missions/:missionId/recovery-plan to compare the latest checkpoint with current mission state and persist a non-executing recovery plan',
       'Gateway exposes /api/startup-lifecycle/missions/:missionId/recover to reset explicitly failed internal mission nodes to ready without dispatching tasks, rolling back completed work, or touching external systems',
     ],
@@ -387,7 +387,7 @@ const capabilityRecords = validateCapabilityRecords([
       'YC scraper ingestion finalizers append redacted yc_scraper_ingestion evidence_items rows for parsed and failed workspace-scoped ingestion records without session, token, or raw error material',
       'Orchestrator and MCP artifact creation append artifact_created evidence_items rows linked to artifact_id and replay refs',
       'Connector grant, revoke, token metadata, browser-session metadata, validation queue, OAuth initiation, callback, refresh, and session-delete routes append redacted evidence_items rows without token or session payloads',
-      'Startup lifecycle persistence, scheduling, checkpoint snapshots, recovery plans, and node execution append evidence_items rows linked to mission/task state and replay refs',
+      'Startup lifecycle persistence, scheduling, checkpoint snapshots, recovery plans, recovery apply, and node execution append evidence_items rows linked to mission/task state and replay refs; checkpoint snapshots also persist mission_runtime_checkpoints rows',
       'Production eval run/result/evidence-reference writes append evidence_items rows and return evidenceItemIds from the eval API',
       '/api/command-center returns recent evidence_items and the web command center renders them in the evidence surface',
       '/api/command-center/replay resolves workspace-scoped replay refs to linked evidence_items, browser_observations, and computer_actions without production promotion',
@@ -424,11 +424,11 @@ const capabilityRecords = validateCapabilityRecords([
     name: 'Startup lifecycle engine',
     state: 'prototype',
     summary:
-      'Pilot can compile, persist, schedule, execute one or more explicitly ready lifecycle nodes, and advance newly unblocked nodes through the governed task runtime across onboarding, PMF, build, launch, growth, sales, formation, fundraising, and operations, but it does not execute the mission DAG as production-ready founder-off-grid automation yet.',
+      'Pilot can compile, persist, schedule, checkpoint, execute one or more explicitly ready lifecycle nodes, and advance newly unblocked nodes through the governed task runtime across onboarding, PMF, build, launch, growth, sales, formation, fundraising, and operations, but it does not execute the mission DAG as production-ready founder-off-grid automation yet.',
     owner: 'Runtime Agent',
     blockers: [
       'Lifecycle node execution is explicit bounded dispatch, not a production-ready autonomous startup launch workflow',
-      'Dependency advancement marks nodes ready and safe recovery apply can reset failed nodes for retry, but rollback and full mission recovery over the DAG are incomplete',
+      'Dependency advancement marks nodes ready, durable checkpoints preserve replay state, and safe recovery apply can reset failed nodes for retry, but rollback and full mission recovery over the DAG are incomplete',
       'Legal/financial/external communication escalation contracts are compiled but not enforced by a running lifecycle engine',
       'No end-to-end startup launch eval passing against the lifecycle engine',
     ],
@@ -437,7 +437,7 @@ const capabilityRecords = validateCapabilityRecords([
       'Gateway exposes /api/startup-lifecycle/compile for partner-scoped founder-goal compilation without starting execution',
       'Gateway exposes /api/startup-lifecycle/persist to store compiled lifecycle DAGs as durable venture, goal, mission, node, edge, and task records without starting execution',
       'Gateway exposes /api/startup-lifecycle/missions/:missionId/schedule, /api/startup-lifecycle/missions/:missionId/nodes/:nodeId/execute, and /api/startup-lifecycle/missions/:missionId/execute-ready for scheduling and bounded ready-node execution',
-      'Gateway exposes /api/startup-lifecycle/missions/:missionId/checkpoint to attach a replayable mission/node/edge/task-link snapshot to the evidence ledger',
+      'Gateway exposes /api/startup-lifecycle/missions/:missionId/checkpoint to attach a replayable mission/node/edge/task-link snapshot to the evidence ledger and mission_runtime_checkpoints',
       'Gateway exposes /api/startup-lifecycle/missions/:missionId/recovery-plan to persist non-executing recovery plan evidence from checkpoint/current-state drift',
       'Gateway exposes /api/startup-lifecycle/missions/:missionId/recover to apply safe internal failed-node retry state without starting execution',
     ],

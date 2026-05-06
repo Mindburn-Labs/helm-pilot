@@ -512,11 +512,11 @@ Inspect a persisted lifecycle mission, identify dependency-ready pending nodes, 
 
 ### POST /api/startup-lifecycle/missions/:missionId/checkpoint
 
-Persist a redacted snapshot of the current mission, node, edge, and task-link state as `startup_lifecycle_mission_checkpoint` evidence. Requires at least the workspace `partner` role. The response is `checkpointed_not_recovered`; this route records the replayable checkpoint snapshot and latest checkpoint pointer on the mission, but it does not recover, roll back, continue execution, or promote mission runtime to `production_ready`.
+Persist a redacted snapshot of the current mission, node, edge, and task-link state as both a `mission_runtime_checkpoints` row and `startup_lifecycle_mission_checkpoint` evidence. Requires at least the workspace `partner` role. The response is `checkpointed_not_recovered`; this route records the replayable checkpoint snapshot and latest checkpoint pointer on the mission, but it does not recover, roll back, continue execution, or promote mission runtime to `production_ready`.
 
 ### POST /api/startup-lifecycle/missions/:missionId/recovery-plan
 
-Compare the latest mission checkpoint snapshot with current mission, node, edge, and task-link state, then persist a `startup_lifecycle_recovery_plan` evidence item. Requires at least the workspace `partner` role. The response is `planned_not_executed`; this route reports changed, blocked, failed, approval-waiting, and ready nodes plus recommended next actions, but it does not retry, recover, roll back, continue execution, or promote mission runtime to `production_ready`.
+Compare the latest mission checkpoint snapshot with current mission, node, edge, and task-link state, then persist a `startup_lifecycle_recovery_plan` evidence item. Recovery planning uses checkpoint evidence first and falls back to the durable `mission_runtime_checkpoints` row for replay state. Requires at least the workspace `partner` role. The response is `planned_not_executed`; this route reports changed, blocked, failed, approval-waiting, and ready nodes plus recommended next actions, but it does not retry, recover, roll back, continue execution, or promote mission runtime to `production_ready`.
 
 ### POST /api/startup-lifecycle/missions/:missionId/recover
 

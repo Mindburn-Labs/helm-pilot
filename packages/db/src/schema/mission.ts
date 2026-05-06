@@ -182,3 +182,43 @@ export const missionTasks = pgTable(
     index('mission_tasks_node_idx').on(table.nodeId),
   ],
 );
+
+export const missionRuntimeCheckpoints = pgTable(
+  'mission_runtime_checkpoints',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    ventureId: uuid('venture_id').references(() => ventures.id, { onDelete: 'set null' }),
+    missionId: uuid('mission_id')
+      .notNull()
+      .references(() => missions.id, { onDelete: 'cascade' }),
+    checkpointId: text('checkpoint_id').notNull(),
+    checkpointKind: text('checkpoint_kind').notNull().default('manual_checkpoint'),
+    reason: text('reason'),
+    contentHash: text('content_hash').notNull(),
+    replayRef: text('replay_ref').notNull(),
+    evidenceItemId: uuid('evidence_item_id'),
+    snapshot: jsonb('snapshot').notNull().default({}),
+    nodeStatuses: jsonb('node_statuses').$type<Record<string, number>>().notNull().default({}),
+    metadata: jsonb('metadata').notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('mission_runtime_checkpoints_workspace_checkpoint_idx').on(
+      table.workspaceId,
+      table.checkpointId,
+    ),
+    uniqueIndex('mission_runtime_checkpoints_workspace_replay_idx').on(
+      table.workspaceId,
+      table.replayRef,
+    ),
+    index('mission_runtime_checkpoints_mission_created_idx').on(table.missionId, table.createdAt),
+    index('mission_runtime_checkpoints_workspace_kind_idx').on(
+      table.workspaceId,
+      table.checkpointKind,
+    ),
+    index('mission_runtime_checkpoints_content_hash_idx').on(table.contentHash),
+  ],
+);

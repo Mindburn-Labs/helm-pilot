@@ -7,6 +7,7 @@ import {
   goals,
   missionEdges,
   missionNodes,
+  missionRuntimeCheckpoints,
   missions,
   missionTasks,
   tasks,
@@ -412,6 +413,25 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
       },
     });
 
+    await _deps.db.insert(missionRuntimeCheckpoints).values({
+      workspaceId,
+      ventureId: mission.ventureId ?? null,
+      missionId: mission.id,
+      checkpointId,
+      checkpointKind: 'manual_checkpoint',
+      reason: parsed.data.reason ?? null,
+      contentHash,
+      replayRef,
+      evidenceItemId,
+      snapshot,
+      nodeStatuses,
+      metadata: {
+        checkpointVersion: 'mission-checkpoint.v1',
+        productionReady: false,
+      },
+      createdAt: checkpointedAt,
+    });
+
     await _deps.db
       .update(missions)
       .set({
@@ -485,8 +505,8 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
 
     const missionMetadata = jsonRecord(mission.metadata);
     const lastCheckpoint = jsonRecord(missionMetadata['lastCheckpoint']);
-    const checkpointId = stringValue(lastCheckpoint['checkpointId']);
-    const checkpointReplayRef = stringValue(lastCheckpoint['replayRef']);
+    let checkpointId = stringValue(lastCheckpoint['checkpointId']);
+    let checkpointReplayRef = stringValue(lastCheckpoint['replayRef']);
     const [checkpointEvidence] = checkpointReplayRef
       ? await _deps.db
           .select()
@@ -500,6 +520,25 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
           .orderBy(desc(evidenceItems.observedAt), desc(evidenceItems.id))
           .limit(1)
       : [];
+    let checkpointRuntimeRow: typeof missionRuntimeCheckpoints.$inferSelect | undefined;
+    if (!checkpointEvidence) {
+      const runtimeCheckpointClauses = [
+        eq(missionRuntimeCheckpoints.workspaceId, workspaceId),
+        eq(missionRuntimeCheckpoints.missionId, mission.id),
+      ];
+      if (checkpointReplayRef) {
+        runtimeCheckpointClauses.push(eq(missionRuntimeCheckpoints.replayRef, checkpointReplayRef));
+      }
+      const [row] = await _deps.db
+        .select()
+        .from(missionRuntimeCheckpoints)
+        .where(and(...runtimeCheckpointClauses))
+        .orderBy(desc(missionRuntimeCheckpoints.createdAt), desc(missionRuntimeCheckpoints.id))
+        .limit(1);
+      checkpointRuntimeRow = row;
+      checkpointId = checkpointId ?? row?.checkpointId ?? null;
+      checkpointReplayRef = checkpointReplayRef ?? row?.replayRef ?? null;
+    }
 
     const nodeRows = await _deps.db
       .select()
@@ -518,7 +557,10 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
       .orderBy(missionTasks.createdAt);
 
     const currentNodeStatuses = nodeStatusMap(nodeRows);
-    const checkpointNodeStatuses = checkpointStatusMap(checkpointEvidence?.metadata);
+    const checkpointNodeStatuses = checkpointStatusMap(
+      checkpointEvidence?.metadata ??
+        (checkpointRuntimeRow ? { snapshot: checkpointRuntimeRow.snapshot } : undefined),
+    );
     const plan = buildMissionRecoveryPlan({
       currentNodeStatuses,
       checkpointNodeStatuses,
@@ -534,7 +576,8 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
       checkpoint: {
         checkpointId,
         replayRef: checkpointReplayRef,
-        evidenceItemId: stringValue(lastCheckpoint['evidenceItemId']),
+        evidenceItemId:
+          stringValue(lastCheckpoint['evidenceItemId']) ?? checkpointRuntimeRow?.evidenceItemId,
       },
       current: {
         nodes: nodeRows.map((node) => ({
