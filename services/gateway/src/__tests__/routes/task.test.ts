@@ -6,6 +6,88 @@ import { createMockDeps, testApp, expectJson, mockTask } from '../helpers.js';
 const VALID_UUID = '00000000-0000-0000-0000-000000000001';
 const wsHeader = { 'X-Workspace-Id': VALID_UUID };
 
+function createTaskStatusDb(options: { failEvidence?: boolean; existingTask?: unknown } = {}) {
+  const existingTask =
+    options.existingTask ??
+    mockTask({
+      id: 'task-1',
+      workspaceId: VALID_UUID,
+      title: 'Build MVP',
+      status: 'pending',
+    });
+  const inserts: Array<{ table: unknown; value: unknown }> = [];
+  const updates: Array<{ table: unknown; value: unknown }> = [];
+
+  const createDbFacade = (
+    insertSink: Array<{ table: unknown; value: unknown }>,
+    updateSink: Array<{ table: unknown; value: unknown }>,
+  ) => ({
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn(async () => (existingTask ? [existingTask] : [])),
+        })),
+      })),
+    })),
+    insert: vi.fn((table: unknown) => ({
+      values: vi.fn((value: Record<string, unknown>) => {
+        insertSink.push({ table, value });
+        return {
+          returning: vi.fn(async () => {
+            if (table === evidenceItems) {
+              if (options.failEvidence) throw new Error('evidence unavailable');
+              return [{ id: 'evidence-task-status-1' }];
+            }
+            return [];
+          }),
+          then: (resolve: (value: unknown[]) => void, reject?: (reason: unknown) => void) =>
+            Promise.resolve([]).then(resolve, reject),
+          catch: (reject: (reason: unknown) => void) => Promise.resolve([]).catch(reject),
+        };
+      }),
+    })),
+    update: vi.fn((table: unknown) => ({
+      set: vi.fn((value: Record<string, unknown>) => {
+        updateSink.push({ table, value });
+        return {
+          where: vi.fn(() => ({
+            returning: vi.fn(async () => {
+              if (table === tasks && existingTask) {
+                return [{ ...(existingTask as Record<string, unknown>), ...value }];
+              }
+              return [];
+            }),
+            then: (resolve: (value: unknown[]) => void, reject?: (reason: unknown) => void) =>
+              Promise.resolve([]).then(resolve, reject),
+            catch: (reject: (reason: unknown) => void) => Promise.resolve([]).catch(reject),
+          })),
+        };
+      }),
+    })),
+    delete: vi.fn(() => ({
+      where: vi.fn(async () => []),
+    })),
+    execute: vi.fn(async () => [{ '?column?': 1 }]),
+  });
+
+  const db = {
+    ...createDbFacade(inserts, updates),
+    transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
+      const stagedInserts: Array<{ table: unknown; value: unknown }> = [];
+      const stagedUpdates: Array<{ table: unknown; value: unknown }> = [];
+      const tx = createDbFacade(stagedInserts, stagedUpdates);
+      const result = await callback(tx);
+      inserts.push(...stagedInserts);
+      updates.push(...stagedUpdates);
+      return result;
+    }),
+    _setResult: vi.fn(),
+    _reset: vi.fn(),
+  };
+
+  return { db, inserts, updates };
+}
+
 describe('taskRoutes', () => {
   // ─── GET / ───
 
@@ -224,6 +306,90 @@ describe('taskRoutes', () => {
       expect(deps.orchestrator.runTask).toHaveBeenCalledWith(
         expect.objectContaining({ taskId: 'task-1', workspaceId: VALID_UUID }),
       );
+    });
+  });
+
+  describe('PUT /:id/status', () => {
+    it('denies members from mutating task status', async () => {
+      const { fetch, deps } = testApp(taskRoutes);
+      const res = await fetch(
+        'PUT',
+        '/task-1/status',
+        { status: 'completed' },
+        { ...wsHeader, 'X-Workspace-Role': 'member' },
+      );
+      const json = await expectJson<{ error: string; requiredRole: string }>(res, 403);
+
+      expect(json.error).toBe('insufficient workspace role');
+      expect(json.requiredRole).toBe('partner');
+      expect(deps.db.update).not.toHaveBeenCalled();
+    });
+
+    it('writes audit-linked evidence on status mutation', async () => {
+      const { db, inserts, updates } = createTaskStatusDb();
+      const deps = createMockDeps({ db: db as never });
+      const { fetch } = testApp(taskRoutes, deps);
+      const res = await fetch('PUT', '/task-1/status', { status: 'completed' }, wsHeader);
+      const json = await expectJson<{ id: string; status: string }>(res, 200);
+
+      expect(json).toMatchObject({ id: 'task-1', status: 'completed' });
+      expect(updates.map((update) => update.table)).toEqual([tasks, auditLog]);
+      expect(inserts.map((insert) => insert.table)).toEqual([auditLog, evidenceItems]);
+      expect(updates.find((update) => update.table === tasks)?.value).toMatchObject({
+        status: 'completed',
+        completedAt: expect.any(Date),
+      });
+      const auditInsert = inserts.find((insert) => insert.table === auditLog)?.value as {
+        id: string;
+      };
+      expect(auditInsert).toMatchObject({
+        workspaceId: VALID_UUID,
+        action: 'TASK_STATUS_UPDATED',
+        actor: 'user:user-1',
+        target: 'task-1',
+        verdict: 'allow',
+        metadata: {
+          evidenceType: 'task_status_updated',
+          replayRef: 'task:task-1:status:pending->completed',
+          taskId: 'task-1',
+          previousStatus: 'pending',
+          status: 'completed',
+          completed: true,
+          evidenceContract: 'task_status_update_evidence_required',
+        },
+      });
+      expect(inserts.find((insert) => insert.table === evidenceItems)?.value).toMatchObject({
+        workspaceId: VALID_UUID,
+        taskId: 'task-1',
+        auditEventId: auditInsert.id,
+        evidenceType: 'task_status_updated',
+        sourceType: 'gateway_task_route',
+        replayRef: 'task:task-1:status:pending->completed',
+        metadata: {
+          taskId: 'task-1',
+          previousStatus: 'pending',
+          status: 'completed',
+          completed: true,
+          evidenceContract: 'task_status_update_evidence_required',
+        },
+      });
+      expect(updates.find((update) => update.table === auditLog)?.value).toMatchObject({
+        metadata: {
+          evidenceItemId: 'evidence-task-status-1',
+        },
+      });
+    });
+
+    it('fails closed without committing task status when evidence persistence fails', async () => {
+      const { db, inserts, updates } = createTaskStatusDb({ failEvidence: true });
+      const deps = createMockDeps({ db: db as never });
+      const { fetch } = testApp(taskRoutes, deps);
+      const res = await fetch('PUT', '/task-1/status', { status: 'completed' }, wsHeader);
+      const json = await expectJson<{ error: string }>(res, 500);
+
+      expect(json.error).toContain('Failed to update task status evidence');
+      expect(inserts).toEqual([]);
+      expect(updates).toEqual([]);
     });
   });
 
