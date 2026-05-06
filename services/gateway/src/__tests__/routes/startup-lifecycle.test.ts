@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { evidenceItems, missionRuntimeCheckpoints } from '@pilot/db/schema';
+import { auditLog, evidenceItems, missionRuntimeCheckpoints } from '@pilot/db/schema';
 import { startupLifecycleRoutes } from '../../routes/startup-lifecycle.js';
 import { createMockDeps, expectJson, testApp } from '../helpers.js';
 
@@ -26,15 +26,27 @@ function captureEvidenceItemInserts(deps: ReturnType<typeof createMockDeps>) {
 
 function captureEvidenceAndMissionCheckpointInserts(deps: ReturnType<typeof createMockDeps>) {
   const insertedEvidenceItems: unknown[] = [];
+  const insertedAuditEvents: unknown[] = [];
+  const updatedAuditEvents: unknown[] = [];
   const insertedMissionRuntimeCheckpoints: unknown[] = [];
   const originalInsert = deps.db.insert;
+  const originalUpdate = deps.db.update;
 
   const captureInsert = (
     evidenceSink: unknown[],
     checkpointSink: unknown[],
+    auditSink: unknown[],
     options: { failMissionRuntimeCheckpointInsert?: boolean } = {},
   ) =>
     vi.fn((table: unknown) => {
+      if (table === auditLog) {
+        return {
+          values: vi.fn((value: unknown) => {
+            auditSink.push(value);
+            return { returning: vi.fn(async () => []) };
+          }),
+        };
+      }
       if (table === evidenceItems) {
         return {
           values: vi.fn((value: unknown) => {
@@ -69,68 +81,147 @@ function captureEvidenceAndMissionCheckpointInserts(deps: ReturnType<typeof crea
       return originalInsert(table);
     }) as typeof deps.db.insert;
 
-  deps.db.insert = captureInsert(insertedEvidenceItems, insertedMissionRuntimeCheckpoints);
+  const captureUpdate = (auditSink: unknown[]) =>
+    vi.fn((table: unknown) => {
+      if (table === auditLog) {
+        return {
+          set: vi.fn((value: unknown) => {
+            auditSink.push(value);
+            return { where: vi.fn(async () => []) };
+          }),
+        };
+      }
+      return originalUpdate(table);
+    }) as typeof deps.db.update;
+
+  deps.db.insert = captureInsert(
+    insertedEvidenceItems,
+    insertedMissionRuntimeCheckpoints,
+    insertedAuditEvents,
+  );
+  deps.db.update = captureUpdate(updatedAuditEvents);
   deps.db.transaction = vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
     const stagedEvidenceItems: unknown[] = [];
+    const stagedAuditEvents: unknown[] = [];
+    const stagedAuditUpdates: unknown[] = [];
     const stagedMissionRuntimeCheckpoints: unknown[] = [];
     const tx = {
       ...deps.db,
-      insert: captureInsert(stagedEvidenceItems, stagedMissionRuntimeCheckpoints),
+      insert: captureInsert(
+        stagedEvidenceItems,
+        stagedMissionRuntimeCheckpoints,
+        stagedAuditEvents,
+      ),
+      update: captureUpdate(stagedAuditUpdates),
     };
     const result = await callback(tx);
     insertedEvidenceItems.push(...stagedEvidenceItems);
+    insertedAuditEvents.push(...stagedAuditEvents);
+    updatedAuditEvents.push(...stagedAuditUpdates);
     insertedMissionRuntimeCheckpoints.push(...stagedMissionRuntimeCheckpoints);
     return result;
   }) as typeof deps.db.transaction;
 
-  return { insertedEvidenceItems, insertedMissionRuntimeCheckpoints };
+  return {
+    insertedEvidenceItems,
+    insertedAuditEvents,
+    updatedAuditEvents,
+    insertedMissionRuntimeCheckpoints,
+  };
 }
 
 function captureFailedMissionCheckpointTransaction(deps: ReturnType<typeof createMockDeps>) {
   const insertedEvidenceItems: unknown[] = [];
+  const insertedAuditEvents: unknown[] = [];
+  const updatedAuditEvents: unknown[] = [];
   const insertedMissionRuntimeCheckpoints: unknown[] = [];
   const originalInsert = deps.db.insert;
+  const originalUpdate = deps.db.update;
 
-  const captureInsert = (evidenceSink: unknown[], checkpointSink: unknown[]) =>
+  const captureInsert = (
+    evidenceSink: unknown[],
+    checkpointSink: unknown[],
+    auditSink: unknown[],
+  ) =>
     vi.fn((table: unknown) => {
-    if (table === evidenceItems) {
-      return {
-        values: vi.fn((value: unknown) => {
-          evidenceSink.push(value);
-          const id = `00000000-0000-4000-8000-00000000019${evidenceSink.length}`;
-          return { returning: vi.fn(async () => [{ id }]) };
-        }),
-      };
-    }
-    if (table === missionRuntimeCheckpoints) {
-      return {
-        values: vi.fn((value: unknown) => {
-          checkpointSink.push(value);
-          return {
-            returning: vi.fn(async () => {
-              throw new Error('mission checkpoint insert failed');
-            }),
-          };
-        }),
-      };
-    }
-    return originalInsert(table);
-  }) as typeof deps.db.insert;
+      if (table === auditLog) {
+        return {
+          values: vi.fn((value: unknown) => {
+            auditSink.push(value);
+            return { returning: vi.fn(async () => []) };
+          }),
+        };
+      }
+      if (table === evidenceItems) {
+        return {
+          values: vi.fn((value: unknown) => {
+            evidenceSink.push(value);
+            const id = `00000000-0000-4000-8000-00000000019${evidenceSink.length}`;
+            return { returning: vi.fn(async () => [{ id }]) };
+          }),
+        };
+      }
+      if (table === missionRuntimeCheckpoints) {
+        return {
+          values: vi.fn((value: unknown) => {
+            checkpointSink.push(value);
+            return {
+              returning: vi.fn(async () => {
+                throw new Error('mission checkpoint insert failed');
+              }),
+            };
+          }),
+        };
+      }
+      return originalInsert(table);
+    }) as typeof deps.db.insert;
 
-  deps.db.insert = captureInsert(insertedEvidenceItems, insertedMissionRuntimeCheckpoints);
+  const captureUpdate = (auditSink: unknown[]) =>
+    vi.fn((table: unknown) => {
+      if (table === auditLog) {
+        return {
+          set: vi.fn((value: unknown) => {
+            auditSink.push(value);
+            return { where: vi.fn(async () => []) };
+          }),
+        };
+      }
+      return originalUpdate(table);
+    }) as typeof deps.db.update;
+
+  deps.db.insert = captureInsert(
+    insertedEvidenceItems,
+    insertedMissionRuntimeCheckpoints,
+    insertedAuditEvents,
+  );
+  deps.db.update = captureUpdate(updatedAuditEvents);
   deps.db.transaction = vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
     const stagedEvidenceItems: unknown[] = [];
+    const stagedAuditEvents: unknown[] = [];
+    const stagedAuditUpdates: unknown[] = [];
     const stagedMissionRuntimeCheckpoints: unknown[] = [];
     const tx = {
       ...deps.db,
-      insert: captureInsert(stagedEvidenceItems, stagedMissionRuntimeCheckpoints),
+      insert: captureInsert(
+        stagedEvidenceItems,
+        stagedMissionRuntimeCheckpoints,
+        stagedAuditEvents,
+      ),
+      update: captureUpdate(stagedAuditUpdates),
     };
     const result = await callback(tx);
     insertedEvidenceItems.push(...stagedEvidenceItems);
+    insertedAuditEvents.push(...stagedAuditEvents);
+    updatedAuditEvents.push(...stagedAuditUpdates);
     insertedMissionRuntimeCheckpoints.push(...stagedMissionRuntimeCheckpoints);
     return result;
   }) as typeof deps.db.transaction;
-  return { insertedEvidenceItems, insertedMissionRuntimeCheckpoints };
+  return {
+    insertedEvidenceItems,
+    insertedAuditEvents,
+    updatedAuditEvents,
+    insertedMissionRuntimeCheckpoints,
+  };
 }
 
 describe('startupLifecycleRoutes', () => {
@@ -972,7 +1063,12 @@ describe('startupLifecycleRoutes', () => {
 
   it('applies a recovery plan by resetting failed mission nodes without executing tasks', async () => {
     const deps = createMockDeps();
-    const { insertedEvidenceItems, insertedMissionRuntimeCheckpoints } =
+    const {
+      insertedEvidenceItems,
+      insertedAuditEvents,
+      updatedAuditEvents,
+      insertedMissionRuntimeCheckpoints,
+    } =
       captureEvidenceAndMissionCheckpointInserts(deps);
     const missionId = '00000000-0000-4000-8000-000000000140';
     const ventureId = '00000000-0000-4000-8000-000000000141';
@@ -1156,14 +1252,46 @@ describe('startupLifecycleRoutes', () => {
       id: string;
       metadata: { replayRef: string };
     };
+    const checkpointAudit = insertedAuditEvents[0] as {
+      id: string;
+      workspaceId: string;
+      action: string;
+      actor: string;
+      target: string;
+      verdict: string;
+      metadata: Record<string, unknown>;
+    };
     expect(runtimeCheckpoint.metadata.replayRef).toBe(
       `mission:${missionId}:checkpoint:pre_recovery:${runtimeCheckpoint.id}`,
     );
+    expect(checkpointAudit).toMatchObject({
+      workspaceId,
+      action: 'STARTUP_LIFECYCLE_MISSION_CHECKPOINT',
+      actor: `workspace:${workspaceId}`,
+      target: missionId,
+      verdict: 'recorded',
+      metadata: expect.objectContaining({
+        checkpointVersion: 'mission-runtime-checkpoint.v1',
+        evidenceType: 'startup_lifecycle_mission_checkpoint',
+        replayRef: runtimeCheckpoint.metadata.replayRef,
+        checkpointId: runtimeCheckpoint.id,
+        checkpointKind: 'pre_recovery',
+        productionReady: false,
+      }),
+    });
     expect(insertedEvidenceItems[0]).toMatchObject({
+      auditEventId: checkpointAudit.id,
       replayRef: runtimeCheckpoint.metadata.replayRef,
       metadata: expect.objectContaining({
         checkpointId: runtimeCheckpoint.id,
         checkpointKind: 'pre_recovery',
+      }),
+    });
+    expect(updatedAuditEvents[0]).toMatchObject({
+      metadata: expect.objectContaining({
+        evidenceItemId: '00000000-0000-4000-8000-000000000191',
+        checkpointId: runtimeCheckpoint.id,
+        replayRef: runtimeCheckpoint.metadata.replayRef,
       }),
     });
     expect(insertedEvidenceItems[1]).toMatchObject({
@@ -1581,7 +1709,12 @@ describe('startupLifecycleRoutes', () => {
     const missionId = '00000000-0000-4000-8000-000000000190';
     const failedNodeId = '00000000-0000-4000-8000-000000000191';
     const deps = createMockDeps();
-    const { insertedEvidenceItems, insertedMissionRuntimeCheckpoints } =
+    const {
+      insertedEvidenceItems,
+      insertedAuditEvents,
+      updatedAuditEvents,
+      insertedMissionRuntimeCheckpoints,
+    } =
       captureFailedMissionCheckpointTransaction(deps);
     const selectResults = [
       [
@@ -1627,6 +1760,8 @@ describe('startupLifecycleRoutes', () => {
 
     expect(res.status).toBe(500);
     expect(insertedEvidenceItems).toEqual([]);
+    expect(insertedAuditEvents).toEqual([]);
+    expect(updatedAuditEvents).toEqual([]);
     expect(insertedMissionRuntimeCheckpoints).toEqual([]);
   });
 

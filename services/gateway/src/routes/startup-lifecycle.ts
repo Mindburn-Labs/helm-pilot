@@ -4,6 +4,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm';
 import { appendEvidenceItem } from '@pilot/db';
 import {
   evidenceItems,
+  auditLog,
   goals,
   missionEdges,
   missionNodes,
@@ -1703,8 +1704,36 @@ async function persistMissionRuntimeCheckpoint(
   );
   const { checkpoint, evidenceItemId } = await deps.db.transaction(async (tx) => {
     const db = tx as unknown as typeof deps.db;
+    const auditEventId = randomUUID();
+    const evidenceMetadata = {
+      checkpointKind: input.checkpointKind,
+      checkpointId,
+      missionStatus: mission.status,
+      cursorNodeKey: snapshot.cursorNode?.nodeKey ?? null,
+      reason: input.reason,
+      productionReady: false,
+    };
+    const auditMetadata = {
+      checkpointVersion: 'mission-runtime-checkpoint.v1',
+      evidenceType: 'startup_lifecycle_mission_checkpoint',
+      replayRef,
+      contentHash,
+      ...evidenceMetadata,
+    };
+    await db.insert(auditLog).values({
+      id: auditEventId,
+      workspaceId,
+      action: 'STARTUP_LIFECYCLE_MISSION_CHECKPOINT',
+      actor: `workspace:${workspaceId}`,
+      target: mission.id,
+      verdict: 'recorded',
+      reason: `${input.checkpointKind} checkpoint for mission ${mission.id}`,
+      metadata: auditMetadata,
+      createdAt: now,
+    });
     const persistedEvidenceItemId = await appendEvidenceItem(db, {
       workspaceId,
+      auditEventId,
       ventureId: mission.ventureId ?? null,
       missionId: mission.id,
       evidenceType: 'startup_lifecycle_mission_checkpoint',
@@ -1715,15 +1744,17 @@ async function persistMissionRuntimeCheckpoint(
       sensitivity: 'internal',
       contentHash,
       replayRef,
-      metadata: {
-        checkpointKind: input.checkpointKind,
-        checkpointId,
-        missionStatus: mission.status,
-        cursorNodeKey: snapshot.cursorNode?.nodeKey ?? null,
-        reason: input.reason,
-        productionReady: false,
-      },
+      metadata: evidenceMetadata,
     });
+    await db
+      .update(auditLog)
+      .set({
+        metadata: {
+          ...auditMetadata,
+          evidenceItemId: persistedEvidenceItemId,
+        },
+      })
+      .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.id, auditEventId)));
     const [persistedCheckpoint] = await db
       .insert(missionRuntimeCheckpoints)
       .values({
