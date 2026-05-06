@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
-import { operators, operatorRoles, operatorConfigs } from '@pilot/db/schema';
+import { appendEvidenceItem } from '@pilot/db';
+import { auditLog, operators, operatorRoles, operatorConfigs } from '@pilot/db/schema';
 import { CreateOperatorInput, UpdateOperatorInput } from '@pilot/shared/schemas';
 import { type GatewayDeps } from '../index.js';
 import { getWorkspaceId, requireWorkspaceRole, workspaceIdMismatch } from '../lib/workspace.js';
@@ -40,24 +42,80 @@ export function operatorRoutes(deps: GatewayDeps) {
 
     const body = parsed.data;
 
-    const [op] = await deps.db
-      .insert(operators)
-      .values({
-        workspaceId: body.workspaceId,
-        name: body.name,
-        role: body.role,
-        goal: body.goal,
-        constraints: body.constraints,
-        tools: body.tools,
+    const op = await deps.db
+      .transaction(async (tx) => {
+        const [created] = await tx
+          .insert(operators)
+          .values({
+            workspaceId: body.workspaceId,
+            name: body.name,
+            role: body.role,
+            goal: body.goal,
+            constraints: body.constraints,
+            tools: body.tools,
+          })
+          .returning();
+
+        if (!created) return null;
+
+        await tx.insert(operatorConfigs).values({
+          operatorId: created.id,
+          iterationBudget: { maxIterations: 50 },
+        });
+
+        const auditEventId = randomUUID();
+        const replayRef = `operator:${created.id}:created`;
+        const evidenceMetadata = {
+          operatorId: created.id,
+          role: created.role,
+          toolCount: Array.isArray(created.tools) ? created.tools.length : 0,
+          hasConstraints: Boolean(created.constraints),
+        };
+
+        await tx.insert(auditLog).values({
+          id: auditEventId,
+          workspaceId,
+          action: 'WORKSPACE_OPERATOR_CREATED',
+          actor: `user:${(c.get('userId') as string | undefined) ?? 'unknown'}`,
+          target: created.id,
+          verdict: 'allow',
+          metadata: {
+            evidenceType: 'workspace_operator_created',
+            replayRef,
+            ...evidenceMetadata,
+          },
+        });
+
+        const evidenceItemId = await appendEvidenceItem(tx, {
+          workspaceId,
+          auditEventId,
+          evidenceType: 'workspace_operator_created',
+          sourceType: 'gateway_operator',
+          title: `Workspace operator created: ${created.name}`,
+          summary: 'Workspace operator metadata and default runtime budget were created.',
+          redactionState: 'redacted',
+          sensitivity: 'internal',
+          replayRef,
+          metadata: evidenceMetadata,
+        });
+
+        await tx
+          .update(auditLog)
+          .set({
+            metadata: {
+              evidenceType: 'workspace_operator_created',
+              replayRef,
+              evidenceItemId,
+              ...evidenceMetadata,
+            },
+          })
+          .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.id, auditEventId)));
+
+        return created;
       })
-      .returning();
+      .catch(() => null);
 
     if (!op) return c.json({ error: 'Failed to create operator' }, 500);
-
-    await deps.db.insert(operatorConfigs).values({
-      operatorId: op.id,
-      iterationBudget: { maxIterations: 50 },
-    });
 
     return c.json(op, 201);
   });
@@ -116,21 +174,84 @@ export function operatorRoutes(deps: GatewayDeps) {
     const body = parsed.data;
     // Both SELECT and UPDATE compose id with workspaceId so mutations cannot
     // target another tenant's operator by id-guess.
-    const [updated] = await deps.db
-      .update(operators)
-      .set({
-        goal: body.goal ?? existing.goal,
-        constraints: body.constraints ?? existing.constraints,
-        tools: body.tools ?? existing.tools,
-        isActive:
-          body.isActive === undefined
-            ? existing.isActive
-            : typeof body.isActive === 'boolean'
-              ? String(body.isActive)
-              : body.isActive,
+    const updated = await deps.db
+      .transaction(async (tx) => {
+        const [row] = await tx
+          .update(operators)
+          .set({
+            goal: body.goal ?? existing.goal,
+            constraints: body.constraints ?? existing.constraints,
+            tools: body.tools ?? existing.tools,
+            isActive:
+              body.isActive === undefined
+                ? existing.isActive
+                : typeof body.isActive === 'boolean'
+                  ? String(body.isActive)
+                  : body.isActive,
+          })
+          .where(and(eq(operators.id, id), eq(operators.workspaceId, workspaceId)))
+          .returning();
+
+        if (!row) return null;
+
+        const auditEventId = randomUUID();
+        const replayRef = `operator:${row.id}:updated`;
+        const changedFields = Object.entries(body)
+          .filter(([, value]) => value !== undefined)
+          .map(([key]) => key)
+          .sort();
+        const evidenceMetadata = {
+          operatorId: row.id,
+          role: row.role,
+          changedFields,
+          toolCount: Array.isArray(row.tools) ? row.tools.length : 0,
+          isActive: row.isActive,
+        };
+
+        await tx.insert(auditLog).values({
+          id: auditEventId,
+          workspaceId,
+          action: 'WORKSPACE_OPERATOR_UPDATED',
+          actor: `user:${(c.get('userId') as string | undefined) ?? 'unknown'}`,
+          target: row.id,
+          verdict: 'allow',
+          metadata: {
+            evidenceType: 'workspace_operator_updated',
+            replayRef,
+            ...evidenceMetadata,
+          },
+        });
+
+        const evidenceItemId = await appendEvidenceItem(tx, {
+          workspaceId,
+          auditEventId,
+          evidenceType: 'workspace_operator_updated',
+          sourceType: 'gateway_operator',
+          title: `Workspace operator updated: ${row.name}`,
+          summary: 'Workspace operator metadata was updated.',
+          redactionState: 'redacted',
+          sensitivity: 'internal',
+          replayRef,
+          metadata: evidenceMetadata,
+        });
+
+        await tx
+          .update(auditLog)
+          .set({
+            metadata: {
+              evidenceType: 'workspace_operator_updated',
+              replayRef,
+              evidenceItemId,
+              ...evidenceMetadata,
+            },
+          })
+          .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.id, auditEventId)));
+
+        return row;
       })
-      .where(and(eq(operators.id, id), eq(operators.workspaceId, workspaceId)))
-      .returning();
+      .catch(() => null);
+
+    if (!updated) return c.json({ error: 'Failed to update operator' }, 500);
 
     return c.json(updated);
   });
