@@ -476,6 +476,21 @@ describe('startupLifecycleRoutes', () => {
           ready: 1,
           pending: 1,
         },
+        snapshot: expect.objectContaining({
+          mission: expect.objectContaining({
+            id: missionId,
+            status: 'scheduled_not_executing',
+            productionReady: false,
+          }),
+          nodes: [
+            expect.objectContaining({ id: founderNodeId, nodeKey: 'founder_onboarding' }),
+            expect.objectContaining({ id: ideationNodeId, nodeKey: 'ideation' }),
+            expect.objectContaining({ id: launchNodeId, nodeKey: 'launch_engine' }),
+          ],
+          edges: [expect.objectContaining({ fromNodeKey: 'founder_onboarding' })],
+          taskLinks: [expect.objectContaining({ id: taskLinkId, taskId })],
+          reason: 'before executing ready nodes',
+        }),
         productionReady: false,
       }),
     });

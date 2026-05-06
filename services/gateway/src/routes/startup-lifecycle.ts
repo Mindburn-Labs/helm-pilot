@@ -401,6 +401,7 @@ export function startupLifecycleRoutes(_deps: GatewayDeps) {
         edgeCount: edgeRows.length,
         taskLinkCount: taskLinks.length,
         nodeStatuses,
+        snapshot,
         productionReady: false,
       },
     });
