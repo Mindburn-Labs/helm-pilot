@@ -1,6 +1,9 @@
 import { Hono } from 'hono';
 import { and, eq, isNull, lt } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { appendEvidenceItem } from '@pilot/db';
 import {
+  auditLog,
   workspaces,
   workspaceMembers,
   workspaceDeletions,
@@ -30,7 +33,8 @@ export function adminRoutes(deps: GatewayDeps) {
   // this is a "you haven't configured it" signal rather than a 401 which
   // would hide the feature.
   app.use('*', async (c, next) => {
-    if (!adminKey) return c.json({ error: 'admin surface disabled — set PILOT_ADMIN_API_KEY' }, 503);
+    if (!adminKey)
+      return c.json({ error: 'admin surface disabled — set PILOT_ADMIN_API_KEY' }, 503);
     const auth = c.req.header('Authorization');
     if (auth !== `Bearer ${adminKey}`) return c.json({ error: 'forbidden' }, 403);
     await next();
@@ -44,35 +48,94 @@ export function adminRoutes(deps: GatewayDeps) {
   // roles / sample opportunities — those are bootstrapped in the onboarding
   // flow on first founder login, not here (keeps this endpoint surgical).
   app.post('/tenants', async (c) => {
-    const body = (await c.req.json().catch(() => null)) as
-      | { name?: string; ownerUserId?: string }
-      | null;
+    const body = (await c.req.json().catch(() => null)) as {
+      name?: string;
+      ownerUserId?: string;
+    } | null;
     if (!body || typeof body.name !== 'string' || body.name.trim().length === 0) {
       return c.json({ error: 'name (string, non-empty) is required' }, 400);
     }
     if (typeof body.ownerUserId !== 'string') {
       return c.json({ error: 'ownerUserId (uuid) is required' }, 400);
     }
+    const workspaceName = body.name.trim();
+    const ownerUserId = body.ownerUserId;
 
     // Confirm the owner user exists — fail fast rather than create an
     // orphan workspace whose FK will break on the membership insert.
     // lint-tenancy: ok — platform-admin cross-tenant read by design.
-    const [owner] = await deps.db.select().from(users).where(eq(users.id, body.ownerUserId)).limit(1);
+    const [owner] = await deps.db.select().from(users).where(eq(users.id, ownerUserId)).limit(1);
     if (!owner) return c.json({ error: 'ownerUserId does not match any user' }, 404);
 
-    const [workspace] = await deps.db
-      .insert(workspaces)
-      .values({ name: body.name.trim(), ownerId: body.ownerUserId })
-      .returning();
-    if (!workspace) return c.json({ error: 'failed to create workspace' }, 500);
+    const created = await deps.db
+      .transaction(async (tx) => {
+        const [workspace] = await tx
+          .insert(workspaces)
+          .values({ name: workspaceName, ownerId: ownerUserId })
+          .returning();
+        if (!workspace) throw new Error('failed to create workspace');
 
-    await deps.db
-      .insert(workspaceMembers)
-      .values({ workspaceId: workspace.id, userId: body.ownerUserId, role: 'owner' });
+        await tx
+          .insert(workspaceMembers)
+          .values({ workspaceId: workspace.id, userId: ownerUserId, role: 'owner' });
 
-    await deps.db.insert(workspaceSettings).values({ workspaceId: workspace.id });
+        await tx.insert(workspaceSettings).values({ workspaceId: workspace.id });
 
-    return c.json({ workspace }, 201);
+        const auditEventId = randomUUID();
+        const replayRef = `admin-tenant:${workspace.id}:created`;
+        const evidenceMetadata = {
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          ownerUserId,
+          adminCredentialStoredInEvidence: false,
+        };
+
+        await tx.insert(auditLog).values({
+          id: auditEventId,
+          workspaceId: workspace.id,
+          action: 'ADMIN_TENANT_CREATED',
+          actor: 'platform-admin',
+          target: workspace.id,
+          verdict: 'allow',
+          metadata: {
+            evidenceType: 'admin_tenant_created',
+            replayRef,
+            ...evidenceMetadata,
+          },
+        });
+
+        const evidenceItemId = await appendEvidenceItem(tx, {
+          workspaceId: workspace.id,
+          auditEventId,
+          evidenceType: 'admin_tenant_created',
+          sourceType: 'gateway_admin',
+          title: `Admin tenant created: ${workspace.name}`,
+          summary: 'Platform admin created a workspace, owner membership, and default settings.',
+          redactionState: 'redacted',
+          sensitivity: 'restricted',
+          replayRef,
+          metadata: evidenceMetadata,
+        });
+
+        await tx
+          .update(auditLog)
+          .set({
+            metadata: {
+              evidenceType: 'admin_tenant_created',
+              replayRef,
+              evidenceItemId,
+              ...evidenceMetadata,
+            },
+          })
+          .where(and(eq(auditLog.workspaceId, workspace.id), eq(auditLog.id, auditEventId)));
+
+        return { workspace, evidenceItemId };
+      })
+      .catch(() => null);
+
+    if (!created) return c.json({ error: 'failed to persist tenant creation evidence' }, 500);
+
+    return c.json(created, 201);
   });
 
   // DELETE /api/admin/tenants/:id
@@ -120,7 +183,11 @@ export function adminRoutes(deps: GatewayDeps) {
       });
     }
 
-    return c.json({ softDeleted: true, workspaceId: id, hardDeleteAfter: hardDeleteAfter.toISOString() });
+    return c.json({
+      softDeleted: true,
+      workspaceId: id,
+      hardDeleteAfter: hardDeleteAfter.toISOString(),
+    });
   });
 
   // POST /api/admin/tenants/:id/restore
