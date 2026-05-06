@@ -79,6 +79,104 @@ describe('commandCenterRoutes', () => {
     expect(db.select).not.toHaveBeenCalled();
   });
 
+  it('returns a first-class workspace permission graph without raw policy values', async () => {
+    const { fetch } = createApp([
+      [
+        {
+          id: 'member-1',
+          workspaceId,
+          userId: 'user-secret',
+          role: 'owner',
+          joinedAt: new Date('2026-05-05T08:00:00Z'),
+        },
+      ],
+      [
+        {
+          id: 'operator-1',
+          workspaceId,
+          name: 'Opportunity Scout',
+          role: 'scout',
+          goal: 'Find opportunities',
+          constraints: ['no_external_posting'],
+          tools: ['score_opportunity', 'token=abc'],
+          isActive: 'true',
+          createdAt: new Date('2026-05-05T08:01:00Z'),
+        },
+      ],
+      [
+        {
+          id: 'settings-1',
+          workspaceId,
+          policyConfig: {
+            mode: 'build',
+            apiToken: 'do-not-return',
+            toolBlocklist: ['operator.computer_use'],
+          },
+        },
+      ],
+    ]);
+
+    const res = await fetch('GET', '/permission-graph', wsHeader);
+    const body = await expectJson<{
+      productionReady: boolean;
+      redactionContract: string;
+      graph: {
+        nodes: Array<{
+          id: string;
+          kind: string;
+          label: string;
+          state?: string;
+          metadata: Record<string, unknown>;
+        }>;
+        edges: Array<{ from: string; to: string; relation: string; status: string }>;
+      };
+      blockers: string[];
+    }>(res, 200);
+
+    expect(body.productionReady).toBe(false);
+    expect(body.redactionContract).toContain('raw policy values are withheld');
+    expect(body.graph.nodes.some((node) => node.id === `workspace:${workspaceId}`)).toBe(true);
+    expect(body.graph.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'workspace-role:current',
+          label: 'Current role owner',
+          state: 'allowed',
+        }),
+        expect.objectContaining({
+          id: 'operator:operator-1',
+          label: 'Opportunity Scout',
+          metadata: expect.objectContaining({ toolCount: 1 }),
+        }),
+        expect.objectContaining({
+          id: 'tool-scope:score_opportunity',
+          label: 'score_opportunity',
+        }),
+      ]),
+    );
+    expect(body.graph.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from: 'operator:operator-1',
+          to: 'tool-scope:score_opportunity',
+          relation: 'declares_tool_scope',
+          status: 'configured',
+        }),
+        expect.objectContaining({
+          from: 'policy-config',
+          to: 'capability:helm_receipts',
+          relation: 'constrains_capability',
+          status: 'requires_eval',
+        }),
+      ]),
+    );
+    expect(body.blockers.join(' ')).toContain('read-only command-center introspection');
+    expect(JSON.stringify(body)).not.toContain('do-not-return');
+    expect(JSON.stringify(body)).not.toContain('user-secret');
+    expect(JSON.stringify(body)).not.toContain('token=abc');
+    expect(JSON.stringify(body)).not.toContain('apiToken');
+  });
+
   it('requires a replay ref for command-center replay lookup', async () => {
     const { fetch, db } = createApp();
     const res = await fetch('GET', '/replay', wsHeader);

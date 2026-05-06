@@ -87,6 +87,31 @@ interface CommandCenterProofDagResponse {
   blockers: string[];
 }
 
+interface CommandCenterPermissionGraphResponse {
+  workspaceId: string;
+  generatedAt: string;
+  productionReady: false;
+  redactionContract: string;
+  graph: {
+    nodes: Array<{
+      id: string;
+      kind: string;
+      label: string;
+      state?: string;
+      metadata?: DurableRow;
+    }>;
+    edges: Array<{
+      id: string;
+      from: string;
+      to: string;
+      relation: string;
+      status: string;
+      reason?: string;
+    }>;
+  };
+  blockers: string[];
+}
+
 const navItems = [
   { label: 'Command', href: '/command-center' },
   { label: 'Ventures', href: '/discover' },
@@ -119,6 +144,9 @@ export default function CommandCenterPage() {
   const [proofDag, setProofDag] = useState<CommandCenterProofDagResponse | null>(null);
   const [proofDagError, setProofDagError] = useState<string | null>(null);
   const [proofDagLoading, setProofDagLoading] = useState(false);
+  const [permissionGraph, setPermissionGraph] =
+    useState<CommandCenterPermissionGraphResponse | null>(null);
+  const [permissionGraphError, setPermissionGraphError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const isNarrow = useNarrowViewport(760);
@@ -139,6 +167,30 @@ export default function CommandCenterPage() {
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated()) return;
+
+    let cancelled = false;
+    apiFetch<CommandCenterPermissionGraphResponse>('/api/command-center/permission-graph')
+      .then((response) => {
+        if (cancelled) return;
+        if (!response) {
+          setPermissionGraphError('Permission graph unavailable.');
+          return;
+        }
+        setPermissionGraph(response);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setPermissionGraphError(err instanceof Error ? err.message : String(err));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -203,6 +255,37 @@ export default function CommandCenterPage() {
       .filter((row) => row.id.length > 0)
       .slice(0, 8);
   }, [data]);
+
+  const permissionRows = useMemo(() => {
+    if (!permissionGraph) {
+      return [
+        {
+          id: 'permission-graph-loading',
+          title: 'Permission graph',
+          meta: permissionGraphError ?? 'loading',
+          detail:
+            permissionGraphError ??
+            'Waiting for workspace-scoped permission graph from the command-center API.',
+        },
+      ];
+    }
+    const labelById = new Map(permissionGraph.graph.nodes.map((node) => [node.id, node.label]));
+    const graphRows = permissionGraph.graph.edges.slice(0, 12).map((edge) => ({
+      id: edge.id,
+      title: `${labelById.get(edge.from) ?? edge.from} -> ${labelById.get(edge.to) ?? edge.to}`,
+      meta: `${edge.relation} / ${edge.status}`,
+      detail: edge.reason ?? permissionGraph.redactionContract,
+    }));
+    return [
+      ...graphRows,
+      ...permissionGraph.blockers.slice(0, 2).map((blocker, index) => ({
+        id: `permission-blocker-${index}`,
+        title: 'Permission graph blocker',
+        meta: 'prototype',
+        detail: blocker,
+      })),
+    ];
+  }, [permissionGraph, permissionGraphError]);
 
   if (typeof window !== 'undefined' && !isAuthenticated()) return null;
 
@@ -420,9 +503,7 @@ export default function CommandCenterPage() {
                       type="button"
                       onClick={() => setSelectedProofDagRunId(run.id)}
                       style={
-                        run.id === selectedProofDagRunId
-                          ? selectedRunButtonStyle
-                          : runButtonStyle
+                        run.id === selectedProofDagRunId ? selectedRunButtonStyle : runButtonStyle
                       }
                     >
                       <span style={buttonTitleStyle}>{run.lineageKind}</span>
@@ -433,7 +514,9 @@ export default function CommandCenterPage() {
                   ))}
                 </div>
               ) : (
-                <p style={emptyStyle}>No recent task runs are available for proof-DAG inspection.</p>
+                <p style={emptyStyle}>
+                  No recent task runs are available for proof-DAG inspection.
+                </p>
               )}
 
               {proofDagLoading ? <p style={loadingInlineStyle}>Loading proof DAG...</p> : null}
@@ -498,27 +581,8 @@ export default function CommandCenterPage() {
             <section id="artifacts" style={splitStyle}>
               <TimelineSection
                 title="Permission Graph"
-                empty="No permission capability rows returned."
-                rows={[
-                  {
-                    id: 'workspace-role',
-                    title: `Workspace role ${data.authorization.workspaceRole ?? 'unknown'}`,
-                    meta: `required ${data.authorization.requiredRole}`,
-                    detail: `workspace ${data.authorization.workspaceId}`,
-                  },
-                  ...capabilities
-                    .filter((capability) =>
-                      ['workspace_rbac', 'operator_scoping', 'helm_receipts'].includes(
-                        capability.key,
-                      ),
-                    )
-                    .map((capability) => ({
-                      id: capability.key,
-                      title: capability.name,
-                      meta: formatState(capability.state),
-                      detail: capability.summary,
-                    })),
-                ]}
+                empty="No permission graph edges returned."
+                rows={permissionRows}
               />
 
               <TimelineSection

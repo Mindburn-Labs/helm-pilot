@@ -10,18 +10,23 @@ import {
   computerActions,
   evidenceItems,
   evidencePacks,
+  operators,
   taskRuns,
   tasks,
   toolExecutions,
+  workspaceMembers,
+  workspaceSettings,
 } from '@pilot/db/schema';
 import {
   getCapabilityRecord,
   getCapabilityRecords,
   getCapabilitySummary,
   type CapabilityKey,
+  type CapabilityRecord,
 } from '@pilot/shared/capabilities';
 import {
   CommandCenterProofDagResponseSchema,
+  CommandCenterPermissionGraphResponseSchema,
   CommandCenterReplayResponseSchema,
   CommandCenterResponseSchema,
 } from '@pilot/shared/schemas';
@@ -42,6 +47,14 @@ const focusCapabilityKeys = [
 ] satisfies CapabilityKey[];
 
 const focusCapabilityKeySet: ReadonlySet<CapabilityKey> = new Set(focusCapabilityKeys);
+const permissionCapabilityKeys = [
+  'workspace_rbac',
+  'operator_scoping',
+  'helm_receipts',
+  'skill_registry_runtime',
+  'browser_execution',
+  'computer_use',
+] satisfies CapabilityKey[];
 
 export function commandCenterRoutes(deps: GatewayDeps) {
   const app = new Hono();
@@ -200,6 +213,200 @@ export function commandCenterRoutes(deps: GatewayDeps) {
     });
 
     return c.json(response);
+  });
+
+  app.get('/permission-graph', async (c) => {
+    const workspaceId = getWorkspaceId(c);
+    if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'view permission graph');
+    if (roleDenied) return roleDenied;
+
+    const capability = getCapabilityRecord('command_center');
+    if (!capability) return c.json({ error: 'capability registry incomplete' }, 500);
+
+    const memberRows = await deps.db
+      .select()
+      .from(workspaceMembers)
+      .where(eq(workspaceMembers.workspaceId, workspaceId))
+      .orderBy(asc(workspaceMembers.role), asc(workspaceMembers.id))
+      .limit(100);
+
+    const operatorRows = await deps.db
+      .select()
+      .from(operators)
+      .where(eq(operators.workspaceId, workspaceId))
+      .orderBy(asc(operators.createdAt), asc(operators.id))
+      .limit(100);
+
+    const [settingsRow] = await deps.db
+      .select()
+      .from(workspaceSettings)
+      .where(eq(workspaceSettings.workspaceId, workspaceId))
+      .limit(1);
+
+    const currentRole = getWorkspaceRole(c) ?? 'member';
+    const policyConfig = toRecord(settingsRow?.policyConfig);
+    const policyConfigKeys = Object.keys(policyConfig)
+      .filter((key) => !isSensitiveKey(key))
+      .sort();
+    const permissionCapabilities = permissionCapabilityKeys
+      .map((key) => getCapabilityRecord(key))
+      .filter((record): record is CapabilityRecord => Boolean(record));
+    const toolScopes = Array.from(
+      new Set(operatorRows.flatMap((operator) => toStringArray(operator.tools))),
+    )
+      .map((tool) => redactReplayText(tool))
+      .sort()
+      .slice(0, 50);
+
+    const nodes = [
+      {
+        id: `workspace:${workspaceId}`,
+        kind: 'workspace' as const,
+        label: 'Workspace',
+        state: 'scoped',
+        metadata: { workspaceId },
+      },
+      {
+        id: 'workspace-role:current',
+        kind: 'workspace_role' as const,
+        label: `Current role ${currentRole}`,
+        state: 'allowed',
+        metadata: { role: currentRole },
+      },
+      {
+        id: 'required-role:partner',
+        kind: 'required_role' as const,
+        label: 'Command center requires partner',
+        state: 'allowed',
+        metadata: { requiredRole: 'partner' },
+      },
+      {
+        id: 'policy-config',
+        kind: 'policy_config' as const,
+        label: `Workspace policy config (${policyConfigKeys.length} keys)`,
+        state: settingsRow ? 'configured' : 'blocked',
+        metadata: { policyConfigKeys },
+      },
+      ...memberRows.map((member) => ({
+        id: `member:${member.id}`,
+        kind: 'workspace_role' as const,
+        label: `Workspace member ${member.role}`,
+        state: 'configured',
+        metadata: { memberId: member.id, role: member.role },
+      })),
+      ...operatorRows.map((operator) => ({
+        id: `operator:${operator.id}`,
+        kind: 'operator' as const,
+        label: operator.name,
+        state: operator.isActive === 'true' ? 'active' : 'inactive',
+        metadata: {
+          operatorId: operator.id,
+          role: operator.role,
+          toolCount: toStringArray(operator.tools).length,
+          constraintCount: toStringArray(operator.constraints).length,
+        },
+      })),
+      ...toolScopes.map((tool) => ({
+        id: `tool-scope:${tool}`,
+        kind: 'tool_scope' as const,
+        label: tool,
+        state: 'configured',
+        metadata: { tool },
+      })),
+      ...permissionCapabilities.map((record) => ({
+        id: `capability:${record.key}`,
+        kind: 'capability' as const,
+        label: record.name,
+        state: record.state,
+        metadata: {
+          capabilityKey: record.key,
+          evalRequirement: record.evalRequirement,
+          productionReady: record.state === 'production_ready',
+        },
+      })),
+    ];
+
+    const edges = [
+      {
+        id: 'workspace-current-role',
+        from: `workspace:${workspaceId}`,
+        to: 'workspace-role:current',
+        relation: 'authenticated_role',
+        status: 'allowed' as const,
+      },
+      {
+        id: 'current-role-command-center',
+        from: 'workspace-role:current',
+        to: 'required-role:partner',
+        relation: 'meets_required_role',
+        status: 'allowed' as const,
+      },
+      {
+        id: 'policy-config-workspace',
+        from: 'policy-config',
+        to: `workspace:${workspaceId}`,
+        relation: 'governs_workspace',
+        status: settingsRow ? ('configured' as const) : ('blocked' as const),
+        ...(settingsRow ? {} : { reason: 'No workspace_settings row returned' }),
+      },
+      ...memberRows.map((member) => ({
+        id: `workspace-member:${member.id}`,
+        from: `workspace:${workspaceId}`,
+        to: `member:${member.id}`,
+        relation: 'has_member_role',
+        status: 'configured' as const,
+      })),
+      ...operatorRows.map((operator) => ({
+        id: `workspace-operator:${operator.id}`,
+        from: `workspace:${workspaceId}`,
+        to: `operator:${operator.id}`,
+        relation: 'owns_operator',
+        status: 'configured' as const,
+      })),
+      ...operatorRows.flatMap((operator) =>
+        toStringArray(operator.tools)
+          .slice(0, 50)
+          .map((tool) => {
+            const redactedTool = redactReplayText(tool);
+            return {
+              id: `operator-tool:${operator.id}:${redactedTool}`,
+              from: `operator:${operator.id}`,
+              to: `tool-scope:${redactedTool}`,
+              relation: 'declares_tool_scope',
+              status: 'configured' as const,
+            };
+          }),
+      ),
+      ...permissionCapabilities.map((record) => ({
+        id: `capability-policy:${record.key}`,
+        from: 'policy-config',
+        to: `capability:${record.key}`,
+        relation: 'constrains_capability',
+        status:
+          record.state === 'production_ready' ? ('allowed' as const) : ('requires_eval' as const),
+        reason:
+          record.state === 'production_ready'
+            ? undefined
+            : `${record.name} remains ${record.state}; ${record.evalRequirement} has not promoted it.`,
+      })),
+    ];
+
+    const response = CommandCenterPermissionGraphResponseSchema.parse({
+      workspaceId,
+      generatedAt: new Date().toISOString(),
+      productionReady: false,
+      capability,
+      redactionContract:
+        'member user ids and raw policy values are withheld; tool names are redacted',
+      graph: { nodes, edges },
+      blockers: [
+        'Permission graph is read-only command-center introspection, not a production-ready delegation control plane.',
+        ...capability.blockers,
+      ],
+    });
+
+    return c.json(response, 200);
   });
 
   app.get('/computer-actions/replay', async (c) => {
@@ -379,7 +586,9 @@ export function commandCenterRoutes(deps: GatewayDeps) {
     const evidenceItemRows = await deps.db
       .select()
       .from(evidenceItems)
-      .where(and(eq(evidenceItems.workspaceId, workspaceId), eq(evidenceItems.replayRef, replayRef)))
+      .where(
+        and(eq(evidenceItems.workspaceId, workspaceId), eq(evidenceItems.replayRef, replayRef)),
+      )
       .orderBy(desc(evidenceItems.observedAt), desc(evidenceItems.id))
       .limit(50);
 
@@ -479,13 +688,17 @@ export function commandCenterRoutes(deps: GatewayDeps) {
   return app;
 }
 
-function parseBrowserReplayRef(replayRef: string): { sessionId: string; replayIndex: number } | null {
+function parseBrowserReplayRef(
+  replayRef: string,
+): { sessionId: string; replayIndex: number } | null {
   const match = /^browser:([^:]+):(\d+)$/.exec(replayRef);
   if (!match) return null;
   return { sessionId: match[1]!, replayIndex: Number(match[2]) };
 }
 
-function parseComputerReplayRef(replayRef: string): { actionId: string; replayIndex: number } | null {
+function parseComputerReplayRef(
+  replayRef: string,
+): { actionId: string; replayIndex: number } | null {
   const match = /^computer:([^:]+):(\d+)$/.exec(replayRef);
   if (!match) return null;
   return { actionId: match[1]!, replayIndex: Number(match[2]) };
@@ -504,7 +717,8 @@ function stringField(row: unknown, field: string): string | undefined {
 function sanitizeGenericReplayRow(row: unknown): Record<string, unknown> {
   const record = row && typeof row === 'object' ? { ...(row as Record<string, unknown>) } : {};
   if ('metadata' in record) record['metadata'] = redactReplayMetadata(record['metadata']);
-  if ('extractedData' in record) record['extractedData'] = redactReplayMetadata(record['extractedData']);
+  if ('extractedData' in record)
+    record['extractedData'] = redactReplayMetadata(record['extractedData']);
   return record;
 }
 
@@ -512,7 +726,9 @@ function sanitizeComputerReplayRow(row: unknown): Record<string, unknown> {
   const record = sanitizeGenericReplayRow(row);
   record['stdout'] = previewText(typeof record['stdout'] === 'string' ? record['stdout'] : null);
   record['stderr'] = previewText(typeof record['stderr'] === 'string' ? record['stderr'] : null);
-  record['fileDiff'] = previewText(typeof record['fileDiff'] === 'string' ? record['fileDiff'] : null);
+  record['fileDiff'] = previewText(
+    typeof record['fileDiff'] === 'string' ? record['fileDiff'] : null,
+  );
   return record;
 }
 
@@ -520,6 +736,22 @@ function previewText(value: string | null | undefined): string | null {
   if (!value) return null;
   const preview = value.length > 4_000 ? `${value.slice(0, 4_000)}...[truncated]` : value;
   return redactReplayText(preview);
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === 'string' && item.length > 0)
+    .filter((item) => !isSensitiveKey(item));
+}
+
+function isSensitiveKey(value: string): boolean {
+  return /password|passwd|pwd|token|secret|api[_-]?key|authorization|cookie|session/iu.test(value);
 }
 
 function redactReplayMetadata(value: unknown): unknown {
@@ -530,7 +762,10 @@ function redactReplayMetadata(value: unknown): unknown {
       if (/password|passwd|pwd|token|secret|api[_-]?key|authorization|cookie|session/iu.test(key)) {
         return [key, '[REDACTED]'];
       }
-      return [key, typeof child === 'string' ? redactReplayText(child) : redactReplayMetadata(child)];
+      return [
+        key,
+        typeof child === 'string' ? redactReplayText(child) : redactReplayMetadata(child),
+      ];
     }),
   );
 }
