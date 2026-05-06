@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { applications, auditLog, evidenceItems } from '@pilot/db/schema';
+import { applicationDrafts, applications, auditLog, evidenceItems } from '@pilot/db/schema';
 import { applicationRoutes } from '../../routes/application.js';
 import { testApp, expectJson, createMockDeps } from '../helpers.js';
 
@@ -71,6 +71,100 @@ function createApplicationCreateDb(options: { failEvidence?: boolean } = {}) {
       const stagedInserts: Array<{ table: unknown; value: unknown }> = [];
       const stagedUpdates: Array<{ table: unknown; value: unknown }> = [];
       const tx = createDbFacade(stagedInserts, stagedUpdates);
+      const result = await callback(tx);
+      inserts.push(...stagedInserts);
+      updates.push(...stagedUpdates);
+      return result;
+    }),
+    _setResult: vi.fn(),
+    _reset: vi.fn(),
+  };
+
+  return { db, inserts, updates };
+}
+
+function createApplicationDraftDb(
+  options: {
+    failEvidence?: boolean;
+    existingDraft?: Record<string, unknown> | null;
+  } = {},
+) {
+  const existingDraft = options.existingDraft === undefined ? null : options.existingDraft;
+  const inserts: Array<{ table: unknown; value: unknown }> = [];
+  const updates: Array<{ table: unknown; value: unknown }> = [];
+
+  const createDbFacade = (
+    insertSink: Array<{ table: unknown; value: unknown }>,
+    updateSink: Array<{ table: unknown; value: unknown }>,
+    txMode = false,
+  ) => ({
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn(async () =>
+            txMode ? (existingDraft ? [existingDraft] : []) : [{ id: 'app-1' }],
+          ),
+        })),
+      })),
+    })),
+    insert: vi.fn((table: unknown) => ({
+      values: vi.fn((value: Record<string, unknown>) => {
+        insertSink.push({ table, value });
+        return {
+          returning: vi.fn(async () => {
+            if (table === applicationDrafts) {
+              return [
+                {
+                  id: 'draft-1',
+                  applicationId: value['applicationId'],
+                  section: value['section'],
+                  content: value['content'],
+                  version: '1',
+                },
+              ];
+            }
+            if (table === evidenceItems) {
+              if (options.failEvidence) throw new Error('evidence unavailable');
+              return [{ id: 'evidence-application-draft-1' }];
+            }
+            return [];
+          }),
+          then: (resolve: (value: unknown[]) => void, reject?: (reason: unknown) => void) =>
+            Promise.resolve([]).then(resolve, reject),
+          catch: (reject: (reason: unknown) => void) => Promise.resolve([]).catch(reject),
+        };
+      }),
+    })),
+    update: vi.fn((table: unknown) => ({
+      set: vi.fn((value: Record<string, unknown>) => {
+        updateSink.push({ table, value });
+        return {
+          where: vi.fn(() => ({
+            returning: vi.fn(async () => {
+              if (table === applicationDrafts && existingDraft) {
+                return [{ ...existingDraft, ...value }];
+              }
+              return [];
+            }),
+            then: (resolve: (value: unknown[]) => void, reject?: (reason: unknown) => void) =>
+              Promise.resolve([]).then(resolve, reject),
+            catch: (reject: (reason: unknown) => void) => Promise.resolve([]).catch(reject),
+          })),
+        };
+      }),
+    })),
+    delete: vi.fn(() => ({
+      where: vi.fn(async () => []),
+    })),
+    execute: vi.fn(async () => [{ '?column?': 1 }]),
+  });
+
+  const db = {
+    ...createDbFacade(inserts, updates),
+    transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
+      const stagedInserts: Array<{ table: unknown; value: unknown }> = [];
+      const stagedUpdates: Array<{ table: unknown; value: unknown }> = [];
+      const tx = createDbFacade(stagedInserts, stagedUpdates, true);
       const result = await callback(tx);
       inserts.push(...stagedInserts);
       updates.push(...stagedUpdates);
@@ -301,6 +395,22 @@ describe('applicationRoutes', () => {
       expect(body.error).toContain('section and content');
     });
 
+    it('denies members from writing application drafts', async () => {
+      const { fetch, deps } = testApp(applicationRoutes);
+      const res = await fetch(
+        'PUT',
+        '/app-1/drafts',
+        { section: 'overview', content: 'Our company...' },
+        { ...wsHeader, 'X-Workspace-Role': 'member' },
+      );
+      const body = await expectJson<{ error: string; requiredRole: string }>(res, 403);
+
+      expect(body.error).toBe('insufficient workspace role');
+      expect(body.requiredRole).toBe('partner');
+      expect(deps.db.insert).not.toHaveBeenCalled();
+      expect(deps.db.update).not.toHaveBeenCalled();
+    });
+
     it('creates a new draft when none exists (201)', async () => {
       const deps = createMockDeps();
       // First query (check existing) resolves to [] (no existing draft)
@@ -388,6 +498,130 @@ describe('applicationRoutes', () => {
       );
       const body = await expectJson<{ content: string }>(res, 200);
       expect(body.content).toBe('New content');
+    });
+
+    it('writes redacted audit-linked evidence when creating a draft', async () => {
+      const { db, inserts, updates } = createApplicationDraftDb();
+      const deps = createMockDeps({ db: db as never });
+      const { fetch } = testApp(applicationRoutes, deps);
+      const res = await fetch(
+        'PUT',
+        '/app-1/drafts',
+        { section: 'overview', content: 'Confidential company draft' },
+        wsHeader,
+      );
+      const body = await expectJson<{ id: string; evidenceItemId: string }>(res, 201);
+
+      expect(body).toMatchObject({
+        id: 'draft-1',
+        evidenceItemId: 'evidence-application-draft-1',
+      });
+      expect(inserts.map((insert) => insert.table)).toEqual([
+        applicationDrafts,
+        auditLog,
+        evidenceItems,
+      ]);
+      const auditInsert = inserts.find((insert) => insert.table === auditLog)?.value as {
+        id: string;
+      };
+      expect(auditInsert).toMatchObject({
+        workspaceId: 'ws-1',
+        action: 'APPLICATION_DRAFT_CREATED',
+        actor: 'user:user-1',
+        target: 'draft-1',
+        verdict: 'allow',
+        metadata: {
+          evidenceType: 'application_draft_written',
+          replayRef: 'application:ws-1:app-1:draft:overview:created:draft-1',
+          applicationId: 'app-1',
+          draftId: 'draft-1',
+          section: 'overview',
+          operation: 'created',
+          version: '1',
+          contentLength: 26,
+          evidenceContract: 'application_draft_evidence_required',
+        },
+      });
+      const evidenceInsert = inserts.find((insert) => insert.table === evidenceItems)?.value as {
+        metadata: Record<string, unknown>;
+      };
+      expect(evidenceInsert).toMatchObject({
+        workspaceId: 'ws-1',
+        auditEventId: auditInsert.id,
+        evidenceType: 'application_draft_written',
+        sourceType: 'gateway_application_route',
+        redactionState: 'redacted',
+        sensitivity: 'confidential',
+      });
+      expect(evidenceInsert.metadata).not.toHaveProperty('content');
+      expect(evidenceInsert.metadata).toMatchObject({
+        applicationId: 'app-1',
+        draftId: 'draft-1',
+        contentLength: 26,
+      });
+      expect(updates.find((update) => update.table === auditLog)?.value).toMatchObject({
+        metadata: {
+          evidenceItemId: 'evidence-application-draft-1',
+        },
+      });
+    });
+
+    it('writes audit-linked evidence when updating an existing draft', async () => {
+      const { db, inserts, updates } = createApplicationDraftDb({
+        existingDraft: {
+          id: 'draft-1',
+          applicationId: 'app-1',
+          section: 'overview',
+          content: 'Old content',
+          version: '2',
+        },
+      });
+      const deps = createMockDeps({ db: db as never });
+      const { fetch } = testApp(applicationRoutes, deps);
+      const res = await fetch(
+        'PUT',
+        '/app-1/drafts',
+        { section: 'overview', content: 'New content' },
+        wsHeader,
+      );
+      const body = await expectJson<{ id: string; version: string; evidenceItemId: string }>(
+        res,
+        200,
+      );
+
+      expect(body).toMatchObject({
+        id: 'draft-1',
+        version: '3',
+        evidenceItemId: 'evidence-application-draft-1',
+      });
+      expect(updates.map((update) => update.table)).toEqual([applicationDrafts, auditLog]);
+      expect(inserts.map((insert) => insert.table)).toEqual([auditLog, evidenceItems]);
+      expect(inserts.find((insert) => insert.table === auditLog)?.value).toMatchObject({
+        action: 'APPLICATION_DRAFT_UPDATED',
+        target: 'draft-1',
+        metadata: {
+          operation: 'updated',
+          version: '3',
+          contentLength: 11,
+        },
+      });
+    });
+
+    it('fails closed without committing draft rows when evidence persistence fails', async () => {
+      const { db, inserts, updates } = createApplicationDraftDb({ failEvidence: true });
+      const deps = createMockDeps({ db: db as never });
+      const { fetch } = testApp(applicationRoutes, deps);
+      const res = await fetch(
+        'PUT',
+        '/app-1/drafts',
+        { section: 'overview', content: 'Confidential company draft' },
+        wsHeader,
+      );
+      const body = await expectJson<{ error: string }>(res, 500);
+
+      expect(body.error).toContain('Failed to persist application draft evidence');
+      expect(inserts).toEqual([]);
+      expect(updates).toEqual([]);
     });
   });
 

@@ -152,6 +152,8 @@ export function applicationRoutes(deps: GatewayDeps) {
   app.put('/:id/drafts', async (c) => {
     const workspaceId = getWorkspaceId(c);
     if (!workspaceId) return c.json({ error: 'workspaceId required' }, 400);
+    const roleDenied = requireWorkspaceRole(c, 'partner', 'write application drafts');
+    if (roleDenied) return roleDenied;
 
     const { id } = c.req.param();
     const body = await c.req.json();
@@ -167,27 +169,96 @@ export function applicationRoutes(deps: GatewayDeps) {
       .limit(1);
     if (!application) return c.json({ error: 'Application not found' }, 404);
 
-    const [existing] = await deps.db
-      .select()
-      .from(applicationDrafts)
-      .where(and(eq(applicationDrafts.applicationId, id), eq(applicationDrafts.section, section)))
-      .limit(1);
+    const result = await deps.db
+      .transaction(async (tx) => {
+        const [existing] = await tx
+          .select()
+          .from(applicationDrafts)
+          .where(
+            and(eq(applicationDrafts.applicationId, id), eq(applicationDrafts.section, section)),
+          )
+          .limit(1);
 
-    if (existing) {
-      const nextVersion = String(Number(existing.version ?? '1') + 1);
-      const [updated] = await deps.db
-        .update(applicationDrafts)
-        .set({ content, version: nextVersion, updatedAt: new Date() })
-        .where(eq(applicationDrafts.id, existing.id))
-        .returning();
-      return c.json(updated);
-    }
+        const operation = existing ? 'updated' : 'created';
+        const [draft] = existing
+          ? await tx
+              .update(applicationDrafts)
+              .set({
+                content,
+                version: String(Number(existing.version ?? '1') + 1),
+                updatedAt: new Date(),
+              })
+              .where(eq(applicationDrafts.id, existing.id))
+              .returning()
+          : await tx
+              .insert(applicationDrafts)
+              .values({ applicationId: id, section, content })
+              .returning();
 
-    const [created] = await deps.db
-      .insert(applicationDrafts)
-      .values({ applicationId: id, section, content })
-      .returning();
-    return c.json(created, 201);
+        if (!draft) throw new Error('failed to write application draft');
+
+        const auditEventId = randomUUID();
+        const replayRef = `application:${workspaceId}:${id}:draft:${section}:${operation}:${draft.id}`;
+        const auditMetadata = {
+          applicationId: id,
+          draftId: draft.id,
+          section,
+          operation,
+          version: draft.version,
+          contentLength: content.length,
+          evidenceContract: 'application_draft_evidence_required',
+        };
+
+        await tx.insert(auditLog).values({
+          id: auditEventId,
+          workspaceId,
+          action:
+            operation === 'created' ? 'APPLICATION_DRAFT_CREATED' : 'APPLICATION_DRAFT_UPDATED',
+          actor: `user:${c.get('userId') ?? 'unknown'}`,
+          target: draft.id,
+          verdict: 'allow',
+          metadata: {
+            evidenceType: 'application_draft_written',
+            replayRef,
+            ...auditMetadata,
+          },
+        });
+
+        const evidenceItemId = await appendEvidenceItem(tx, {
+          workspaceId,
+          auditEventId,
+          evidenceType: 'application_draft_written',
+          sourceType: 'gateway_application_route',
+          title: `Application draft ${operation}: ${section}`,
+          summary:
+            'Application draft content was written; content is not stored in evidence metadata.',
+          redactionState: 'redacted',
+          sensitivity: 'confidential',
+          replayRef,
+          metadata: auditMetadata,
+        });
+
+        await tx
+          .update(auditLog)
+          .set({
+            metadata: {
+              evidenceType: 'application_draft_written',
+              replayRef,
+              evidenceItemId,
+              ...auditMetadata,
+            },
+          })
+          .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.id, auditEventId)));
+
+        return { draft, evidenceItemId, operation };
+      })
+      .catch(() => null);
+
+    if (!result) return c.json({ error: 'Failed to persist application draft evidence' }, 500);
+    return c.json(
+      { ...result.draft, evidenceItemId: result.evidenceItemId },
+      result.operation === 'created' ? 201 : 200,
+    );
   });
 
   app.put('/:id/status', async (c) => {
