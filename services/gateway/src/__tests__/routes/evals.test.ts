@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  auditLog,
   capabilityPromotions,
   evidenceItems,
   evalEvidenceLinks,
@@ -22,6 +23,7 @@ function createEvalDb(
   options: { failEvidenceInsertAt?: number } = {},
 ) {
   const inserts: Array<{ table: unknown; value: unknown }> = [];
+  const updates: Array<{ table: unknown; value: unknown }> = [];
   let evidenceItemCount = 0;
 
   function insertInto(targetInserts: Array<{ table: unknown; value: unknown }>) {
@@ -93,7 +95,7 @@ function createEvalDb(
       }),
     })),
     insert: insertInto(inserts),
-    update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(async () => []) })) })),
+    update: updateInto(updates),
     delete: vi.fn(() => ({ where: vi.fn(async () => []) })),
     execute: vi.fn(async () => [{ '?column?': 1 }]),
     _setResult: vi.fn(),
@@ -101,13 +103,24 @@ function createEvalDb(
   };
   db.transaction = vi.fn(async (callback: (tx: typeof db) => Promise<unknown>) => {
     const stagedInserts: Array<{ table: unknown; value: unknown }> = [];
-    const tx = { ...db, insert: insertInto(stagedInserts) };
+    const stagedUpdates: Array<{ table: unknown; value: unknown }> = [];
+    const tx = { ...db, insert: insertInto(stagedInserts), update: updateInto(stagedUpdates) };
     const result = await callback(tx);
     inserts.push(...stagedInserts);
+    updates.push(...stagedUpdates);
     return result;
   });
 
-  return { db, inserts };
+  return { db, inserts, updates };
+
+  function updateInto(targetUpdates: Array<{ table: unknown; value: unknown }>) {
+    return vi.fn((table: unknown) => ({
+      set: vi.fn((value: unknown) => {
+        targetUpdates.push({ table, value });
+        return { where: vi.fn(async () => []) };
+      }),
+    }));
+  }
 }
 
 describe('evalRoutes', () => {
@@ -179,7 +192,7 @@ describe('evalRoutes', () => {
   });
 
   it('records a failed eval and creates a blocker task', async () => {
-    const { db, inserts } = createEvalDb();
+    const { db, inserts, updates } = createEvalDb();
     const { fetch } = testApp(evalRoutes, createMockDeps({ db: db as never }));
 
     const res = await fetch(
@@ -216,11 +229,30 @@ describe('evalRoutes', () => {
     expect(inserts.find((insert) => insert.table === evalResults)?.value).toMatchObject({
       passed: false,
     });
+    const auditInsert = inserts.find((insert) => insert.table === auditLog)?.value as {
+      id: string;
+    };
+    expect(auditInsert).toMatchObject({
+      workspaceId,
+      action: 'PILOT_PRODUCTION_EVAL_RUN',
+      target: 'helm_governance',
+      verdict: 'failed',
+      metadata: expect.objectContaining({
+        evalRunId: 'eval-run-1',
+        evalId: 'helm_governance',
+        status: 'failed',
+        capabilityKey: 'helm_receipts',
+      }),
+    });
+    expect(inserts.findIndex((insert) => insert.table === auditLog)).toBeLessThan(
+      inserts.findIndex((insert) => insert.table === evidenceItems),
+    );
     expect(
       inserts.filter((insert) => insert.table === evidenceItems).map((insert) => insert.value),
     ).toEqual([
       expect.objectContaining({
         workspaceId,
+        auditEventId: auditInsert.id,
         evidenceType: 'eval_run',
         sourceType: 'eval_harness',
         replayRef: 'eval:eval-run-1',
@@ -232,6 +264,7 @@ describe('evalRoutes', () => {
       }),
       expect.objectContaining({
         workspaceId,
+        auditEventId: auditInsert.id,
         evidenceType: 'eval_result',
         sourceType: 'eval_harness',
         replayRef: 'eval-result:eval-result-1',
@@ -242,6 +275,13 @@ describe('evalRoutes', () => {
         }),
       }),
     ]);
+    expect(updates.find((update) => update.table === auditLog)?.value).toMatchObject({
+      metadata: {
+        evidenceItemIds: ['evidence-item-1', 'evidence-item-2'],
+        resultId: 'eval-result-1',
+        blockerTaskId: 'task-blocker-1',
+      },
+    });
     expect(inserts.find((insert) => insert.table === tasks)?.value).toMatchObject({
       mode: 'eval',
       status: 'pending',

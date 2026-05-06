@@ -1,8 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { and, desc, eq, inArray, isNull, or, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { appendEvidenceItem } from '@pilot/db';
 import {
+  auditLog,
   capabilityPromotions,
   evalEvidenceLinks,
   evalResults,
@@ -201,9 +203,36 @@ async function persistEvalRun(
       : [input.failureReason ?? input.summary ?? `${input.evalId} did not pass`];
 
     const evidenceItemIds: string[] = [];
+    const auditEventId = randomUUID();
+    const auditMetadata = {
+      evalRunId: created.id,
+      evalId: input.evalId,
+      status: input.status,
+      capabilityKey: created.capabilityKey ?? input.capabilityKey ?? null,
+      capabilityKeys: scenario?.capabilityKeys ?? [],
+      evidenceRefs: input.evidenceRefs,
+      auditReceiptRefs: input.auditReceiptRefs,
+      runRef: input.runRef ?? `eval:${created.id}`,
+      executionMode: extraResponse['executionMode'] ?? null,
+      promotionRule:
+        'production_ready promotion eligibility only; capability registry remains immutable here',
+    };
+
+    await db.insert(auditLog).values({
+      id: auditEventId,
+      workspaceId,
+      action: 'PILOT_PRODUCTION_EVAL_RUN',
+      actor: `workspace:${workspaceId}`,
+      target: input.evalId,
+      verdict: input.status,
+      reason: input.failureReason ?? input.summary ?? null,
+      metadata: auditMetadata,
+    });
+
     evidenceItemIds.push(
       await appendEvidenceItem(db, {
         workspaceId,
+        auditEventId,
         evidenceType: 'eval_run',
         sourceType: 'eval_harness',
         title: `Eval ${input.evalId}: ${input.status}`,
@@ -229,6 +258,7 @@ async function persistEvalRun(
       evidenceItemIds.push(
         await appendEvidenceItem(db, {
           workspaceId,
+          auditEventId,
           evidenceType: 'eval_evidence_ref',
           sourceType: 'eval_harness',
           title: `Eval evidence: ${input.evalId}`,
@@ -302,6 +332,7 @@ async function persistEvalRun(
         evidenceItemIds.push(
           await appendEvidenceItem(db, {
             workspaceId,
+            auditEventId,
             evidenceType: 'eval_result',
             sourceType: 'eval_harness',
             title: `Eval result ${input.evalId}: ${passed ? 'passed' : 'failed'}`,
@@ -365,6 +396,28 @@ async function persistEvalRun(
         .returning();
       if (promotion) promotions.push(promotion);
     }
+
+    await db
+      .update(auditLog)
+      .set({
+        metadata: {
+          ...auditMetadata,
+          evidenceItemIds,
+          resultId: isRecord(result) && typeof result['id'] === 'string' ? result['id'] : null,
+          blockerTaskId:
+            isRecord(blockerTask) && typeof blockerTask['id'] === 'string'
+              ? blockerTask['id']
+              : null,
+          promotionIds: promotions
+            .map((promotion) =>
+              isRecord(promotion) && typeof promotion['id'] === 'string'
+                ? promotion['id']
+                : null,
+            )
+            .filter((id): id is string => typeof id === 'string'),
+        },
+      })
+      .where(and(eq(auditLog.workspaceId, workspaceId), eq(auditLog.id, auditEventId)));
 
     return {
       status: 201 as const,
