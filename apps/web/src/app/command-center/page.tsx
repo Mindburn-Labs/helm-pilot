@@ -125,6 +125,7 @@ interface CommandCenterMissionGraphResponse {
     recovery: {
       checkpoints: DurableRow[];
       recoveryPlans: DurableRow[];
+      recoveryApplies: DurableRow[];
     };
     orderedBy: string[];
   };
@@ -393,6 +394,9 @@ export default function CommandCenterPage() {
     const recoveryPlans = Array.isArray(missionGraph.graph.recovery?.recoveryPlans)
       ? missionGraph.graph.recovery.recoveryPlans
       : [];
+    const recoveryApplies = Array.isArray(missionGraph.graph.recovery?.recoveryApplies)
+      ? missionGraph.graph.recovery.recoveryApplies
+      : [];
     return [
       ...missions.slice(0, 5).map((row) => ({
         id: String(row.id ?? row.missionKey ?? 'mission'),
@@ -428,6 +432,12 @@ export default function CommandCenterPage() {
         title: display(row.title, 'Recovery plan'),
         meta: `${display(row.evidenceType, 'recovery')} / ${display(row.redactionState, 'redacted')}`,
         detail: display(row.replayRef, 'No recovery replay ref recorded'),
+      })),
+      ...recoveryApplies.slice(0, 4).map((row) => ({
+        id: String(row.id ?? row.replayRef ?? 'recovery-apply'),
+        title: display(row.title, 'Recovery apply'),
+        meta: `${display(row.evidenceType, 'recovery apply')} / ${display(row.redactionState, 'redacted')}`,
+        detail: display(row.replayRef, 'No recovery apply replay ref recorded'),
       })),
       ...missionGraph.blockers.slice(0, 2).map((blocker, index) => ({
         id: `mission-blocker-${index}`,

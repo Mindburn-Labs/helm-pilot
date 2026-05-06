@@ -495,6 +495,7 @@ export function commandCenterRoutes(deps: GatewayDeps) {
                 or(
                   eq(evidenceItems.evidenceType, 'startup_lifecycle_mission_checkpoint'),
                   eq(evidenceItems.evidenceType, 'startup_lifecycle_recovery_plan'),
+                  eq(evidenceItems.evidenceType, 'startup_lifecycle_recovery_applied'),
                 ),
               ),
             )
@@ -519,6 +520,9 @@ export function commandCenterRoutes(deps: GatewayDeps) {
           recoveryPlans: recoveryEvidenceRows.filter(
             (row) => row.evidenceType === 'startup_lifecycle_recovery_plan',
           ),
+          recoveryApplies: recoveryEvidenceRows.filter(
+            (row) => row.evidenceType === 'startup_lifecycle_recovery_applied',
+          ),
         },
         orderedBy: [
           'mission.updatedAt',
@@ -529,7 +533,7 @@ export function commandCenterRoutes(deps: GatewayDeps) {
         ],
       },
       blockers: [
-        'Mission graph and recovery evidence are read-only command-center introspection; they do not dispatch, recover, roll back, or resume mission DAGs.',
+        'Mission graph and recovery evidence are read-only command-center introspection; they do not dispatch, apply recovery, roll back, or resume mission DAGs.',
         ...capability.blockers,
       ],
     });

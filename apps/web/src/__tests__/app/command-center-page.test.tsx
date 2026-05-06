@@ -339,6 +339,15 @@ describe('CommandCenterPage', () => {
                   redactionState: 'redacted',
                 },
               ],
+              recoveryApplies: [
+                {
+                  id: 'recovery-apply-1',
+                  evidenceType: 'startup_lifecycle_recovery_applied',
+                  title: 'Startup lifecycle recovery applied: PMF Discovery',
+                  replayRef: 'mission:mission-1:recovery-apply:fed789',
+                  redactionState: 'redacted',
+                },
+              ],
             },
             orderedBy: ['mission.updatedAt', 'node.sortOrder'],
           },
@@ -486,6 +495,7 @@ describe('CommandCenterPage', () => {
     expect(screen.getByText('research -> score')).toBeTruthy();
     expect(screen.getByText('Startup lifecycle mission checkpoint: PMF Discovery')).toBeTruthy();
     expect(screen.getByText('Startup lifecycle recovery plan: PMF Discovery')).toBeTruthy();
+    expect(screen.getByText('Startup lifecycle recovery applied: PMF Discovery')).toBeTruthy();
     await waitFor(() =>
       expect(screen.getAllByText('HELM Governance Eval').length).toBeGreaterThan(0),
     );

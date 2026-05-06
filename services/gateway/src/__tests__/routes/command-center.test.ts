@@ -253,6 +253,17 @@ describe('commandCenterRoutes', () => {
           redactionState: 'redacted',
           observedAt: new Date('2026-05-05T08:03:00Z'),
         },
+        {
+          id: 'evidence-recovery-apply-1',
+          workspaceId,
+          missionId,
+          evidenceType: 'startup_lifecycle_recovery_applied',
+          sourceType: 'gateway_startup_lifecycle',
+          title: 'Startup lifecycle recovery applied: PMF Discovery',
+          replayRef: `mission:${missionId}:recovery-apply:fed789`,
+          redactionState: 'redacted',
+          observedAt: new Date('2026-05-05T08:04:00Z'),
+        },
       ],
     ]);
 
@@ -268,6 +279,7 @@ describe('commandCenterRoutes', () => {
         recovery: {
           checkpoints: Array<{ id: string; replayRef: string }>;
           recoveryPlans: Array<{ id: string; replayRef: string }>;
+          recoveryApplies: Array<{ id: string; replayRef: string }>;
         };
         orderedBy: string[];
       };
@@ -295,9 +307,15 @@ describe('commandCenterRoutes', () => {
       id: 'evidence-recovery-1',
       replayRef: `mission:${missionId}:recovery-plan:def456`,
     });
+    expect(body.graph.recovery.recoveryApplies[0]).toMatchObject({
+      id: 'evidence-recovery-apply-1',
+      replayRef: `mission:${missionId}:recovery-apply:fed789`,
+    });
     expect(body.graph.orderedBy).toContain('node.sortOrder');
     expect(body.graph.orderedBy).toContain('recoveryEvidence.observedAt');
-    expect(body.blockers.join(' ')).toContain('do not dispatch, recover, roll back, or resume');
+    expect(body.blockers.join(' ')).toContain(
+      'do not dispatch, apply recovery, roll back, or resume',
+    );
   });
 
   it('returns read-only eval status and promotion eligibility without registry mutation', async () => {
