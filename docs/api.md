@@ -512,7 +512,7 @@ Inspect a persisted lifecycle mission, identify dependency-ready pending nodes, 
 
 ### POST /api/startup-lifecycle/missions/:missionId/checkpoint
 
-Persist a redacted snapshot of the current mission, node, edge, and task-link state as `startup_lifecycle_mission_checkpoint` evidence. Requires at least the workspace `partner` role. The response is `checkpointed_not_recovered`; this route records replay metadata and the latest checkpoint pointer on the mission, but it does not recover, roll back, continue execution, or promote mission runtime to `production_ready`.
+Persist a redacted snapshot of the current mission, node, edge, and task-link state as `startup_lifecycle_mission_checkpoint` evidence. Requires at least the workspace `partner` role. The response is `checkpointed_not_recovered`; this route records the replayable checkpoint snapshot and latest checkpoint pointer on the mission, but it does not recover, roll back, continue execution, or promote mission runtime to `production_ready`.
 
 ### POST /api/startup-lifecycle/missions/:missionId/nodes/:nodeId/execute
 
