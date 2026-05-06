@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { evidenceItems } from '@pilot/db/schema';
+import { auditLog, evidenceItems } from '@pilot/db/schema';
 import { connectorRoutes } from '../../routes/connector.js';
 import { testApp, expectJson, createMockDeps } from '../helpers.js';
 
@@ -78,6 +78,22 @@ function captureEvidenceItemInserts(deps: ReturnType<typeof createMockDeps>) {
   }) as typeof deps.db.insert;
 
   return insertedEvidenceItems;
+}
+
+function insertedValue(deps: ReturnType<typeof createMockDeps>, table: unknown) {
+  const insertMock = deps.db.insert as unknown as ReturnType<typeof vi.fn>;
+  const index = insertMock.mock.calls.findIndex((call) => call[0] === table);
+  if (index === -1) throw new Error('Expected insert was not recorded');
+  const builder = insertMock.mock.results[index]?.value as { values: ReturnType<typeof vi.fn> };
+  return builder.values.mock.calls[0]?.[0] as Record<string, unknown>;
+}
+
+function updatedValue(deps: ReturnType<typeof createMockDeps>, table: unknown) {
+  const updateMock = deps.db.update as unknown as ReturnType<typeof vi.fn>;
+  const index = updateMock.mock.calls.findIndex((call) => call[0] === table);
+  if (index === -1) throw new Error('Expected update was not recorded');
+  const builder = updateMock.mock.results[index]?.value as { set: ReturnType<typeof vi.fn> };
+  return builder.set.mock.calls[0]?.[0] as Record<string, unknown>;
 }
 
 describe('connectorRoutes', () => {
@@ -201,8 +217,14 @@ describe('connectorRoutes', () => {
       expect(body.status.connectionState).toBe('granted');
       expect(body.evidenceItemId).toBe('evidence-item-1');
       expect(evidence).toHaveLength(1);
+      const insertMock = deps.db.insert as unknown as ReturnType<typeof vi.fn>;
+      expect(insertMock.mock.calls.findIndex((call) => call[0] === auditLog)).toBeLessThan(
+        insertMock.mock.calls.findIndex((call) => call[0] === evidenceItems),
+      );
+      const auditValue = insertedValue(deps, auditLog);
       expect(evidence[0]).toMatchObject({
         workspaceId: 'ws-1',
+        auditEventId: auditValue['id'],
         evidenceType: 'connector_granted',
         sourceType: 'gateway_connector',
         redactionState: 'redacted',
@@ -213,6 +235,24 @@ describe('connectorRoutes', () => {
           grantId: 'grant-1',
           productionReady: false,
         }),
+      });
+      expect(auditValue).toMatchObject({
+        id: expect.any(String),
+        workspaceId: 'ws-1',
+        action: 'CONNECTOR_GRANTED',
+        actor: 'workspace:ws-1',
+        target: 'github',
+        verdict: 'recorded',
+      });
+      expect(auditValue['metadata']).toMatchObject({
+        evidenceType: 'connector_granted',
+        replayRef: 'connector:github:grant:grant-1',
+        connectorId: 'github',
+        grantId: 'grant-1',
+        productionReady: false,
+      });
+      expect(updatedValue(deps, auditLog)['metadata']).toMatchObject({
+        evidenceItemId: 'evidence-item-1',
       });
     });
   });

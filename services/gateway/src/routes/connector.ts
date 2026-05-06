@@ -1,6 +1,8 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Hono, type Context } from 'hono';
+import { and, eq } from 'drizzle-orm';
 import { appendEvidenceItem } from '@pilot/db';
+import { auditLog } from '@pilot/db/schema';
 import { type Connector, listReauthRequired } from '@pilot/connectors';
 import {
   SaveConnectorSessionInput,
@@ -643,8 +645,35 @@ async function appendConnectorEvidence(
     metadata: Record<string, unknown>;
   },
 ) {
-  return appendEvidenceItem(deps.db, {
+  const auditEventId = randomUUID();
+  const evidenceMetadata = {
+    connectorId: input.connector?.id ?? null,
+    connectorName: input.connector?.name ?? null,
+    authType: input.connector?.authType ?? null,
+    requiresApproval: input.connector?.requiresApproval ?? null,
+    productionReady: false,
+    ...input.metadata,
+  };
+  const auditMetadata = {
+    evidenceType: input.evidenceType,
+    replayRef: input.replayRef,
+    ...evidenceMetadata,
+  };
+
+  await deps.db.insert(auditLog).values({
+    id: auditEventId,
     workspaceId: input.workspaceId,
+    action: input.evidenceType.toUpperCase(),
+    actor: `workspace:${input.workspaceId}`,
+    target: input.connector?.id ?? input.connector?.name ?? input.evidenceType,
+    verdict: 'recorded',
+    reason: input.summary,
+    metadata: auditMetadata,
+  });
+
+  const evidenceItemId = await appendEvidenceItem(deps.db, {
+    workspaceId: input.workspaceId,
+    auditEventId,
     evidenceType: input.evidenceType,
     sourceType: 'gateway_connector',
     title: input.title,
@@ -653,15 +682,20 @@ async function appendConnectorEvidence(
     sensitivity: 'sensitive',
     contentHash: hashJson(input.hashContent),
     replayRef: input.replayRef,
-    metadata: {
-      connectorId: input.connector?.id ?? null,
-      connectorName: input.connector?.name ?? null,
-      authType: input.connector?.authType ?? null,
-      requiresApproval: input.connector?.requiresApproval ?? null,
-      productionReady: false,
-      ...input.metadata,
-    },
+    metadata: evidenceMetadata,
   });
+
+  await deps.db
+    .update(auditLog)
+    .set({
+      metadata: {
+        ...auditMetadata,
+        evidenceItemId,
+      },
+    })
+    .where(and(eq(auditLog.workspaceId, input.workspaceId), eq(auditLog.id, auditEventId)));
+
+  return evidenceItemId;
 }
 
 function sortedKeys(value: Record<string, unknown> | undefined) {
